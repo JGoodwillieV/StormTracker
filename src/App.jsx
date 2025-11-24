@@ -256,7 +256,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return rows;
     };
 
-    // --- 3. Helper: Process Results CSV and Upload to Supabase ---
+// --- 3. Helper: Process Results CSV and Upload to Supabase ---
     const handleResultsImport = async (text) => {
         const rows = parseCSVWithQuotes(text);
         const entriesToInsert = [];
@@ -264,7 +264,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         // Create a smart lookup map
         const swimmerMap = {}; 
         swimmers.forEach(s => {
-            // 1. Store "First Middle Last" (Standard)
             swimmerMap[s.name.toLowerCase().trim()] = s.id;
         });
 
@@ -273,12 +272,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
             const row = rows[i];
             if(row.length < 5) continue; 
 
-            // CSV Columns based on your file:
-            // Col 1: Name (Last, First M\nID)
-            // Col 2: Event Name
-            // Col 5: Prelim Time (if exists)
-            // Col 6: Finals Time (if exists)
-            // Col 10: Date
             const nameCell = row[1]; 
             const eventCell = row[2]; 
             const prelimTime = row[4];
@@ -289,66 +282,61 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
 
             // --- NAME MATCHING LOGIC ---
             let targetId = null;
-            
-            // 1. Clean Name Cell (Remove ID after newline if present)
-            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim(); // "Anderson, Marielle A"
-
-            // 2. Convert "Last, First" -> "First Last"
+            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim(); 
             let formattedName = rawName;
             if (rawName.includes(',')) {
                 const parts = rawName.split(',');
                 if (parts.length >= 2) {
-                    // "Anderson" , " Marielle A" -> "Marielle A Anderson"
                     formattedName = `${parts[1].trim()} ${parts[0].trim()}`;
                 }
             }
 
-            // 3. Try Match
             if (swimmerMap[formattedName.toLowerCase()]) {
                 targetId = swimmerMap[formattedName.toLowerCase()];
             }
 
-            // --- TIME VALIDATION LOGIC ---
-            // Check if we have a valid time in Prelims OR Finals
-            const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN");
-            
-            // Prefer Finals time, fallback to Prelim time
-            let bestTime = null;
-            let type = 'Finals';
-
-            if (isValidTime(finalsTime)) {
-                bestTime = finalsTime;
-            } else if (isValidTime(prelimTime)) {
-                bestTime = prelimTime;
-                type = 'Prelim';
-            }
-
-            if (targetId && bestTime) {
-                // Clean Event Name (remove newlines)
+            if (targetId) {
+                // Clean Event Name
                 let cleanEvent = eventCell.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-
-                // Clean Date (MM/DD/YY -> YYYY-MM-DD)
+                
+                // Clean Date
                 let cleanDate = new Date().toISOString().split('T')[0];
                 if (dateStr) {
-                    const dParts = dateStr.split('/'); // 11/15/25
+                    const dParts = dateStr.split('/'); 
                     if (dParts.length === 3) {
-                        // Assume 20xx for year
                         cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
                     }
                 }
 
-                entriesToInsert.push({
-                    swimmer_id: targetId,
-                    event: `${cleanEvent} (${type})`,
-                    time: bestTime,
-                    date: cleanDate,
-                    video_url: null
-                });
+                const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN");
+
+                // --- CRITICAL FIX: Insert TWO records if both times exist ---
+                
+                // 1. Handle Prelim
+                if (isValidTime(prelimTime)) {
+                    entriesToInsert.push({
+                        swimmer_id: targetId,
+                        event: `${cleanEvent} (Prelim)`,
+                        time: prelimTime,
+                        date: cleanDate,
+                        video_url: null
+                    });
+                }
+
+                // 2. Handle Finals
+                if (isValidTime(finalsTime)) {
+                    entriesToInsert.push({
+                        swimmer_id: targetId,
+                        event: `${cleanEvent} (Finals)`,
+                        time: finalsTime,
+                        date: cleanDate,
+                        video_url: null
+                    });
+                }
             }
         }
 
         if (entriesToInsert.length > 0) {
-            // Bulk Insert into Supabase
             const { error } = await supabase
                 .from('results')
                 .insert(entriesToInsert);
@@ -358,7 +346,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
             } else {
                 alert(`Success! Imported ${entriesToInsert.length} results.`);
                 setShowImport(false);
-                // Ideally trigger a refresh here or wait for the user to navigate
             }
         } else {
             alert("Found 0 matches. \n\nDebug:\nCSV Name: " + rows[1][1].split('\n')[0] + "\nExpected Roster Name: " + swimmers[0]?.name);
