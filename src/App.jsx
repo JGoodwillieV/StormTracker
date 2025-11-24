@@ -907,37 +907,3 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         </div>
     );
 };
-
-            {activeTab === 'analysis' && (
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
-                    <div className="p-6 border-b border-slate-100">
-                        <h3 className="font-bold text-slate-800 text-lg">AI Video Analyses</h3>
-                    </div>
-                    {analyses.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                            {analyses.map((analysis, idx) => (
-                                <div key={idx} className="group relative aspect-video bg-slate-900 rounded-xl overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-all">
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/20 transition-colors">
-                                        <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                            <Icon name="play" size={24} className="text-white fill-white ml-1" />
-                                        </div>
-                                    </div>
-                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-                                        <p className="text-white font-bold text-sm">Analysis #{analysis.id}</p>
-                                        <p className="text-slate-300 text-xs">{new Date(analysis.created_at).toLocaleDateString()}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                            <Icon name="video" size={32} className="opacity-50 mb-4" />
-                            <p>No AI analyses saved yet.</p>
-                            <button onClick={() => navigateTo('analysis')} className="mt-2 text-blue-600 hover:underline text-sm font-medium">Go to Analysis Tool</button>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
