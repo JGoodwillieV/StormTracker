@@ -195,10 +195,11 @@ const Dashboard = ({ navigateTo, swimmers }) => {
 
 const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
     const [showImport, setShowImport] = useState(false);
-    const [importType, setImportType] = useState('roster'); 
+    const [importType, setImportType] = useState('roster'); // 'roster' or 'results'
     const [isImporting, setIsImporting] = useState(false);
     const fileInputRef = useRef(null);
 
+    // --- 1. Helper: Calculate Age ---
     const calculateAge = (dobStr) => {
         if (!dobStr || dobStr.length !== 8) return null;
         const month = parseInt(dobStr.substring(0, 2)) - 1;
@@ -215,6 +216,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return age;
     };
 
+    // --- 2. Helper: CSV Parser (Handles quoted commas) ---
     const parseCSVWithQuotes = (text) => {
         const rows = [];
         let currentRow = [];
@@ -254,65 +256,116 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return rows;
     };
 
+    // --- 3. Helper: Process Results CSV and Upload to Supabase ---
     const handleResultsImport = async (text) => {
         const rows = parseCSVWithQuotes(text);
         const entriesToInsert = [];
+
+        // Create a smart lookup map
         const swimmerMap = {}; 
-        
         swimmers.forEach(s => {
-            const fullName = s.name.toLowerCase(); 
-            swimmerMap[fullName] = s.id;
-            const parts = fullName.split(' ');
-            if(parts.length > 1) {
-                swimmerMap[`${parts[1]}, ${parts[0]}`] = s.id;
-            }
+            // 1. Store "First Middle Last" (Standard)
+            swimmerMap[s.name.toLowerCase().trim()] = s.id;
         });
 
+        // Skip header row (i=1)
         for(let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if(row.length < 5) continue; 
 
+            // CSV Columns based on your file:
+            // Col 1: Name (Last, First M\nID)
+            // Col 2: Event Name
+            // Col 5: Prelim Time (if exists)
+            // Col 6: Finals Time (if exists)
+            // Col 10: Date
             const nameCell = row[1]; 
             const eventCell = row[2]; 
+            const prelimTime = row[4];
             const finalsTime = row[5]; 
             const dateStr = row[10];  
 
             if (!nameCell) continue;
 
+            // --- NAME MATCHING LOGIC ---
             let targetId = null;
-            let cleanName = nameCell.toLowerCase().replace(/['"]/g, '');
             
-            if (swimmerMap[cleanName]) {
-                targetId = swimmerMap[cleanName];
+            // 1. Clean Name Cell (Remove ID after newline if present)
+            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim(); // "Anderson, Marielle A"
+
+            // 2. Convert "Last, First" -> "First Last"
+            let formattedName = rawName;
+            if (rawName.includes(',')) {
+                const parts = rawName.split(',');
+                if (parts.length >= 2) {
+                    // "Anderson" , " Marielle A" -> "Marielle A Anderson"
+                    formattedName = `${parts[1].trim()} ${parts[0].trim()}`;
+                }
             }
 
-            const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "";
+            // 3. Try Match
+            if (swimmerMap[formattedName.toLowerCase()]) {
+                targetId = swimmerMap[formattedName.toLowerCase()];
+            }
 
-            if (targetId && isValidTime(finalsTime)) {
-                let cleanEvent = eventCell.replace(/\n/g, ' ').trim();
+            // --- TIME VALIDATION LOGIC ---
+            // Check if we have a valid time in Prelims OR Finals
+            const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN");
+            
+            // Prefer Finals time, fallback to Prelim time
+            let bestTime = null;
+            let type = 'Finals';
+
+            if (isValidTime(finalsTime)) {
+                bestTime = finalsTime;
+            } else if (isValidTime(prelimTime)) {
+                bestTime = prelimTime;
+                type = 'Prelim';
+            }
+
+            if (targetId && bestTime) {
+                // Clean Event Name (remove newlines)
+                let cleanEvent = eventCell.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+                // Clean Date (MM/DD/YY -> YYYY-MM-DD)
+                let cleanDate = new Date().toISOString().split('T')[0];
+                if (dateStr) {
+                    const dParts = dateStr.split('/'); // 11/15/25
+                    if (dParts.length === 3) {
+                        // Assume 20xx for year
+                        cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
+                    }
+                }
+
                 entriesToInsert.push({
                     swimmer_id: targetId,
-                    event: cleanEvent,
-                    time: finalsTime,
-                    date: dateStr ? new Date(dateStr).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    event: `${cleanEvent} (${type})`,
+                    time: bestTime,
+                    date: cleanDate,
                     video_url: null
                 });
             }
         }
 
         if (entriesToInsert.length > 0) {
-            const { error } = await supabase.from('results').insert(entriesToInsert);
+            // Bulk Insert into Supabase
+            const { error } = await supabase
+                .from('results')
+                .insert(entriesToInsert);
+
             if (error) {
                 alert("Database error: " + error.message);
             } else {
                 alert(`Success! Imported ${entriesToInsert.length} results.`);
                 setShowImport(false);
+                // Ideally trigger a refresh here or wait for the user to navigate
             }
         } else {
-            alert("Imported results, but found no matching swimmers. Make sure names in CSV match the Roster exactly.");
+            alert("Found 0 matches. \n\nDebug:\nCSV Name: " + rows[1][1].split('\n')[0] + "\nExpected Roster Name: " + swimmers[0]?.name);
         }
     };
 
+    // --- 4. Main File Handler ---
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -335,6 +388,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                         alert("No valid roster records found in file.");
                     }
                 } else {
+                    // --- RUN RESULTS IMPORT ---
                     await handleResultsImport(text);
                 }
             } catch (err) {
@@ -348,6 +402,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         e.target.value = null; 
     };
 
+    // --- 5. SD3 Parser Logic (Existing) ---
     const parseSD3Roster = async (text) => {
         const lines = text.split(/\r\n|\n/);
         const newEntries = [];
@@ -388,6 +443,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return newEntries;
     };
 
+    // --- 6. Helper: Manual Add Swimmer (Quick Prompt) ---
     const handleAddManual = async () => {
         const name = window.prompt("Enter Swimmer Name:");
         if (!name) return;
@@ -462,6 +518,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                 </table>
             </div>
 
+            {/* Import Modal */}
             {showImport && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl">
