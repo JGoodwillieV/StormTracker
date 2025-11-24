@@ -570,15 +570,17 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
     const [isUploading, setIsUploading] = useState(false);
     const videoInputRef = useRef(null);
 
+    // --- 1. Fetch Real Data on Mount ---
     useEffect(() => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
 
+            // Fetch Results (Ordered by Date Ascending for easier graph calculation)
             const { data: resultsData } = await supabase
                 .from('results')
                 .select('*')
                 .eq('swimmer_id', swimmer.id)
-                .order('date', { ascending: false });
+                .order('date', { ascending: true }); // Oldest first for graph
             
             if (resultsData) setResults(resultsData);
 
@@ -594,9 +596,25 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         fetchData();
     }, [swimmer]);
 
+    // --- 2. Smart Event Cleaners ---
+    // Extracts "100 Free" from "Female (10 & Under) 100 Free (Finals)"
+    const getBaseEventName = (eventName) => {
+        if (!eventName) return "";
+        // 1. Remove (Finals) or (Prelim)
+        let clean = eventName.replace(/\s*\((Finals|Prelim)\)/i, '');
+        // 2. Try to match standard distance/stroke patterns (e.g. 100 Free, 50 Fly)
+        // This regex looks for a number followed by text
+        const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(Free|Back|Breast|Fly|IM|Freestyle|Backstroke|Breaststroke|Butterfly|Ind\.?\s*Medley)/i);
+        if (match) {
+            // Returns "100 Free" formatted nicely
+            return `${match[1]} ${match[2]}`;
+        }
+        return clean.trim();
+    };
+
     const uniqueEvents = useMemo(() => {
-        const events = [...new Set(results.map(r => r.event))];
-        return events.sort();
+        const events = new Set(results.map(r => getBaseEventName(r.event)));
+        return Array.from(events).sort();
     }, [results]);
 
     useEffect(() => {
@@ -605,6 +623,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         }
     }, [uniqueEvents, selectedEvent]);
 
+    // --- 3. Time & Chart Helpers ---
     const timeToSeconds = (timeStr) => {
         if (!timeStr) return 0;
         const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
@@ -614,17 +633,48 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
             : parseFloat(parts[0]);
     };
 
+    const secondsToTime = (val) => {
+        if (!val) return "0.00";
+        const mins = Math.floor(val / 60);
+        const secs = (val % 60).toFixed(2);
+        return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
+    };
+
     const chartData = useMemo(() => {
+        // Filter all results that match the selected BASE event (ignoring prelim/final status)
         return results
-            .filter(r => r.event === selectedEvent)
+            .filter(r => getBaseEventName(r.event) === selectedEvent)
             .map(r => ({
-                date: new Date(r.date).toLocaleDateString(),
+                date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
+                fullDate: r.date,
                 timeStr: r.time,
                 seconds: timeToSeconds(r.time),
+                type: r.event.includes('Prelim') ? 'Prelim' : 'Finals'
             }))
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
+            // Ensure chronological sort
+            .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
     }, [selectedEvent, results]);
 
+    // --- 4. Improvement Calculation ---
+    const getImprovement = (currentResult, allResults) => {
+        // Find previous result for SAME event
+        const baseName = getBaseEventName(currentResult.event);
+        const currentSeconds = timeToSeconds(currentResult.time);
+        const currentDate = new Date(currentResult.date);
+
+        // Filter for same event, but older date
+        const previousResults = allResults
+            .filter(r => getBaseEventName(r.event) === baseName && new Date(r.date) < currentDate)
+            .sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest of the old ones first
+
+        if (previousResults.length === 0) return null; // First time swimming it
+
+        const prevSeconds = timeToSeconds(previousResults[0].time);
+        const diff = currentSeconds - prevSeconds;
+        return diff;
+    };
+
+    // --- 5. Upload Handlers ---
     const handleUploadClick = (resultId) => {
         setUploadingResultId(resultId);
         videoInputRef.current.click();
@@ -637,30 +687,14 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         setIsUploading(true);
         try {
             const fileName = `${swimmer.id}/${Date.now()}_${file.name}`;
-            
-            const { error: uploadError } = await supabase.storage
-                .from('race-videos')
-                .upload(fileName, file);
-            
+            const { error: uploadError } = await supabase.storage.from('race-videos').upload(fileName, file);
             if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('race-videos')
-                .getPublicUrl(fileName);
-
-            const { error: dbError } = await supabase
-                .from('results')
-                .update({ video_url: publicUrl })
-                .eq('id', uploadingResultId);
-
+            const { data: { publicUrl } } = supabase.storage.from('race-videos').getPublicUrl(fileName);
+            const { error: dbError } = await supabase.from('results').update({ video_url: publicUrl }).eq('id', uploadingResultId);
             if (dbError) throw dbError;
 
             alert("Video uploaded successfully!");
-            
-            setResults(prev => prev.map(r => 
-                r.id === uploadingResultId ? { ...r, video_url: publicUrl } : r
-            ));
-
+            setResults(prev => prev.map(r => r.id === uploadingResultId ? { ...r, video_url: publicUrl } : r));
         } catch (err) {
             console.error(err);
             alert("Upload failed: " + err.message);
@@ -671,8 +705,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         }
     };
 
+    // Sort results for the Table View (Newest First)
+    const tableResults = [...results].sort((a, b) => new Date(b.date) - new Date(a.date));
+
     return (
         <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
+            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
@@ -690,14 +728,16 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             </div>
 
+            {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
+                        {/* Performance Chart */}
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-800">Performance Trend</h3>
-                                    <p className="text-slate-500 text-xs">Time progression over season</p>
+                                    <p className="text-slate-500 text-xs">Combined Prelims & Finals</p>
                                 </div>
                                 <select 
                                     value={selectedEvent} 
@@ -714,14 +754,30 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                                         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                             <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                                            <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                                            <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
-                                            <Line type="monotone" dataKey="seconds" stroke="#3b82f6" strokeWidth={3} dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} />
+                                            <YAxis 
+                                                domain={['auto', 'auto']} 
+                                                axisLine={false} 
+                                                tickLine={false} 
+                                                tick={{fill: '#94a3b8', fontSize: 12}} 
+                                                tickFormatter={secondsToTime} 
+                                                width={50}
+                                            />
+                                            <Tooltip 
+                                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
+                                                formatter={(value, name, props) => [secondsToTime(value), props.payload.type]}
+                                            />
+                                            <Line 
+                                                type="monotone" 
+                                                dataKey="seconds" 
+                                                stroke="#3b82f6" 
+                                                strokeWidth={3} 
+                                                dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
+                                            />
                                         </LineChart>
                                     </ResponsiveContainer>
                                 ) : (
                                     <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-slate-50 rounded-lg">
-                                        No results available to graph.
+                                        Select an event to see progress.
                                     </div>
                                 )}
                             </div>
@@ -743,6 +799,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             )}
 
+            {/* --- TAB 2: RESULTS --- */}
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center">
@@ -750,46 +807,61 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                         <button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button>
                     </div>
                     
+                    {/* Hidden Input for Uploads */}
                     <input type="file" ref={videoInputRef} onChange={handleFileChange} className="hidden" accept="video/mp4,video/quicktime" />
 
-                    {results.length > 0 ? (
+                    {tableResults.length > 0 ? (
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                                 <tr>
                                     <th className="px-6 py-4 font-medium">Event</th>
                                     <th className="px-6 py-4 font-medium">Date</th>
                                     <th className="px-6 py-4 font-medium">Time</th>
+                                    <th className="px-6 py-4 font-medium">Improvement</th>
                                     <th className="px-6 py-4 font-medium text-right">Race Video</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {results.map((r, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-4 font-medium text-slate-900">{r.event}</td>
-                                        <td className="px-6 py-4 text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
-                                        <td className="px-6 py-4 font-mono font-bold text-blue-600">{r.time}</td>
-                                        <td className="px-6 py-4 text-right">
-                                            {r.video_url ? (
-                                                <a href={r.video_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                                                    <Icon name="play-circle" size={14} /> Watch
-                                                </a>
-                                            ) : (
-                                                <button 
-                                                    onClick={() => handleUploadClick(r.id)}
-                                                    disabled={isUploading}
-                                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
-                                                >
-                                                    {isUploading && uploadingResultId === r.id ? (
-                                                        <Icon name="loader-2" size={14} className="animate-spin" />
-                                                    ) : (
-                                                        <Icon name="upload-cloud" size={14} />
-                                                    )}
-                                                    Upload
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {tableResults.map((r, idx) => {
+                                    const improvement = getImprovement(r, results);
+                                    return (
+                                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-6 py-4 font-medium text-slate-900">{getBaseEventName(r.event)} <span className="text-slate-400 font-normal text-xs ml-1">{r.event.includes('Prelim') ? '(P)' : '(F)'}</span></td>
+                                            <td className="px-6 py-4 text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 font-mono font-bold text-blue-600">{r.time}</td>
+                                            <td className="px-6 py-4">
+                                                {improvement !== null ? (
+                                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${improvement < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                                                        <Icon name={improvement < 0 ? "trending-down" : "trending-up"} size={12} />
+                                                        {Math.abs(improvement).toFixed(2)}s
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400 text-xs">-</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                {r.video_url ? (
+                                                    <a href={r.video_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                                                        <Icon name="play-circle" size={14} /> Watch
+                                                    </a>
+                                                ) : (
+                                                    <button 
+                                                        onClick={() => handleUploadClick(r.id)}
+                                                        disabled={isUploading}
+                                                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                                                    >
+                                                        {isUploading && uploadingResultId === r.id ? (
+                                                            <Icon name="loader-2" size={14} className="animate-spin" />
+                                                        ) : (
+                                                            <Icon name="upload-cloud" size={14} />
+                                                        )}
+                                                        Upload
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     ) : (
@@ -800,6 +872,41 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                     )}
                 </div>
             )}
+
+            {/* --- TAB 3: ANALYSIS --- */}
+            {activeTab === 'analysis' && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
+                    <div className="p-6 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800 text-lg">AI Video Analyses</h3>
+                    </div>
+                    {analyses.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
+                            {analyses.map((analysis, idx) => (
+                                <div key={idx} className="group relative aspect-video bg-slate-900 rounded-xl overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-all">
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/20 transition-colors">
+                                        <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                                            <Icon name="play" size={24} className="text-white fill-white ml-1" />
+                                        </div>
+                                    </div>
+                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                                        <p className="text-white font-bold text-sm">Analysis #{analysis.id}</p>
+                                        <p className="text-slate-300 text-xs">{new Date(analysis.created_at).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                            <Icon name="video" size={32} className="opacity-50 mb-4" />
+                            <p>No AI analyses saved yet.</p>
+                            <button onClick={() => navigateTo('analysis')} className="mt-2 text-blue-600 hover:underline text-sm font-medium">Go to Analysis Tool</button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
 
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
