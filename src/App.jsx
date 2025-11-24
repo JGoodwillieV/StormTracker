@@ -153,132 +153,58 @@ const Dashboard = ({ navigateTo, swimmers }) => {
            <h3 className="text-3xl font-bold">{swimmers.length}</h3>
         </div>
       </div>
-      const Dashboard = ({ navigateTo, swimmers }) => {
+const Dashboard = ({ navigateTo, swimmers }) => {
   // We use the real length of the database results for the count
   const activeCount = swimmers ? swimmers.length : 0;
 
   return (
     <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
-      {/* Header */}
       <header className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
         <div className="flex items-center gap-4">
-          <div className="relative hidden md:block">
-            <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search swimmers..." 
-              className="bg-white border border-slate-200 pl-10 pr-4 py-2 rounded-full text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-            />
-          </div>
           <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">
             HC
           </div>
         </div>
       </header>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* Metric 1 */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <p className="text-slate-500 text-sm font-medium mb-2">Team Efficiency</p>
           <h3 className="text-3xl font-bold text-slate-800">84%</h3>
-          <p className="text-xs font-semibold mt-2 text-emerald-500 flex items-center gap-1">
-             <Icon name="trending-down" size={12} className="rotate-180" /> +2.4%
-          </p>
         </div>
 
-        {/* Metric 2: Connected to Real Data */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <p className="text-slate-500 text-sm font-medium mb-2">Active Swimmers</p>
           <h3 className="text-3xl font-bold text-slate-800">{activeCount}</h3>
-          <p className="text-xs font-semibold mt-2 text-slate-400">Total Roster</p>
         </div>
 
-        {/* Metric 3 */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <p className="text-slate-500 text-sm font-medium mb-2">Videos Analyzed</p>
           <h3 className="text-3xl font-bold text-slate-800">142</h3>
-          <p className="text-xs font-semibold mt-2 text-slate-400">This month</p>
         </div>
 
-        {/* Call to Action */}
         <div 
           onClick={() => navigateTo('analysis')} 
           className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden cursor-pointer hover:bg-blue-700 transition-colors group"
         >
-          <div className="relative z-10">
+          <div>
             <h3 className="text-lg font-bold">New Analysis</h3>
             <p className="text-blue-100 text-sm mt-1">Upload stroke video</p>
           </div>
-          <div className="absolute bottom-4 right-4 bg-white/20 p-2 rounded-lg group-hover:bg-white/30 transition-colors z-10">
-            <Icon name="plus" size={24} className="text-white" />
-          </div>
-          {/* Decorative Circle */}
-          <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-blue-500 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500"></div>
         </div>
       </div>
-
-      {/* Content Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-8">
-        {/* Left Column: Alerts */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="font-bold text-slate-800 text-lg">Attention Required</h3>
-            <button className="text-blue-600 text-sm font-medium hover:underline">View All</button>
-          </div>
-          
-          {/* Mock Alerts List */}
-          {[
-            { name: "Mia Kobayashi", msg: "Efficiency dropped -4%", ctx: "Butterfly", type: "bad", initial: "M" },
-            { name: "Sarah Miller", msg: "Efficiency dropped -4%", ctx: "Freestyle", type: "bad", initial: "S" },
-            { name: "Leo Davidson", msg: "Personal Best Efficiency", ctx: "Freestyle", type: "good", initial: "L" },
-          ].map((alert, i) => (
-            <div key={i} className={`p-4 rounded-xl flex items-center justify-between border transition-all hover:scale-[1.01] ${alert.type === 'bad' ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm ${alert.type === 'bad' ? 'bg-white text-red-500' : 'bg-white text-emerald-600'}`}>
-                  {alert.initial}
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800">{alert.name}</h4>
-                  <p className={`text-xs font-medium flex items-center gap-1 ${alert.type === 'bad' ? 'text-red-500' : 'text-emerald-600'}`}>
-                    {alert.msg} <span className="text-slate-400 font-normal">in {alert.ctx}</span>
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigateTo('roster')} className="bg-white px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors">View Profile</button>
-                {alert.type === 'bad' && (
-                  <button onClick={() => navigateTo('analysis')} className="bg-white px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors">Analyze</button>
-                )}
-              </div>
+      
+      {/* Alert Section */}
+      <div className="mt-8">
+         <h3 className="font-bold text-slate-800 text-lg mb-4">Attention Required</h3>
+         <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-4">
+            <div className="w-10 h-10 bg-white text-red-500 rounded-full flex items-center justify-center font-bold">M</div>
+            <div>
+               <h4 className="font-bold text-slate-800">Mia Kobayashi</h4>
+               <p className="text-xs text-red-500 font-medium">Efficiency dropped -4%</p>
             </div>
-          ))}
-        </div>
-
-        {/* Right Column: Top Performers */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-fit">
-          <h3 className="font-bold text-slate-800 text-lg mb-6">Top Performers</h3>
-          {[
-            { r: 1, l: "A", s: 85, color: "bg-amber-100 text-amber-700" },
-            { r: 2, l: "B", s: 80, color: "bg-slate-100 text-slate-600" },
-            { r: 3, l: "C", s: 75, color: "bg-orange-100 text-orange-700" },
-          ].map((p) => (
-            <div key={p.r} className="flex items-center gap-4 mb-4 last:mb-0">
-              <span className="text-slate-300 font-bold text-sm w-4">0{p.r}</span>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${p.color}`}>
-                {p.l}
-              </div>
-              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${p.s}%` }}></div>
-              </div>
-              <span className="text-slate-600 font-bold text-sm">{p.s}</span>
-            </div>
-          ))}
-          <button onClick={() => navigateTo('roster')} className="w-full mt-6 py-2 text-sm text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-            View Full Leaderboard
-          </button>
-        </div>
+         </div>
       </div>
     </div>
   );
