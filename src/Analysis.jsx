@@ -17,7 +17,7 @@ const fileToGenerativePart = async (file) => {
 };
 
 export default function Analysis({ swimmers, onBack, supabase }) {
-  const [step, setStep] = useState('upload'); // upload, analyzing, results
+  const [step, setStep] = useState('upload'); 
   const [apiKey, setApiKey] = useState('');
   const [selectedSwimmerId, setSelectedSwimmerId] = useState('');
   const [stroke, setStroke] = useState('Freestyle');
@@ -34,7 +34,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
     setStep('analyzing');
     
     try {
-      // 1. Upload to Supabase Storage
       const fileName = `${selectedSwimmerId}/${Date.now()}_${file.name}`;
       const { error: uploadError } = await supabase.storage
         .from('race-videos')
@@ -48,7 +47,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       
       setVideoUrl(publicUrl);
 
-      // 2. Prepare Gemini Request
       let p = 0;
       const interval = setInterval(() => { p += 5; if(p < 90) setProgress(p); }, 500);
 
@@ -64,7 +62,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       - flaws: array of objects { title, timestamp (seconds as number), severity (High/Medium/Low), desc }
       - drills: array of objects { name, focus }`;
 
-      // 3. Call Gemini API
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,11 +77,9 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       if(data.error) throw new Error(data.error.message);
 
       const text = data.candidates[0].content.parts[0].text;
-      // Clean up markdown code blocks if Gemini adds them
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const resultData = JSON.parse(cleanJson);
 
-      // 4. Save to Database
       const { error: dbError } = await supabase
         .from('analyses')
         .insert([{
@@ -189,7 +184,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
   );
 }
 
-// --- Sub-Component: Results View with Telestrator ---
 const AnalysisResult = ({ data, videoUrl, onBack }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
