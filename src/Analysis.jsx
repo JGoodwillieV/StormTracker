@@ -1,23 +1,10 @@
-// src/Analysis.jsx
+// VERSION: DEBUG 5.0 - MODEL UPDATE (Gemini 3 Preview)
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Play, ChevronLeft, Pause, PenTool, Scan 
 } from 'lucide-react';
 
-// Helper: Convert File to Base64 for Gemini
-const fileToGenerativePart = async (file) => {
-  const base64EncodedDataPromise = new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.readAsDataURL(file);
-  });
-  return {
-    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-  };
-};
-
-// --- Sub-Component: Results View with Telestrator ---
-// (Defined BEFORE usage to ensure scope clarity, though function hoisting usually handles it)
+// --- 1. SUB-COMPONENT (MUST BE AT THE TOP) ---
 const AnalysisResult = ({ data, videoUrl, onBack }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -200,6 +187,19 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
   );
 };
 
+// Helper: Convert File to Base64 for Gemini
+const fileToGenerativePart = async (file) => {
+  const base64EncodedDataPromise = new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.readAsDataURL(file);
+  });
+  return {
+    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+  };
+};
+
+// --- 2. MAIN COMPONENT ---
 export default function Analysis({ swimmers, onBack, supabase }) {
   const [step, setStep] = useState('upload'); // upload, analyzing, results
   const [apiKey, setApiKey] = useState('');
@@ -249,8 +249,8 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       - flaws: array of objects { title, timestamp (seconds as number), severity (High/Medium/Low), desc }
       - drills: array of objects { name, focus }`;
 
-      // 3. Call Gemini API
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      // 3. Call Gemini API (UPDATED TO gemini-3-pro-preview)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -262,7 +262,14 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       setProgress(100);
 
       const data = await response.json();
-      if(data.error) throw new Error(data.error.message);
+      
+      // Check for Model Not Found Error specifically
+      if(data.error) {
+         if(data.error.message.includes('not found')) {
+             throw new Error(`Model 'gemini-3-pro-preview' not found. Check your API key access or try 'gemini-1.5-pro'`);
+         }
+         throw new Error(data.error.message);
+      }
 
       const text = data.candidates[0].content.parts[0].text;
       // Clean up markdown code blocks if Gemini adds them
