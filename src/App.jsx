@@ -53,16 +53,342 @@ export default function App() {
     }
   }, [session])
 
-  const fetchRoster = async () => {
-    // This assumes you ran the SQL I gave you to create the 'swimmers' table
-    const { data, error } = await supabase
-      .from('swimmers')
-      .select('*')
-      .eq('coach_id', session.user.id) // Only show THIS coach's swimmers
-    
-    if (error) console.error('Error fetching roster:', error)
-    else setSwimmers(data || [])
-  }
+  const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
+    const [showImport, setShowImport] = useState(false);
+    const [importType, setImportType] = useState('roster'); // 'roster' or 'results'
+    const [isImporting, setIsImporting] = useState(false);
+    const fileInputRef = useRef(null);
+
+    // --- 1. Helper: Calculate Age ---
+    const calculateAge = (dobStr) => {
+        if (!dobStr || dobStr.length !== 8) return null;
+        const month = parseInt(dobStr.substring(0, 2)) - 1;
+        const day = parseInt(dobStr.substring(2, 4));
+        const year = parseInt(dobStr.substring(4, 8));
+        
+        const birthDate = new Date(year, month, day);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+        }
+        return age;
+    };
+
+    // --- 2. Helper: CSV Parser (Handles quoted commas) ---
+    const parseCSVWithQuotes = (text) => {
+        const rows = [];
+        let currentRow = [];
+        let currentCell = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const nextChar = text[i + 1];
+
+            if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                    currentCell += '"'; 
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                currentRow.push(currentCell.trim());
+                currentCell = '';
+            } else if ((char === '\r' || char === '\n') && !inQuotes) {
+                if (currentCell || currentRow.length > 0) {
+                    currentRow.push(currentCell.trim());
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentCell = '';
+                }
+                if (char === '\r' && nextChar === '\n') i++; 
+            } else {
+                currentCell += char;
+            }
+        }
+        if (currentCell || currentRow.length > 0) {
+            currentRow.push(currentCell.trim());
+            rows.push(currentRow);
+        }
+        return rows;
+    };
+
+    // --- 3. Helper: Process Results CSV and Upload to Supabase ---
+    const handleResultsImport = async (text) => {
+        const rows = parseCSVWithQuotes(text);
+        let matchCount = 0;
+        const entriesToInsert = [];
+
+        // Create a lookup map for swimmers to find IDs quickly
+        // Keys: "last, first", "first last", and regId
+        const swimmerMap = {}; 
+        swimmers.forEach(s => {
+            const fullName = s.name.toLowerCase(); // "john doe"
+            swimmerMap[fullName] = s.id;
+            
+            // Handle "Doe, John" format if needed
+            const parts = fullName.split(' ');
+            if(parts.length > 1) {
+                swimmerMap[`${parts[1]}, ${parts[0]}`] = s.id;
+            }
+        });
+
+        // Skip header row (i=1)
+        for(let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if(row.length < 5) continue; 
+
+            // Typical Meet Manager CSV Columns:
+            // 1: Name (Last, First) | 2: Age | 4: Event | 6: Time | 10: Date
+            // Adjust these indices based on your specific CSV export format
+            const nameCell = row[1]; 
+            const eventCell = row[2]; 
+            const finalsTime = row[5]; 
+            const dateStr = row[10];  
+
+            if (!nameCell) continue;
+
+            // Clean Name
+            let targetId = null;
+            let cleanName = nameCell.toLowerCase().replace(/['"]/g, '');
+            
+            // Try to match
+            if (swimmerMap[cleanName]) {
+                targetId = swimmerMap[cleanName];
+            }
+
+            // Check for valid time
+            const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "";
+
+            if (targetId && isValidTime(finalsTime)) {
+                // Clean Event Name (remove newlines often found in CSVs)
+                let cleanEvent = eventCell.replace(/\n/g, ' ').trim();
+
+                entriesToInsert.push({
+                    swimmer_id: targetId,
+                    event: cleanEvent,
+                    time: finalsTime,
+                    date: dateStr ? new Date(dateStr).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    video_url: null
+                });
+            }
+        }
+
+        if (entriesToInsert.length > 0) {
+            // Bulk Insert into Supabase
+            const { error } = await supabase
+                .from('results')
+                .insert(entriesToInsert);
+
+            if (error) {
+                alert("Database error: " + error.message);
+            } else {
+                alert(`Success! Imported ${entriesToInsert.length} results.`);
+                setShowImport(false);
+            }
+        } else {
+            alert("Imported results, but found no matching swimmers. Make sure names in CSV match the Roster exactly.");
+        }
+    };
+
+    // --- 4. Main File Handler ---
+    const handleFileSelect = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        const reader = new FileReader();
+        
+        reader.onload = async (event) => {
+            const text = event.target.result;
+            try {
+                if (importType === 'roster') {
+                    const newSwimmersData = await parseSD3Roster(text);
+                    if (newSwimmersData.length > 0) {
+                        const { data, error } = await supabase.from('swimmers').insert(newSwimmersData).select();
+                        if (error) throw error;
+                        setSwimmers(prev => [...prev, ...data]);
+                        alert(`Successfully imported ${data.length} swimmers!`);
+                        setShowImport(false);
+                    } else {
+                        alert("No valid roster records found in file.");
+                    }
+                } else {
+                    // --- RUN RESULTS IMPORT ---
+                    await handleResultsImport(text);
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Error importing: " + err.message);
+            } finally {
+                setIsImporting(false);
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = null; 
+    };
+
+    // --- 5. SD3 Parser Logic (Existing) ---
+    const parseSD3Roster = async (text) => {
+        const lines = text.split(/\r\n|\n/);
+        const newEntries = [];
+        const { data: { user } } = await supabase.auth.getUser();
+        const d0Regex = /^D0\d[A-Z0-9]{2,6}\s+(.+?)\s+[A-Z0-9]{8,}/;
+
+        lines.forEach((line) => {
+            if (line.startsWith("D0")) {
+                let cleanName = "";
+                let age = null;
+                const match = line.match(d0Regex);
+                if (match && match[1]) cleanName = match[1].trim();
+                else {
+                    let rawSection = line.substring(5, 45);
+                    cleanName = rawSection.replace(/^[A-Z0-9]{2,6}\s+/, '').trim().replace(/\s+[A-Z0-9]{5,}$/, '').trim();
+                }
+
+                if (cleanName) {
+                    cleanName = cleanName.replace(/\s[A-Z0-9]{6,}$/i, '').trim();
+                    age = calculateAge(line.substring(55, 63).trim());
+                    if (cleanName.includes(',')) {
+                        const parts = cleanName.split(',');
+                        if (parts.length >= 2) cleanName = `${parts[1].trim()} ${parts[0].trim()}`;
+                    }
+                    const formattedName = cleanName.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    
+                    newEntries.push({
+                        name: formattedName,
+                        group_name: "Imported",
+                        status: "New",
+                        efficiency_score: 70,
+                        age: age,
+                        coach_id: user.id
+                    });
+                }
+            }
+        });
+        return newEntries;
+    };
+
+    // --- 6. Helper: Manual Add Swimmer (Quick Prompt) ---
+    const handleAddManual = async () => {
+        const name = window.prompt("Enter Swimmer Name:");
+        if (!name) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        const newSwimmer = { name, group_name: "Unassigned", status: "New", efficiency_score: 50, coach_id: user.id };
+        const { data, error } = await supabase.from('swimmers').insert([newSwimmer]).select();
+        if (!error) setSwimmers(prev => [...prev, ...data]);
+    };
+
+    return (
+        <div className="p-4 md:p-8 h-full flex flex-col relative">
+             <header className="flex justify-between items-center mb-8 shrink-0">
+                <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
+                <div className="flex gap-3">
+                     <button onClick={() => { setImportType('results'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                        <Icon name="trophy" size={16} /> Import Results
+                    </button>
+                     <button onClick={() => { setImportType('roster'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                        <Icon name="file-up" size={16} /> Import Roster
+                    </button>
+                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                        <Icon name="plus" size={16} /> Add Swimmer
+                    </button>
+                </div>
+            </header>
+
+            <div className="bg-white border border-slate-200 rounded-xl overflow-y-auto flex-1 min-h-0 shadow-sm">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Name</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Group</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Status</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Efficiency Score</th>
+                            <th className="px-6 py-4 font-medium text-right bg-slate-50">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {swimmers.length === 0 && (
+                            <tr>
+                                <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
+                                    No swimmers found. Add one manually or import a roster file.
+                                </td>
+                            </tr>
+                        )}
+                        {swimmers.map(s => (
+                            <tr key={s.id} onClick={() => { setViewSwimmer(s); }} className="hover:bg-slate-50 cursor-pointer transition-colors group">
+                                <td className="px-6 py-4 font-medium text-slate-900">{s.name}</td>
+                                <td className="px-6 py-4 text-slate-500">{s.group_name || 'Unassigned'}</td>
+                                <td className="px-6 py-4">
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${s.status === 'Needs Attention' ? 'text-red-500 bg-red-50' : 'text-emerald-500 bg-emerald-50'}`}>
+                                        {s.status || 'Active'}
+                                    </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full rounded-full ${s.efficiency_score < 75 ? 'bg-red-500' : 'bg-emerald-500'}`} 
+                                                style={{ width: `${s.efficiency_score || 50}%` }}>
+                                            </div>
+                                        </div>
+                                        <span className="font-bold text-slate-700">{s.efficiency_score || '-'}</span>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <button className="text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">Edit</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Import Modal */}
+            {showImport && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-slate-800">
+                                {importType === 'roster' ? 'Import Team Roster' : 'Import Meet Results'}
+                            </h3>
+                            <button onClick={() => setShowImport(false)} className="text-slate-400 hover:text-slate-600"><Icon name="x" size={20} /></button>
+                        </div>
+                        
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            onChange={handleFileSelect} 
+                            className="hidden" 
+                            accept={importType === 'roster' ? ".sd3,.csv" : ".csv,.xls,.xlsx"} 
+                        />
+                        
+                        <div 
+                            onClick={() => fileInputRef.current.click()}
+                            className={`border-2 border-dashed rounded-xl p-12 flex flex-col items-center justify-center text-center bg-slate-50 mb-6 group cursor-pointer transition-colors ${importType === 'results' ? 'border-yellow-300 hover:bg-yellow-50' : 'border-slate-300 hover:bg-slate-100 hover:border-blue-400'}`}
+                        >
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform ${importType === 'results' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'}`}>
+                                <Icon name={importType === 'results' ? 'trophy' : 'file-up'} size={24} />
+                            </div>
+                            <p className="text-slate-800 font-bold text-lg mb-1">
+                                {isImporting ? 'Processing...' : 'Drag & drop or click to upload'}
+                            </p>
+                            <p className="text-slate-500 text-sm">
+                                {importType === 'roster' ? 'Supports .sd3 (Standard) or .csv' : 'Supports .csv export from Meet Manager'}
+                            </p>
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setShowImport(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
   // 3. Navigation Handlers
   const navigateTo = (v) => {
