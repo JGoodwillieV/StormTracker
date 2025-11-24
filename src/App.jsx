@@ -1,4 +1,5 @@
 // src/App.jsx
+import Analysis from './Analysis'
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from './supabase'
 import Login from './Login'
@@ -101,7 +102,13 @@ export default function App() {
              navigateTo={navigateTo}
            />
         )}
-        {view === 'analysis' && <div className="p-8">Analysis Page (Coming Soon)</div>}
+        {view === 'analysis' && (
+  <Analysis 
+    swimmers={swimmers} 
+    onBack={() => navigateTo('dashboard')} 
+    supabase={supabase} 
+  />
+)}
       </main>
     </div>
   )
