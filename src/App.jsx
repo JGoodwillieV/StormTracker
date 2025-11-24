@@ -570,20 +570,21 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
     const [isUploading, setIsUploading] = useState(false);
     const videoInputRef = useRef(null);
 
-    // --- 1. Fetch Real Data on Mount ---
+    // --- 1. Fetch Real Data ---
     useEffect(() => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
 
-            // Fetch Results (Ordered by Date Ascending for easier graph calculation)
+            // Fetch Results
             const { data: resultsData } = await supabase
                 .from('results')
                 .select('*')
                 .eq('swimmer_id', swimmer.id)
-                .order('date', { ascending: true }); // Oldest first for graph
+                .order('date', { ascending: true });
             
             if (resultsData) setResults(resultsData);
 
+            // Fetch Analyses
             const { data: analysesData } = await supabase
                 .from('analyses')
                 .select('*')
@@ -596,36 +597,17 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         fetchData();
     }, [swimmer]);
 
-    // --- 2. Smart Event Cleaners ---
-    // Extracts "100 Free" from "Female (10 & Under) 100 Free (Finals)"
+    // --- 2. Helper Functions ---
     const getBaseEventName = (eventName) => {
         if (!eventName) return "";
-        // 1. Remove (Finals) or (Prelim)
         let clean = eventName.replace(/\s*\((Finals|Prelim)\)/i, '');
-        // 2. Try to match standard distance/stroke patterns (e.g. 100 Free, 50 Fly)
-        // This regex looks for a number followed by text
         const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(Free|Back|Breast|Fly|IM|Freestyle|Backstroke|Breaststroke|Butterfly|Ind\.?\s*Medley)/i);
-        if (match) {
-            // Returns "100 Free" formatted nicely
-            return `${match[1]} ${match[2]}`;
-        }
+        if (match) return `${match[1]} ${match[2]}`;
         return clean.trim();
     };
 
-    const uniqueEvents = useMemo(() => {
-        const events = new Set(results.map(r => getBaseEventName(r.event)));
-        return Array.from(events).sort();
-    }, [results]);
-
-    useEffect(() => {
-        if (uniqueEvents.length > 0 && !selectedEvent) {
-            setSelectedEvent(uniqueEvents[0]);
-        }
-    }, [uniqueEvents, selectedEvent]);
-
-    // --- 3. Time & Chart Helpers ---
     const timeToSeconds = (timeStr) => {
-        if (!timeStr) return 0;
+        if (!timeStr) return 999999; // Return high value for sorting "No Time"
         const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
         const parts = cleanStr.split(':');
         return parts.length === 2 
@@ -634,44 +616,101 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
     };
 
     const secondsToTime = (val) => {
-        if (!val) return "0.00";
+        if (!val || val === 999999) return "-";
         const mins = Math.floor(val / 60);
         const secs = (val % 60).toFixed(2);
         return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
     };
 
+    // --- 3. Data Processing for Graph (Fastest Time of Day) ---
+    const uniqueEvents = useMemo(() => {
+        const events = new Set(results.map(r => getBaseEventName(r.event)));
+        return Array.from(events).sort();
+    }, [results]);
+
+    useEffect(() => {
+        if (uniqueEvents.length > 0 && !selectedEvent) setSelectedEvent(uniqueEvents[0]);
+    }, [uniqueEvents, selectedEvent]);
+
     const chartData = useMemo(() => {
-        // Filter all results that match the selected BASE event (ignoring prelim/final status)
-        return results
-            .filter(r => getBaseEventName(r.event) === selectedEvent)
-            .map(r => ({
-                date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
-                fullDate: r.date,
-                timeStr: r.time,
-                seconds: timeToSeconds(r.time),
-                type: r.event.includes('Prelim') ? 'Prelim' : 'Finals'
-            }))
-            // Ensure chronological sort
+        // 1. Filter by event
+        const eventResults = results.filter(r => getBaseEventName(r.event) === selectedEvent);
+        
+        // 2. Group by Date to find fastest time per day
+        const bestTimePerDay = {};
+        
+        eventResults.forEach(r => {
+            const dateKey = r.date; // YYYY-MM-DD
+            const seconds = timeToSeconds(r.time);
+            
+            if (!bestTimePerDay[dateKey] || seconds < bestTimePerDay[dateKey].seconds) {
+                bestTimePerDay[dateKey] = {
+                    date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
+                    fullDate: r.date,
+                    seconds: seconds,
+                    timeStr: r.time,
+                    type: r.event.includes('Prelim') ? 'Prelim' : 'Finals' // Track which one was faster
+                };
+            }
+        });
+
+        // 3. Convert to Array and Sort
+        return Object.values(bestTimePerDay)
             .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
     }, [selectedEvent, results]);
 
-    // --- 4. Improvement Calculation ---
-    const getImprovement = (currentResult, allResults) => {
-        // Find previous result for SAME event
-        const baseName = getBaseEventName(currentResult.event);
-        const currentSeconds = timeToSeconds(currentResult.time);
-        const currentDate = new Date(currentResult.date);
+    // --- 4. Data Processing for Table (Grouped Prelims/Finals) ---
+    const groupedResults = useMemo(() => {
+        const groups = {};
 
-        // Filter for same event, but older date
-        const previousResults = allResults
-            .filter(r => getBaseEventName(r.event) === baseName && new Date(r.date) < currentDate)
-            .sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest of the old ones first
+        results.forEach(r => {
+            const baseName = getBaseEventName(r.event);
+            const dateKey = r.date;
+            const key = `${dateKey}_${baseName}`; // Unique Key per Event per Day
 
-        if (previousResults.length === 0) return null; // First time swimming it
+            if (!groups[key]) {
+                groups[key] = {
+                    key,
+                    date: r.date,
+                    event: baseName,
+                    prelim: null,
+                    finals: null
+                };
+            }
 
-        const prevSeconds = timeToSeconds(previousResults[0].time);
-        const diff = currentSeconds - prevSeconds;
-        return diff;
+            // Assign to Prelim or Final slot based on event name
+            if (r.event.includes('Prelim')) {
+                groups[key].prelim = r;
+            } else {
+                // Default to finals if not explicitly marked Prelim
+                groups[key].finals = r;
+            }
+        });
+
+        return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
+    }, [results]);
+
+    const getImprovement = (group, allGroups) => {
+        // Find fastest time of THIS day
+        const pTime = group.prelim ? timeToSeconds(group.prelim.time) : 999999;
+        const fTime = group.finals ? timeToSeconds(group.finals.time) : 999999;
+        const bestToday = Math.min(pTime, fTime);
+        if (bestToday === 999999) return null;
+
+        // Find best time of PREVIOUS occurrences
+        const previousGroups = allGroups.filter(g => 
+            g.event === group.event && new Date(g.date) < new Date(group.date)
+        );
+        
+        if (previousGroups.length === 0) return null;
+
+        // Get the most recent previous swim
+        const lastSwim = previousGroups.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+        const lastP = lastSwim.prelim ? timeToSeconds(lastSwim.prelim.time) : 999999;
+        const lastF = lastSwim.finals ? timeToSeconds(lastSwim.finals.time) : 999999;
+        const bestLast = Math.min(lastP, lastF);
+
+        return bestToday - bestLast;
     };
 
     // --- 5. Upload Handlers ---
@@ -693,7 +732,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
             const { error: dbError } = await supabase.from('results').update({ video_url: publicUrl }).eq('id', uploadingResultId);
             if (dbError) throw dbError;
 
-            alert("Video uploaded successfully!");
+            alert("Video uploaded!");
             setResults(prev => prev.map(r => r.id === uploadingResultId ? { ...r, video_url: publicUrl } : r));
         } catch (err) {
             console.error(err);
@@ -705,12 +744,8 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         }
     };
 
-    // Sort results for the Table View (Newest First)
-    const tableResults = [...results].sort((a, b) => new Date(b.date) - new Date(a.date));
-
     return (
         <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
@@ -728,16 +763,14 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             </div>
 
-            {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Performance Chart */}
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-800">Performance Trend</h3>
-                                    <p className="text-slate-500 text-xs">Combined Prelims & Finals</p>
+                                    <p className="text-slate-500 text-xs">Fastest time per meet</p>
                                 </div>
                                 <select 
                                     value={selectedEvent} 
@@ -764,7 +797,8 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                                             />
                                             <Tooltip 
                                                 contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
-                                                formatter={(value, name, props) => [secondsToTime(value), props.payload.type]}
+                                                formatter={(value) => [secondsToTime(value), "Time"]}
+                                                labelStyle={{color: '#64748b', marginBottom: '0.25rem'}}
                                             />
                                             <Line 
                                                 type="monotone" 
@@ -783,7 +817,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                             </div>
                         </div>
                     </div>
-                    
                     <div className="space-y-6">
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
@@ -791,15 +824,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                                 <p className="text-xs font-bold text-yellow-700 mb-2">Focus for this week:</p>
                                 <textarea className="w-full bg-transparent border-0 focus:ring-0 p-0 text-sm text-yellow-800 leading-relaxed resize-none focus:outline-none" placeholder="Add a note..." rows={4} />
                             </div>
-                            <button className="w-full py-2 bg-blue-600 text-white font-bold rounded-lg text-sm hover:bg-blue-700 transition-colors">
-                                Save Note
-                            </button>
+                            <button className="w-full py-2 bg-blue-600 text-white font-bold rounded-lg text-sm hover:bg-blue-700 transition-colors">Save Note</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- TAB 2: RESULTS --- */}
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center">
@@ -807,28 +837,46 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                         <button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button>
                     </div>
                     
-                    {/* Hidden Input for Uploads */}
                     <input type="file" ref={videoInputRef} onChange={handleFileChange} className="hidden" accept="video/mp4,video/quicktime" />
 
-                    {tableResults.length > 0 ? (
+                    {groupedResults.length > 0 ? (
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                                 <tr>
-                                    <th className="px-6 py-4 font-medium">Event</th>
                                     <th className="px-6 py-4 font-medium">Date</th>
-                                    <th className="px-6 py-4 font-medium">Time</th>
+                                    <th className="px-6 py-4 font-medium">Event</th>
+                                    <th className="px-6 py-4 font-medium">Prelim</th>
+                                    <th className="px-6 py-4 font-medium">Finals</th>
                                     <th className="px-6 py-4 font-medium">Improvement</th>
-                                    <th className="px-6 py-4 font-medium text-right">Race Video</th>
+                                    <th className="px-6 py-4 font-medium text-right">Video</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {tableResults.map((r, idx) => {
-                                    const improvement = getImprovement(r, results);
+                                {groupedResults.map((group, idx) => {
+                                    const improvement = getImprovement(group, groupedResults);
                                     return (
                                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-6 py-4 font-medium text-slate-900">{getBaseEventName(r.event)} <span className="text-slate-400 font-normal text-xs ml-1">{r.event.includes('Prelim') ? '(P)' : '(F)'}</span></td>
-                                            <td className="px-6 py-4 text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
-                                            <td className="px-6 py-4 font-mono font-bold text-blue-600">{r.time}</td>
+                                            <td className="px-6 py-4 text-slate-500">{new Date(group.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 font-medium text-slate-900">{group.event}</td>
+                                            
+                                            {/* Prelim Cell */}
+                                            <td className="px-6 py-4 text-slate-600">
+                                                {group.prelim ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="font-mono">{group.prelim.time}</span>
+                                                        {/* Only show upload button if no video */}
+                                                    </div>
+                                                ) : <span className="text-slate-300">-</span>}
+                                            </td>
+
+                                            {/* Finals Cell */}
+                                            <td className="px-6 py-4 font-bold text-blue-600">
+                                                {group.finals ? (
+                                                    <span className="font-mono">{group.finals.time}</span>
+                                                ) : <span className="text-slate-300 font-normal">-</span>}
+                                            </td>
+
+                                            {/* Improvement */}
                                             <td className="px-6 py-4">
                                                 {improvement !== null ? (
                                                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${improvement < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
@@ -839,25 +887,29 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                                                     <span className="text-slate-400 text-xs">-</span>
                                                 )}
                                             </td>
+
+                                            {/* Video Actions (Prioritizes Finals video, else Prelim) */}
                                             <td className="px-6 py-4 text-right">
-                                                {r.video_url ? (
-                                                    <a href={r.video_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                                                        <Icon name="play-circle" size={14} /> Watch
-                                                    </a>
-                                                ) : (
-                                                    <button 
-                                                        onClick={() => handleUploadClick(r.id)}
-                                                        disabled={isUploading}
-                                                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
-                                                    >
-                                                        {isUploading && uploadingResultId === r.id ? (
-                                                            <Icon name="loader-2" size={14} className="animate-spin" />
+                                                <div className="flex justify-end gap-2">
+                                                    {/* If Finals exists */}
+                                                    {group.finals && (
+                                                        group.finals.video_url ? (
+                                                            <a href={group.finals.video_url} target="_blank" rel="noreferrer" className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Finals Video"><Icon name="play-circle" size={16} /></a>
                                                         ) : (
-                                                            <Icon name="upload-cloud" size={14} />
-                                                        )}
-                                                        Upload
-                                                    </button>
-                                                )}
+                                                            <button onClick={() => handleUploadClick(group.finals.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-blue-600 hover:border-blue-400" title="Upload Finals"><Icon name="upload-cloud" size={16} /></button>
+                                                        )
+                                                    )}
+                                                    {/* If Prelim exists (and we want to allow uploading for it separately) */}
+                                                    {group.prelim && (
+                                                        group.prelim.video_url ? (
+                                                            <a href={group.prelim.video_url} target="_blank" rel="noreferrer" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200" title="Prelim Video"><Icon name="play-circle" size={16} /></a>
+                                                        ) : (
+                                                            // Only show prelim upload if finals upload is handled or non-existent to avoid clutter? 
+                                                            // Or show both small? Let's show both.
+                                                            <button onClick={() => handleUploadClick(group.prelim.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-slate-600 hover:border-slate-400" title="Upload Prelim"><Icon name="upload-cloud" size={16} /></button>
+                                                        )
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -873,7 +925,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             )}
 
-            {/* --- TAB 3: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100">
