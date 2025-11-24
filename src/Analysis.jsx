@@ -1,8 +1,7 @@
 // src/Analysis.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  UploadCloud, Play, AlertCircle, CheckCircle2, PenTool, Scan, 
-  ChevronLeft, Share2, Download, Pause, RotateCcw
+  UploadCloud, Play, ChevronLeft, Pause, PenTool, Scan 
 } from 'lucide-react';
 
 // Helper: Convert File to Base64 for Gemini
@@ -27,7 +26,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
   const [videoUrl, setVideoUrl] = useState(null);
   const [uploadFileName, setUploadFileName] = useState("");
 
-  // --- ACTION: Handle Analysis ---
   const handleAnalyze = async (file) => {
     if (!apiKey) return alert("Please enter a Google Gemini API Key.");
     if (!selectedSwimmerId) return alert("Please select a swimmer.");
@@ -50,7 +48,7 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       
       setVideoUrl(publicUrl);
 
-      // 2. Prepare Gemini Request (Mock progress bar)
+      // 2. Prepare Gemini Request
       let p = 0;
       const interval = setInterval(() => { p += 5; if(p < 90) setProgress(p); }, 500);
 
@@ -151,7 +149,7 @@ export default function Analysis({ swimmers, onBack, supabase }) {
           </div>
         </div>
 
-        <div className="border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-2xl h-64 flex flex-col items-center justify-center relative">
+        <div className="border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-2xl h-64 flex flex-col items-center justify-center relative cursor-pointer hover:bg-blue-50 transition-colors">
           <input 
             type="file" 
             className="absolute inset-0 opacity-0 cursor-pointer"
@@ -199,10 +197,9 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
   const [telestratorActive, setTelestratorActive] = useState(false);
-  const [color, setColor] = useState('#ef4444'); // Red default
-  const strokesRef = useRef([]); // Store drawing paths
+  const [color, setColor] = useState('#ef4444');
+  const strokesRef = useRef([]); 
 
-  // Canvas Drawing Logic
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
@@ -229,7 +226,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
 
   const stopDrawing = () => setIsDrawing(false);
 
-  // Canvas Animation Loop (Fade out effect)
   useEffect(() => {
     const animate = () => {
       const canvas = canvasRef.current;
@@ -238,11 +234,10 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const now = Date.now();
 
-        // Filter out old strokes
         strokesRef.current = strokesRef.current.filter(s => s.opacity > 0);
 
         strokesRef.current.forEach(stroke => {
-          if (now - stroke.timestamp > 2000) stroke.opacity -= 0.02; // Fade after 2s
+          if (now - stroke.timestamp > 2000) stroke.opacity -= 0.02;
           
           ctx.beginPath();
           ctx.strokeStyle = stroke.color;
@@ -265,7 +260,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Resize canvas to match video
   useEffect(() => {
     if(canvasRef.current && videoRef.current) {
       canvasRef.current.width = videoRef.current.clientWidth;
@@ -275,7 +269,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
-      {/* Toolbar */}
       <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-slate-800/50">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white">
@@ -303,7 +296,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Video Stage */}
         <div className="flex-1 p-6 flex flex-col gap-6 overflow-y-auto">
           <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl aspect-video border border-slate-700">
             <video 
@@ -321,7 +313,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
             />
-            {/* Floating Controls */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex items-center gap-4">
               <button onClick={() => { if(videoRef.current.paused) {videoRef.current.play(); setIsPlaying(true)} else {videoRef.current.pause(); setIsPlaying(false)} }}>
                 {isPlaying ? <Pause className="fill-white" /> : <Play className="fill-white" />}
@@ -330,7 +321,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
             </div>
           </div>
 
-          {/* Metrics Grid */}
           <div className="grid grid-cols-4 gap-4">
             {[
               { l: 'Stroke Rate', v: data.strokeRate },
@@ -346,7 +336,6 @@ const AnalysisResult = ({ data, videoUrl, onBack }) => {
           </div>
         </div>
 
-        {/* Sidebar Results */}
         <div className="w-96 bg-slate-800 border-l border-slate-700 p-6 overflow-y-auto">
           <div className="bg-blue-900/30 border border-blue-500/30 p-4 rounded-xl mb-6">
             <h4 className="text-blue-300 text-sm font-bold mb-2 flex items-center gap-2"><Scan size={16}/> AI Insight</h4>
