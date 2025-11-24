@@ -28,7 +28,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 export default function App() {
   const [session, setSession] = useState(null)
   const [view, setView] = useState('dashboard')
-  const [swimmers, setSwimmers] = useState([]) // Empty initially, fetched from DB
+  const [swimmers, setSwimmers] = useState([]) 
   const [selectedSwimmer, setSelectedSwimmer] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -53,13 +53,152 @@ export default function App() {
     }
   }, [session])
 
-  const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
+  const fetchRoster = async () => {
+    const { data, error } = await supabase
+      .from('swimmers')
+      .select('*')
+      .eq('coach_id', session.user.id)
+    
+    if (error) console.error('Error fetching roster:', error)
+    else setSwimmers(data || [])
+  }
+
+  // 3. Navigation Handlers
+  const navigateTo = (v) => {
+    setView(v)
+    if(v !== 'roster') setSelectedSwimmer(null)
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setSwimmers([])
+  }
+
+  // --- RENDER ---
+
+  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>
+  if (!session) return <Login />
+
+  return (
+    <div className="flex min-h-screen bg-[#f8fafc]">
+      <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
+      
+      <main className="flex-1 h-screen overflow-hidden md:ml-64">
+        {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} />}
+        {view === 'roster' && (
+          <Roster 
+            swimmers={swimmers} 
+            setSwimmers={setSwimmers} 
+            setViewSwimmer={(s) => { setSelectedSwimmer(s); setView('profile'); }}
+            navigateTo={navigateTo}
+            supabase={supabase} 
+          />
+        )}
+        {view === 'profile' && selectedSwimmer && (
+           <SwimmerProfile 
+             swimmer={selectedSwimmer} 
+             onBack={() => setView('roster')}
+             navigateTo={navigateTo}
+           />
+        )}
+        {view === 'analysis' && <div className="p-8">Analysis Page (Coming Soon)</div>}
+      </main>
+    </div>
+  )
+}
+
+// --- SUB COMPONENTS ---
+
+const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
+  const items = [
+    { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+    { id: 'analysis', icon: 'video', label: 'AI Analysis' },
+    { id: 'roster', icon: 'users', label: 'Roster' },
+  ];
+
+  return (
+    <aside className="w-64 bg-[#0f172a] flex-col p-6 fixed h-full z-10 hidden md:flex">
+       <div className="flex items-center gap-3 mb-10 px-2">
+           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+               <Icon name="waves" className="text-white" size={20} />
+           </div>
+           <h1 className="text-white font-bold text-xl">StormTracker</h1>
+       </div>
+       <nav className="space-y-2 flex-1">
+           {items.map(item => (
+               <div key={item.id} onClick={() => setActiveTab(item.id)} 
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                   <Icon name={item.icon} size={20} />
+                   <span className="font-medium">{item.label}</span>
+               </div>
+           ))}
+       </nav>
+       <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm">Sign Out</button>
+    </aside>
+  );
+};
+
+const Dashboard = ({ navigateTo, swimmers }) => {
+  const activeCount = swimmers ? swimmers.length : 0;
+
+  return (
+    <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
+      <header className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
+        <div className="flex items-center gap-4">
+          <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">
+            HC
+          </div>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm font-medium mb-2">Team Efficiency</p>
+          <h3 className="text-3xl font-bold text-slate-800">84%</h3>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm font-medium mb-2">Active Swimmers</p>
+          <h3 className="text-3xl font-bold text-slate-800">{activeCount}</h3>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm font-medium mb-2">Videos Analyzed</p>
+          <h3 className="text-3xl font-bold text-slate-800">142</h3>
+        </div>
+
+        <div 
+          onClick={() => navigateTo('analysis')} 
+          className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden cursor-pointer hover:bg-blue-700 transition-colors group"
+        >
+          <div>
+            <h3 className="text-lg font-bold">New Analysis</h3>
+            <p className="text-blue-100 text-sm mt-1">Upload stroke video</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="mt-8">
+         <h3 className="font-bold text-slate-800 text-lg mb-4">Attention Required</h3>
+         <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-4">
+            <div className="w-10 h-10 bg-white text-red-500 rounded-full flex items-center justify-center font-bold">M</div>
+            <div>
+               <h4 className="font-bold text-slate-800">Mia Kobayashi</h4>
+               <p className="text-xs text-red-500 font-medium">Efficiency dropped -4%</p>
+            </div>
+         </div>
+      </div>
+    </div>
+  );
+};
+
+const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
     const [showImport, setShowImport] = useState(false);
-    const [importType, setImportType] = useState('roster'); // 'roster' or 'results'
+    const [importType, setImportType] = useState('roster'); 
     const [isImporting, setIsImporting] = useState(false);
     const fileInputRef = useRef(null);
 
-    // --- 1. Helper: Calculate Age ---
     const calculateAge = (dobStr) => {
         if (!dobStr || dobStr.length !== 8) return null;
         const month = parseInt(dobStr.substring(0, 2)) - 1;
@@ -76,7 +215,6 @@ export default function App() {
         return age;
     };
 
-    // --- 2. Helper: CSV Parser (Handles quoted commas) ---
     const parseCSVWithQuotes = (text) => {
         const rows = [];
         let currentRow = [];
@@ -116,34 +254,24 @@ export default function App() {
         return rows;
     };
 
-    // --- 3. Helper: Process Results CSV and Upload to Supabase ---
     const handleResultsImport = async (text) => {
         const rows = parseCSVWithQuotes(text);
-        let matchCount = 0;
         const entriesToInsert = [];
-
-        // Create a lookup map for swimmers to find IDs quickly
-        // Keys: "last, first", "first last", and regId
         const swimmerMap = {}; 
+        
         swimmers.forEach(s => {
-            const fullName = s.name.toLowerCase(); // "john doe"
+            const fullName = s.name.toLowerCase(); 
             swimmerMap[fullName] = s.id;
-            
-            // Handle "Doe, John" format if needed
             const parts = fullName.split(' ');
             if(parts.length > 1) {
                 swimmerMap[`${parts[1]}, ${parts[0]}`] = s.id;
             }
         });
 
-        // Skip header row (i=1)
         for(let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if(row.length < 5) continue; 
 
-            // Typical Meet Manager CSV Columns:
-            // 1: Name (Last, First) | 2: Age | 4: Event | 6: Time | 10: Date
-            // Adjust these indices based on your specific CSV export format
             const nameCell = row[1]; 
             const eventCell = row[2]; 
             const finalsTime = row[5]; 
@@ -151,22 +279,17 @@ export default function App() {
 
             if (!nameCell) continue;
 
-            // Clean Name
             let targetId = null;
             let cleanName = nameCell.toLowerCase().replace(/['"]/g, '');
             
-            // Try to match
             if (swimmerMap[cleanName]) {
                 targetId = swimmerMap[cleanName];
             }
 
-            // Check for valid time
             const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "";
 
             if (targetId && isValidTime(finalsTime)) {
-                // Clean Event Name (remove newlines often found in CSVs)
                 let cleanEvent = eventCell.replace(/\n/g, ' ').trim();
-
                 entriesToInsert.push({
                     swimmer_id: targetId,
                     event: cleanEvent,
@@ -178,11 +301,7 @@ export default function App() {
         }
 
         if (entriesToInsert.length > 0) {
-            // Bulk Insert into Supabase
-            const { error } = await supabase
-                .from('results')
-                .insert(entriesToInsert);
-
+            const { error } = await supabase.from('results').insert(entriesToInsert);
             if (error) {
                 alert("Database error: " + error.message);
             } else {
@@ -194,7 +313,6 @@ export default function App() {
         }
     };
 
-    // --- 4. Main File Handler ---
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -217,7 +335,6 @@ export default function App() {
                         alert("No valid roster records found in file.");
                     }
                 } else {
-                    // --- RUN RESULTS IMPORT ---
                     await handleResultsImport(text);
                 }
             } catch (err) {
@@ -231,7 +348,6 @@ export default function App() {
         e.target.value = null; 
     };
 
-    // --- 5. SD3 Parser Logic (Existing) ---
     const parseSD3Roster = async (text) => {
         const lines = text.split(/\r\n|\n/);
         const newEntries = [];
@@ -272,7 +388,6 @@ export default function App() {
         return newEntries;
     };
 
-    // --- 6. Helper: Manual Add Swimmer (Quick Prompt) ---
     const handleAddManual = async () => {
         const name = window.prompt("Enter Swimmer Name:");
         if (!name) return;
@@ -347,397 +462,6 @@ export default function App() {
                 </table>
             </div>
 
-            {/* Import Modal */}
-            {showImport && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-lg font-bold text-slate-800">
-                                {importType === 'roster' ? 'Import Team Roster' : 'Import Meet Results'}
-                            </h3>
-                            <button onClick={() => setShowImport(false)} className="text-slate-400 hover:text-slate-600"><Icon name="x" size={20} /></button>
-                        </div>
-                        
-                        <input 
-                            type="file" 
-                            ref={fileInputRef} 
-                            onChange={handleFileSelect} 
-                            className="hidden" 
-                            accept={importType === 'roster' ? ".sd3,.csv" : ".csv,.xls,.xlsx"} 
-                        />
-                        
-                        <div 
-                            onClick={() => fileInputRef.current.click()}
-                            className={`border-2 border-dashed rounded-xl p-12 flex flex-col items-center justify-center text-center bg-slate-50 mb-6 group cursor-pointer transition-colors ${importType === 'results' ? 'border-yellow-300 hover:bg-yellow-50' : 'border-slate-300 hover:bg-slate-100 hover:border-blue-400'}`}
-                        >
-                            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform ${importType === 'results' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'}`}>
-                                <Icon name={importType === 'results' ? 'trophy' : 'file-up'} size={24} />
-                            </div>
-                            <p className="text-slate-800 font-bold text-lg mb-1">
-                                {isImporting ? 'Processing...' : 'Drag & drop or click to upload'}
-                            </p>
-                            <p className="text-slate-500 text-sm">
-                                {importType === 'roster' ? 'Supports .sd3 (Standard) or .csv' : 'Supports .csv export from Meet Manager'}
-                            </p>
-                        </div>
-                        <div className="flex justify-end gap-3">
-                            <button onClick={() => setShowImport(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-  // 3. Navigation Handlers
-  const navigateTo = (v) => {
-    setView(v)
-    if(v !== 'roster') setSelectedSwimmer(null)
-  }
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setSwimmers([])
-  }
-
-  // --- RENDER ---
-
-  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>
-  if (!session) return <Login />
-
-  return (
-    <div className="flex min-h-screen bg-[#f8fafc]">
-      <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
-      
-      <main className="flex-1 h-screen overflow-hidden md:ml-64">
-        {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} />}
-        {view === 'roster' && (
-          <Roster 
-            swimmers={swimmers} 
-            setSwimmers={setSwimmers} 
-            setViewSwimmer={(s) => { setSelectedSwimmer(s); setView('profile'); }}
-            navigateTo={navigateTo}
-            supabase={supabase} // Pass supabase down for uploads
-          />
-        )}
-        {view === 'profile' && selectedSwimmer && (
-           <SwimmerProfile 
-             swimmer={selectedSwimmer} 
-             onBack={() => setView('roster')}
-             navigateTo={navigateTo}
-           />
-        )}
-        {view === 'analysis' && <div className="p-8">Analysis Page (Coming Soon)</div>}
-      </main>
-    </div>
-  )
-}
-
-// --- SUB COMPONENTS ---
-
-const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
-  const items = [
-    { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
-    { id: 'analysis', icon: 'video', label: 'AI Analysis' },
-    { id: 'roster', icon: 'users', label: 'Roster' },
-  ];
-
-  return (
-    <aside className="w-64 bg-[#0f172a] flex-col p-6 fixed h-full z-10 hidden md:flex">
-       <div className="flex items-center gap-3 mb-10 px-2">
-           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-               <Icon name="waves" className="text-white" size={20} />
-           </div>
-           <h1 className="text-white font-bold text-xl">StormTracker</h1>
-       </div>
-       <nav className="space-y-2 flex-1">
-           {items.map(item => (
-               <div key={item.id} onClick={() => setActiveTab(item.id)} 
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                   <Icon name={item.icon} size={20} />
-                   <span className="font-medium">{item.label}</span>
-               </div>
-           ))}
-       </nav>
-       <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm">Sign Out</button>
-    </aside>
-  );
-};
-
-const Dashboard = ({ navigateTo, swimmers }) => {
-  // We use the real length of the database results for the count
-  const activeCount = swimmers ? swimmers.length : 0;
-
-  return (
-    <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
-      <header className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
-        <div className="flex items-center gap-4">
-          <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">
-            HC
-          </div>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm font-medium mb-2">Team Efficiency</p>
-          <h3 className="text-3xl font-bold text-slate-800">84%</h3>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm font-medium mb-2">Active Swimmers</p>
-          <h3 className="text-3xl font-bold text-slate-800">{activeCount}</h3>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm font-medium mb-2">Videos Analyzed</p>
-          <h3 className="text-3xl font-bold text-slate-800">142</h3>
-        </div>
-
-        <div 
-          onClick={() => navigateTo('analysis')} 
-          className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden cursor-pointer hover:bg-blue-700 transition-colors group"
-        >
-          <div>
-            <h3 className="text-lg font-bold">New Analysis</h3>
-            <p className="text-blue-100 text-sm mt-1">Upload stroke video</p>
-          </div>
-        </div>
-      </div>
-      
-      {/* Alert Section */}
-      <div className="mt-8">
-         <h3 className="font-bold text-slate-800 text-lg mb-4">Attention Required</h3>
-         <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-4">
-            <div className="w-10 h-10 bg-white text-red-500 rounded-full flex items-center justify-center font-bold">M</div>
-            <div>
-               <h4 className="font-bold text-slate-800">Mia Kobayashi</h4>
-               <p className="text-xs text-red-500 font-medium">Efficiency dropped -4%</p>
-            </div>
-         </div>
-      </div>
-    </div>
-  );
-};
-
-const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
-    const [showImport, setShowImport] = useState(false);
-    const [importType, setImportType] = useState('roster'); // 'roster' or 'results'
-    const [isImporting, setIsImporting] = useState(false);
-    const fileInputRef = useRef(null);
-
-    // --- 1. Helper: Calculate Age ---
-    const calculateAge = (dobStr) => {
-        if (!dobStr || dobStr.length !== 8) return null;
-        const month = parseInt(dobStr.substring(0, 2)) - 1;
-        const day = parseInt(dobStr.substring(2, 4));
-        const year = parseInt(dobStr.substring(4, 8));
-        
-        const birthDate = new Date(year, month, day);
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const m = today.getMonth() - birthDate.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
-        }
-        return age;
-    };
-
-    // --- 2. Helper: Manual Add Swimmer (Quick Prompt) ---
-    const handleAddManual = async () => {
-        const name = window.prompt("Enter Swimmer Name:");
-        if (!name) return;
-
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
-
-        const newSwimmer = {
-            name: name,
-            group_name: "Unassigned", // Default group
-            status: "New",
-            efficiency_score: 50, // Default score
-            coach_id: user.id
-        };
-
-        const { data, error } = await supabase
-            .from('swimmers')
-            .insert([newSwimmer])
-            .select();
-
-        if (error) {
-            alert("Error adding swimmer: " + error.message);
-        } else {
-            // Update UI immediately
-            setSwimmers(prev => [...prev, ...data]);
-        }
-    };
-
-    // --- 3. Parsing Logic (SD3 / CSV) ---
-    const parseSD3Roster = async (text) => {
-        const lines = text.split(/\r\n|\n/);
-        const newEntries = [];
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        // SD3 "D0" Record Regex
-        const d0Regex = /^D0\d[A-Z0-9]{2,6}\s+(.+?)\s+[A-Z0-9]{8,}/;
-
-        lines.forEach((line) => {
-            if (line.startsWith("D0")) {
-                let cleanName = "";
-                let age = null;
-
-                const match = line.match(d0Regex);
-                if (match && match[1]) {
-                    cleanName = match[1].trim();
-                } else {
-                    // Fallback for fixed width
-                    let rawSection = line.substring(5, 45);
-                    cleanName = rawSection.replace(/^[A-Z0-9]{2,6}\s+/, '').trim();
-                    cleanName = cleanName.replace(/\s+[A-Z0-9]{5,}$/, '').trim();
-                }
-
-                if (cleanName) {
-                    cleanName = cleanName.replace(/\s[A-Z0-9]{6,}$/i, '').trim();
-                    const dobStr = line.substring(55, 63).trim();
-                    age = calculateAge(dobStr);
-
-                    // Name Formatting (Last, First M)
-                    if (cleanName.includes(',')) {
-                        const parts = cleanName.split(',');
-                        if (parts.length >= 2) {
-                            cleanName = `${parts[1].trim()} ${parts[0].trim()}`;
-                        }
-                    }
-                    
-                    // Title Case
-                    const formattedName = cleanName.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                    
-                    newEntries.push({
-                        name: formattedName,
-                        group_name: "Imported",
-                        status: "New",
-                        efficiency_score: 70, // Baseline
-                        age: age,
-                        coach_id: user.id
-                    });
-                }
-            }
-        });
-        return newEntries;
-    };
-
-    const handleFileSelect = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        setIsImporting(true);
-        const reader = new FileReader();
-        
-        reader.onload = async (event) => {
-            const text = event.target.result;
-            try {
-                if (importType === 'roster') {
-                    // 1. Parse Data
-                    const newSwimmersData = await parseSD3Roster(text);
-                    
-                    if (newSwimmersData.length > 0) {
-                        // 2. Insert into Supabase
-                        const { data, error } = await supabase
-                            .from('swimmers')
-                            .insert(newSwimmersData)
-                            .select();
-
-                        if (error) throw error;
-
-                        // 3. Update State
-                        setSwimmers(prev => [...prev, ...data]);
-                        alert(`Successfully imported ${data.length} swimmers!`);
-                        setShowImport(false);
-                    } else {
-                        alert("No valid roster records found in file.");
-                    }
-                } else {
-                    alert("Result import not yet connected to database (Coming Soon)");
-                }
-            } catch (err) {
-                console.error(err);
-                alert("Error importing: " + err.message);
-            } finally {
-                setIsImporting(false);
-            }
-        };
-        reader.readAsText(file);
-        e.target.value = null; 
-    };
-
-    return (
-        <div className="p-4 md:p-8 h-full flex flex-col relative">
-             <header className="flex justify-between items-center mb-8 shrink-0">
-                <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
-                <div className="flex gap-3">
-                     <button onClick={() => { setImportType('results'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-blue-600 transition-colors">
-                        <Icon name="trophy" size={16} /> Import Results
-                    </button>
-                     <button onClick={() => { setImportType('roster'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
-                        <Icon name="file-up" size={16} /> Import Roster
-                    </button>
-                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-                        <Icon name="plus" size={16} /> Add Swimmer
-                    </button>
-                </div>
-            </header>
-
-            <div className="bg-white border border-slate-200 rounded-xl overflow-y-auto flex-1 min-h-0 shadow-sm">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                        <tr>
-                            <th className="px-6 py-4 font-medium bg-slate-50">Name</th>
-                            <th className="px-6 py-4 font-medium bg-slate-50">Group</th>
-                            <th className="px-6 py-4 font-medium bg-slate-50">Status</th>
-                            <th className="px-6 py-4 font-medium bg-slate-50">Efficiency Score</th>
-                            <th className="px-6 py-4 font-medium text-right bg-slate-50">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {swimmers.length === 0 && (
-                            <tr>
-                                <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
-                                    No swimmers found. Add one manually or import a roster file.
-                                </td>
-                            </tr>
-                        )}
-                        {swimmers.map(s => (
-                            <tr key={s.id} onClick={() => { setViewSwimmer(s); }} className="hover:bg-slate-50 cursor-pointer transition-colors group">
-                                <td className="px-6 py-4 font-medium text-slate-900">{s.name}</td>
-                                <td className="px-6 py-4 text-slate-500">{s.group_name || 'Unassigned'}</td>
-                                <td className="px-6 py-4">
-                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${s.status === 'Needs Attention' ? 'text-red-500 bg-red-50' : 'text-emerald-500 bg-emerald-50'}`}>
-                                        {s.status || 'Active'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div 
-                                                className={`h-full rounded-full ${s.efficiency_score < 75 ? 'bg-red-500' : 'bg-emerald-500'}`} 
-                                                style={{ width: `${s.efficiency_score || 50}%` }}>
-                                            </div>
-                                        </div>
-                                        <span className="font-bold text-slate-700">{s.efficiency_score || '-'}</span>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <button className="text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">Edit</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Import Modal */}
             {showImport && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl">
@@ -789,12 +513,10 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
     const [isUploading, setIsUploading] = useState(false);
     const videoInputRef = useRef(null);
 
-    // --- 1. Fetch Real Data on Mount ---
     useEffect(() => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
 
-            // Fetch Results
             const { data: resultsData } = await supabase
                 .from('results')
                 .select('*')
@@ -803,7 +525,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
             
             if (resultsData) setResults(resultsData);
 
-            // Fetch AI Analyses
             const { data: analysesData } = await supabase
                 .from('analyses')
                 .select('*')
@@ -816,7 +537,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         fetchData();
     }, [swimmer]);
 
-    // --- 2. Charting Helpers ---
     const uniqueEvents = useMemo(() => {
         const events = [...new Set(results.map(r => r.event))];
         return events.sort();
@@ -848,7 +568,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
             .sort((a, b) => new Date(a.date) - new Date(b.date));
     }, [selectedEvent, results]);
 
-    // --- 3. Video Upload Logic ---
     const handleUploadClick = (resultId) => {
         setUploadingResultId(resultId);
         videoInputRef.current.click();
@@ -862,19 +581,16 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
         try {
             const fileName = `${swimmer.id}/${Date.now()}_${file.name}`;
             
-            // A. Upload to Storage
             const { error: uploadError } = await supabase.storage
                 .from('race-videos')
                 .upload(fileName, file);
             
             if (uploadError) throw uploadError;
 
-            // B. Get Public URL
             const { data: { publicUrl } } = supabase.storage
                 .from('race-videos')
                 .getPublicUrl(fileName);
 
-            // C. Update Database Record
             const { error: dbError } = await supabase
                 .from('results')
                 .update({ video_url: publicUrl })
@@ -884,7 +600,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
 
             alert("Video uploaded successfully!");
             
-            // Refresh local state to show "Watch Analysis" button
             setResults(prev => prev.map(r => 
                 r.id === uploadingResultId ? { ...r, video_url: publicUrl } : r
             ));
@@ -901,7 +616,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
 
     return (
         <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
@@ -919,11 +633,9 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             </div>
 
-            {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Performance Chart */}
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
@@ -959,7 +671,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                         </div>
                     </div>
                     
-                    {/* Right Column: Recent Analysis & Notes */}
                     <div className="space-y-6">
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
@@ -975,7 +686,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             )}
 
-            {/* --- TAB 2: RESULTS --- */}
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex justify-between items-center">
@@ -983,7 +693,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                         <button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button>
                     </div>
                     
-                    {/* Hidden Input for Uploads */}
                     <input type="file" ref={videoInputRef} onChange={handleFileChange} className="hidden" accept="video/mp4,video/quicktime" />
 
                     {results.length > 0 ? (
@@ -1035,7 +744,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo }) => {
                 </div>
             )}
 
-            {/* --- TAB 3: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100">
