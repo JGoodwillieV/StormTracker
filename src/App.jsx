@@ -12,9 +12,6 @@ import {
 } from 'lucide-react'
 
 // --- Icon Helper ---
-// Using Lucide-React directly now, so we don't need the old Icon helper!
-// Anywhere your old code used <Icon name="x" />, change it to the actual component <X /> 
-// OR use this wrapper to keep your old code working:
 const Icon = ({ name, size = 20, className = "" }) => {
   const icons = {
     'layout-dashboard': LayoutDashboard, 'video': Video, 'users': Users, 'file-video': FileVideo,
@@ -105,13 +102,13 @@ export default function App() {
              navigateTo={navigateTo}
            />
         )}
-        {view === 'analysis' && <div className="p-8">Analysis Page (Needs your Component)</div>}
+        {view === 'analysis' && <div className="p-8">Analysis Page (Coming Soon)</div>}
       </main>
     </div>
   )
 }
 
-// --- SUB COMPONENTS (You need to paste your UI logic back in here) ---
+// --- SUB COMPONENTS ---
 
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
@@ -142,17 +139,6 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   );
 };
 
-const Dashboard = ({ navigateTo, swimmers }) => {
-  // Simple example using real data count
-  return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
-      <div className="grid grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-           <p className="text-slate-500 text-sm">Active Swimmers</p>
-           <h3 className="text-3xl font-bold">{swimmers.length}</h3>
-        </div>
-      </div>
 const Dashboard = ({ navigateTo, swimmers }) => {
   // We use the real length of the database results for the count
   const activeCount = swimmers ? swimmers.length : 0;
