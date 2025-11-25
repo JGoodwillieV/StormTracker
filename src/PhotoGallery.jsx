@@ -1,13 +1,14 @@
 // src/PhotoGallery.jsx
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-// FIX: Added 'Check' to the imports
 import { Image as ImageIcon, Plus, X, UserPlus, Search, Loader2, Check } from 'lucide-react';
+import PhotoModal from './PhotoModal'; // Import the new modal
 
 export default function PhotoGallery({ swimmerId, roster }) {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState(null); // Track clicked photo
   
   // Upload State
   const [uploading, setUploading] = useState(false);
@@ -21,7 +22,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
     const fetchPhotos = async () => {
       if (!swimmerId) return;
       
-      // A. Find all photo IDs where this swimmer is tagged
       const { data: tags } = await supabase
         .from('photo_tags')
         .select('photo_id')
@@ -35,7 +35,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
       const photoIds = tags.map(t => t.photo_id);
 
-      // B. Fetch the actual photo details
       const { data: photoData } = await supabase
         .from('photos')
         .select('*')
@@ -49,9 +48,7 @@ export default function PhotoGallery({ swimmerId, roster }) {
     fetchPhotos();
   }, [swimmerId]);
 
-  // 2. Handle Tagging Logic
   const toggleTag = (swimmer) => {
-    // Check if already tagged
     if (taggedSwimmers.find(s => s.id === swimmer.id)) {
       setTaggedSwimmers(prev => prev.filter(s => s.id !== swimmer.id));
     } else {
@@ -59,13 +56,11 @@ export default function PhotoGallery({ swimmerId, roster }) {
     }
   };
 
-  // 3. Handle Upload & Save
   const handleUpload = async () => {
     if (!selectedFile) return alert("Please select a photo.");
 
     setUploading(true);
     try {
-      // A. Upload Image
       const fileExt = selectedFile.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
@@ -78,7 +73,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
         .from('swimmer-photos')
         .getPublicUrl(fileName);
 
-      // B. Insert into Photos Table
       const { data: photoRecord, error: dbError } = await supabase
         .from('photos')
         .insert([{ url: publicUrl, caption: caption }])
@@ -87,8 +81,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
       if (dbError) throw dbError;
 
-      // C. Create Tags (Current Profile + Any Tagged Friends)
-      // Always tag the swimmer whose profile we are currently on!
       const allIdsToTag = new Set([swimmerId, ...taggedSwimmers.map(s => s.id)]);
       
       const tagInserts = Array.from(allIdsToTag).map(id => ({
@@ -98,14 +90,13 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
       await supabase.from('photo_tags').insert(tagInserts);
 
-      // D. Cleanup & Update UI
       setPhotos(prev => [photoRecord, ...prev]);
       setIsModalOpen(false);
       setSelectedFile(null);
       setCaption("");
       setTaggedSwimmers([]);
       setSearchQuery("");
-      alert("Photo uploaded and swimmers tagged!");
+      alert("Photo uploaded!");
 
     } catch (error) {
       console.error(error);
@@ -115,12 +106,10 @@ export default function PhotoGallery({ swimmerId, roster }) {
     }
   };
 
-  // Ensure roster exists before filtering
   const safeRoster = roster || [];
-  
   const filteredRoster = safeRoster.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
-    s.id !== swimmerId // Don't show current swimmer in search (auto-tagged)
+    s.id !== swimmerId 
   );
 
   return (
@@ -150,7 +139,11 @@ export default function PhotoGallery({ swimmerId, roster }) {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {photos.map(photo => (
-            <div key={photo.id} className="group relative aspect-square bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+            <div 
+                key={photo.id} 
+                onClick={() => setSelectedPhoto(photo)} // CLICK HANDLER
+                className="group relative aspect-square bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm cursor-pointer"
+            >
               <img src={photo.url} alt="Swimmer moment" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>
               {photo.caption && (
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-8">
@@ -172,7 +165,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
             </div>
             
             <div className="p-6 overflow-y-auto space-y-6">
-              {/* File Input */}
               <div>
                 <input 
                   type="file" 
@@ -181,8 +173,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
                   className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
               </div>
-
-              {/* Caption */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Caption</label>
                 <input 
@@ -193,14 +183,10 @@ export default function PhotoGallery({ swimmerId, roster }) {
                   className="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
-
-              {/* Tagging Interface */}
               <div className="border-t pt-4">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
                   <UserPlus size={14}/> Tag Teammates
                 </label>
-                
-                {/* Selected Tags */}
                 <div className="flex flex-wrap gap-2 mb-3">
                     {taggedSwimmers.map(s => (
                         <span key={s.id} className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
@@ -208,8 +194,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
                         </span>
                     ))}
                 </div>
-
-                {/* Search */}
                 <div className="relative mb-2">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                     <input 
@@ -220,8 +204,6 @@ export default function PhotoGallery({ swimmerId, roster }) {
                         className="w-full pl-9 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
                     />
                 </div>
-
-                {/* Search Results */}
                 <div className="max-h-32 overflow-y-auto border rounded-lg divide-y">
                     {filteredRoster.length > 0 ? filteredRoster.map(s => {
                         const isTagged = taggedSwimmers.some(ts => ts.id === s.id);
@@ -256,6 +238,10 @@ export default function PhotoGallery({ swimmerId, roster }) {
           </div>
         </div>
       )}
+      
+      {/* NEW FULL SCREEN VIEWER */}
+      <PhotoModal photo={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
+
     </div>
   );
 }
