@@ -7,6 +7,8 @@ import Analysis from './Analysis'
 import AnalysisResult from './AnalysisResult'
 import VersatilityChart from './VersatilityChart'
 import TrophyCase from './TrophyCase'
+import PhotoGallery from './PhotoGallery'
+import { Image as ImageIcon } from 'lucide-react' // Add Image icon import
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts'
@@ -109,6 +111,7 @@ export default function App() {
         {view === 'profile' && selectedSwimmer && (
            <SwimmerProfile 
              swimmer={selectedSwimmer} 
+             swimmers={swimmers}
              onBack={() => setView('roster')}
              navigateTo={navigateTo}
              onViewAnalysis={handleViewAnalysis} 
@@ -447,7 +450,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
     );
 };
 
-const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
+const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis }) => {
     const [activeTab, setActiveTab] = useState('overview');
     const [results, setResults] = useState([]);
     const [analyses, setAnalyses] = useState([]);
@@ -461,6 +464,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
 
+            // Fetch Results
             const { data: resultsData } = await supabase
                 .from('results')
                 .select('*')
@@ -469,6 +473,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             
             if (resultsData) setResults(resultsData);
 
+            // Fetch Analyses
             const { data: analysesData } = await supabase
                 .from('analyses')
                 .select('*')
@@ -490,10 +495,9 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         return clean.trim();
     };
 
-    // FIXED: Handle DQs and Non-Times robustly
+    // Robust Time Parser (Handles DQs)
     const timeToSeconds = (timeStr) => {
         if (!timeStr) return null;
-        // Explicitly ignore non-time strings
         if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return null;
         
         const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
@@ -506,8 +510,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         } else {
             val = parseFloat(parts[0]);
         }
-        
-        // Safety check for parsing errors
         return isNaN(val) ? null : val;
     };
 
@@ -536,8 +538,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             const dateKey = r.date; 
             const seconds = timeToSeconds(r.time);
             
-            // Skip DQs/Invalid times for the chart data
-            if (seconds === null) return;
+            if (seconds === null) return; // Skip DQs for graph
 
             if (!bestTimePerDay[dateKey] || seconds < bestTimePerDay[dateKey].seconds) {
                 bestTimePerDay[dateKey] = {
@@ -554,10 +555,9 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
     }, [selectedEvent, results]);
 
-    // Calculate Best Time Overall (Ensuring we don't accidentally pick a null/0)
+    // Calculate Best Time Overall
     const bestTimeOverall = useMemo(() => {
-        // Filter out nulls first!
-        const validTimes = chartData.map(d => d.seconds).filter(s => s !== null && s > 0);
+        const validTimes = chartData.map(d => d.seconds).filter(s => s !== null);
         if (validTimes.length === 0) return null;
         return Math.min(...validTimes);
     }, [chartData]);
@@ -591,7 +591,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         const pTime = group.prelim ? timeToSeconds(group.prelim.time) : null;
         const fTime = group.finals ? timeToSeconds(group.finals.time) : null;
         
-        // Logic to find valid times
         const validToday = [pTime, fTime].filter(t => t !== null && t > 0);
         if (validToday.length === 0) return null;
         const bestToday = Math.min(...validToday);
@@ -660,9 +659,11 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>Overview</button>
                     <button onClick={() => setActiveTab('results')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'results' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><Icon name="trophy" size={14} /> Meet Results</button>
                     <button onClick={() => setActiveTab('analysis')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'analysis' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><Icon name="video" size={14} /> Video Analysis</button>
+                    <button onClick={() => setActiveTab('photos')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'photos' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><ImageIcon size={14} /> Photos</button>
                 </div>
             </div>
 
+            {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
@@ -705,7 +706,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                                 dataKey="seconds" 
                                                 stroke="#3b82f6" 
                                                 strokeWidth={3} 
-                                                connectNulls={true} // Connects line over missing data
+                                                connectNulls={true} 
                                                 dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
                                             />
                                         </LineChart>
@@ -729,19 +730,21 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     </div>
                     
                     <div className="space-y-6">
-                      {/* NEW TROPHY CASE */}
-                          <TrophyCase 
-                          swimmerId={swimmer.id}
-                          age={swimmer.age}
-                          gender={swimmer.gender || 'M'}
-                          />  
-                      
-                      {/* NEW RADAR CHART */}
-                          <VersatilityChart 
-                          swimmerId={swimmer.id} 
-                          age={swimmer.age} 
-                          gender={swimmer.gender || 'M'} 
-                          />
+                        
+                        {/* TROPHY CASE (Badges) */}
+                        <TrophyCase 
+                            swimmerId={swimmer.id}
+                            age={swimmer.age}
+                            gender={swimmer.gender || 'M'}
+                        />
+
+                        {/* VERSATILITY CHART (Radar) */}
+                        <VersatilityChart 
+                            swimmerId={swimmer.id} 
+                            age={swimmer.age} 
+                            gender={swimmer.gender || 'M'} 
+                        />
+
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
                             <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
@@ -754,6 +757,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                 </div>
             )}
 
+            {/* --- TAB 2: RESULTS --- */}
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -840,6 +844,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                 </div>
             )}
 
+            {/* --- TAB 3: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100">
@@ -868,6 +873,16 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                             <button onClick={() => navigateTo('analysis')} className="mt-2 text-blue-600 hover:underline text-sm font-medium">Go to Analysis Tool</button>
                         </div>
                     )}
+                </div>
+            )}
+            
+             {/* --- TAB 4: PHOTOS --- */}
+            {activeTab === 'photos' && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px] p-6">
+                    <PhotoGallery 
+                        swimmerId={swimmer.id} 
+                        roster={swimmers} 
+                    />
                 </div>
             )}
         </div>
