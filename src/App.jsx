@@ -460,7 +460,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
 
-            // Fetch Results
             const { data: resultsData } = await supabase
                 .from('results')
                 .select('*')
@@ -469,7 +468,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             
             if (resultsData) setResults(resultsData);
 
-            // Fetch Analyses
             const { data: analysesData } = await supabase
                 .from('analyses')
                 .select('*')
@@ -491,13 +489,25 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         return clean.trim();
     };
 
+    // FIXED: Handle DQs and Non-Times robustly
     const timeToSeconds = (timeStr) => {
-        if (!timeStr) return 999999; 
+        if (!timeStr) return null;
+        // Explicitly ignore non-time strings
+        if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return null;
+        
         const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
+        if (!cleanStr) return null;
+
         const parts = cleanStr.split(':');
-        return parts.length === 2 
-            ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
-            : parseFloat(parts[0]);
+        let val = 0;
+        if (parts.length === 2) {
+            val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+        } else {
+            val = parseFloat(parts[0]);
+        }
+        
+        // Safety check for parsing errors
+        return isNaN(val) ? null : val;
     };
 
     const secondsToTime = (val) => {
@@ -525,6 +535,9 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             const dateKey = r.date; 
             const seconds = timeToSeconds(r.time);
             
+            // Skip DQs/Invalid times for the chart data
+            if (seconds === null) return;
+
             if (!bestTimePerDay[dateKey] || seconds < bestTimePerDay[dateKey].seconds) {
                 bestTimePerDay[dateKey] = {
                     date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
@@ -540,10 +553,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
     }, [selectedEvent, results]);
 
-    // Calculate Best Time Overall for this event
+    // Calculate Best Time Overall (Ensuring we don't accidentally pick a null/0)
     const bestTimeOverall = useMemo(() => {
-        if (chartData.length === 0) return null;
-        return Math.min(...chartData.map(d => d.seconds));
+        // Filter out nulls first!
+        const validTimes = chartData.map(d => d.seconds).filter(s => s !== null && s > 0);
+        if (validTimes.length === 0) return null;
+        return Math.min(...validTimes);
     }, [chartData]);
 
     // --- 4. Table Data Grouping ---
@@ -572,10 +587,13 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
     }, [results]);
 
     const getImprovement = (group, allGroups) => {
-        const pTime = group.prelim ? timeToSeconds(group.prelim.time) : 999999;
-        const fTime = group.finals ? timeToSeconds(group.finals.time) : 999999;
-        const bestToday = Math.min(pTime, fTime);
-        if (bestToday === 999999) return null;
+        const pTime = group.prelim ? timeToSeconds(group.prelim.time) : null;
+        const fTime = group.finals ? timeToSeconds(group.finals.time) : null;
+        
+        // Logic to find valid times
+        const validToday = [pTime, fTime].filter(t => t !== null && t > 0);
+        if (validToday.length === 0) return null;
+        const bestToday = Math.min(...validToday);
 
         const previousGroups = allGroups.filter(g => 
             g.event === group.event && new Date(g.date) < new Date(group.date)
@@ -584,9 +602,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         if (previousGroups.length === 0) return null;
 
         const lastSwim = previousGroups.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-        const lastP = lastSwim.prelim ? timeToSeconds(lastSwim.prelim.time) : 999999;
-        const lastF = lastSwim.finals ? timeToSeconds(lastSwim.finals.time) : 999999;
-        const bestLast = Math.min(lastP, lastF);
+        const lastP = lastSwim.prelim ? timeToSeconds(lastSwim.prelim.time) : null;
+        const lastF = lastSwim.finals ? timeToSeconds(lastSwim.finals.time) : null;
+        
+        const validLast = [lastP, lastF].filter(t => t !== null && t > 0);
+        if (validLast.length === 0) return null;
+        const bestLast = Math.min(...validLast);
 
         return bestToday - bestLast;
     };
@@ -624,7 +645,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
 
     return (
         <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full pb-24 md:pb-8">
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
@@ -642,7 +662,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                 </div>
             </div>
 
-            {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
@@ -685,6 +704,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                                 dataKey="seconds" 
                                                 stroke="#3b82f6" 
                                                 strokeWidth={3} 
+                                                connectNulls={true} // Connects line over missing data
                                                 dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
                                             />
                                         </LineChart>
@@ -696,12 +716,11 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                 )}
                             </div>
                             
-                            {/* --- STANDARDS COMPONENT --- */}
                             {bestTimeOverall && (
                                 <Standards 
                                     eventName={selectedEvent}
                                     bestTime={bestTimeOverall}
-                                    gender={swimmer.gender || 'M'} // Assuming M default if missing
+                                    gender={swimmer.gender || 'M'} 
                                     age={swimmer.age}
                                 />
                             )}
@@ -709,12 +728,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     </div>
                     
                     <div className="space-y-6">
-                      {/* NEW RADAR CHART */}
-                      <VersatilityChart 
-                        swimmerId={swimmer.id} 
-                        age={swimmer.age} 
-                        gender={swimmer.gender || 'M'} 
-                      />
+                        {/* Add Versatility Chart Here if needed */}
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
                             <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
@@ -727,7 +741,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                 </div>
             )}
 
-            {/* --- TAB 2: RESULTS (MOBILE FIX APPLIED HERE) --- */}
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -735,11 +748,9 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                         <button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button>
                     </div>
                     
-                    {/* Hidden Input for Uploads */}
                     <input type="file" ref={videoInputRef} onChange={handleFileChange} className="hidden" accept="video/mp4,video/quicktime" />
 
                     {groupedResults.length > 0 ? (
-                        // --- MOBILE FIX: SCROLLABLE CONTAINER ---
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm min-w-[600px]">
                                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
@@ -760,21 +771,18 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                                 <td className="px-6 py-4 text-slate-500 whitespace-nowrap">{new Date(group.date).toLocaleDateString()}</td>
                                                 <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">{group.event}</td>
                                                 
-                                                {/* Prelim Cell */}
                                                 <td className="px-6 py-4 text-slate-600 whitespace-nowrap">
                                                     {group.prelim ? (
                                                         <span className="font-mono">{group.prelim.time}</span>
                                                     ) : <span className="text-slate-300">-</span>}
                                                 </td>
 
-                                                {/* Finals Cell */}
                                                 <td className="px-6 py-4 font-bold text-blue-600 whitespace-nowrap">
                                                     {group.finals ? (
                                                         <span className="font-mono">{group.finals.time}</span>
                                                     ) : <span className="text-slate-300 font-normal">-</span>}
                                                 </td>
 
-                                                {/* Improvement */}
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     {improvement !== null ? (
                                                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${improvement < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
@@ -786,7 +794,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                                     )}
                                                 </td>
 
-                                                {/* Video Actions */}
                                                 <td className="px-6 py-4 text-right whitespace-nowrap">
                                                     <div className="flex justify-end gap-2">
                                                         {group.finals && (
@@ -820,7 +827,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                 </div>
             )}
 
-            {/* --- TAB 3: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100">
