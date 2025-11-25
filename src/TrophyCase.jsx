@@ -27,17 +27,33 @@ export default function TrophyCase({ swimmerId, age, gender }) {
       : parseFloat(parts[0]);
   };
 
-  // Helper: Clean Event Names safely
+  // Helper: Robust Event Name Cleaner
+  // Extracts "100 Freestyle" from "Girls 11-12 100 Free (Prelims)"
   const normalizeEventName = (evt) => {
-    let name = evt.replace(/\s*\((Finals|Prelim)\)/i, '').trim();
+    if (!evt) return "";
     
-    // Use Word Boundaries (\b) to avoid replacing "Freestyle" with "Freestystyle"
-    name = name.replace(/\bFree\b/i, 'Freestyle')
-               .replace(/\bBack\b/i, 'Backstroke')
-               .replace(/\bBreast\b/i, 'Breaststroke')
-               .replace(/\bFly\b/i, 'Butterfly');
-               
-    return name.toLowerCase(); // Normalize case for comparison
+    // Regex to find Distance + Stroke
+    // Matches: "100" followed by "Free", "Freestyle", "Back", etc.
+    const match = evt.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
+    
+    if (match) {
+        const dist = match[1];
+        let stroke = match[2].toLowerCase();
+
+        // Normalize stroke names to match Database (Full names)
+        if (stroke === 'free') stroke = 'freestyle';
+        if (stroke === 'back') stroke = 'backstroke';
+        if (stroke === 'breast') stroke = 'breaststroke';
+        if (stroke === 'fly') stroke = 'butterfly';
+        if (stroke === 'individual medley') stroke = 'im'; 
+        
+        // DB uses "100 IM", so we keep "im" as "im" (uppercase later)
+        if (stroke === 'im') return `${dist} im`;
+
+        return `${dist} ${stroke}`;
+    }
+    
+    return evt.toLowerCase(); // Fallback
   };
 
   useEffect(() => {
@@ -67,11 +83,14 @@ export default function TrophyCase({ swimmerId, age, gender }) {
       // 3. Group Results by Event (Find best time per event)
       const bestTimes = {};
       results.forEach(r => {
-        const normName = normalizeEventName(r.event);
+        const normName = normalizeEventName(r.event).toLowerCase();
         const seconds = timeToSeconds(r.time);
         
-        if (!bestTimes[normName] || seconds < bestTimes[normName]) {
-          bestTimes[normName] = seconds;
+        // Only keep valid times
+        if (seconds > 0 && seconds < 999999) {
+            if (!bestTimes[normName] || seconds < bestTimes[normName]) {
+                bestTimes[normName] = seconds;
+            }
         }
       });
 
@@ -83,7 +102,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
         const time = bestTimes[swamEvent];
         
         // Find matching standards for this specific event
-        // We compare normalized names (e.g. "100 freestyle" === "100 freestyle")
+        // Comparison: "100 freestyle" === "100 freestyle"
         const eventStds = standards
             .filter(s => s.event.toLowerCase() === swamEvent) 
             .sort((a, b) => a.time_seconds - b.time_seconds); // Fastest (AAAA) first
@@ -94,7 +113,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
             if (badgeCounts[std.name] !== undefined) {
               badgeCounts[std.name]++;
             }
-            break; // Found highest badge for this event, move to next event
+            break; // We found the highest badge for this event (e.g. AA), stop looking.
           }
         }
       });
@@ -123,8 +142,8 @@ export default function TrophyCase({ swimmerId, age, gender }) {
             <div 
               key={badge.key} 
               className={`
-                relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all
-                ${isUnlocked ? badge.color : 'bg-slate-800 border-slate-700 opacity-40 grayscale'}
+                relative flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-500
+                ${isUnlocked ? badge.color + ' scale-105 shadow-lg' : 'bg-slate-800 border-slate-700 opacity-40 grayscale'}
               `}
               title={isUnlocked ? `${count} Events achieved ${badge.key}` : `Achieve a ${badge.key} time to unlock`}
             >
@@ -134,7 +153,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
 
               {/* Counter Badge (Bottom Right) */}
               {count > 0 && (
-                <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-white text-slate-900 border-2 border-slate-900 rounded-full flex items-center justify-center text-xs font-bold shadow-sm z-10">
+                <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-white text-slate-900 border-2 border-slate-900 rounded-full flex items-center justify-center text-xs font-bold shadow-sm z-10 animate-in zoom-in">
                   {count}
                 </div>
               )}
