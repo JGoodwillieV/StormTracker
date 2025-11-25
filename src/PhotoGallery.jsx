@@ -1,7 +1,8 @@
 // src/PhotoGallery.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { Image as ImageIcon, Plus, X, UserPlus, Search, Loader2 } from 'lucide-react';
+// FIX: Added 'Check' to the imports
+import { Image as ImageIcon, Plus, X, UserPlus, Search, Loader2, Check } from 'lucide-react';
 
 export default function PhotoGallery({ swimmerId, roster }) {
   const [photos, setPhotos] = useState([]);
@@ -50,6 +51,7 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
   // 2. Handle Tagging Logic
   const toggleTag = (swimmer) => {
+    // Check if already tagged
     if (taggedSwimmers.find(s => s.id === swimmer.id)) {
       setTaggedSwimmers(prev => prev.filter(s => s.id !== swimmer.id));
     } else {
@@ -113,7 +115,10 @@ export default function PhotoGallery({ swimmerId, roster }) {
     }
   };
 
-  const filteredRoster = roster.filter(s => 
+  // Ensure roster exists before filtering
+  const safeRoster = roster || [];
+  
+  const filteredRoster = safeRoster.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
     s.id !== swimmerId // Don't show current swimmer in search (auto-tagged)
   );
@@ -218,17 +223,21 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
                 {/* Search Results */}
                 <div className="max-h-32 overflow-y-auto border rounded-lg divide-y">
-                    {filteredRoster.map(s => (
-                        <button 
-                            key={s.id} 
-                            onClick={() => toggleTag(s)}
-                            disabled={taggedSwimmers.some(ts => ts.id === s.id)}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex justify-between"
-                        >
-                            <span>{s.name}</span>
-                            {taggedSwimmers.some(ts => ts.id === s.id) && <Check size={14} className="text-emerald-500"/>}
-                        </button>
-                    ))}
+                    {filteredRoster.length > 0 ? filteredRoster.map(s => {
+                        const isTagged = taggedSwimmers.some(ts => ts.id === s.id);
+                        return (
+                            <button 
+                                key={s.id} 
+                                onClick={() => toggleTag(s)}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex justify-between items-center ${isTagged ? 'bg-blue-50 text-blue-700' : ''}`}
+                            >
+                                <span>{s.name}</span>
+                                {isTagged && <Check size={14} className="text-emerald-500"/>}
+                            </button>
+                        );
+                    }) : (
+                        <div className="p-3 text-xs text-slate-400 text-center">No matches found</div>
+                    )}
                 </div>
               </div>
             </div>
