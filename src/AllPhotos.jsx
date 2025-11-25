@@ -2,10 +2,12 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { ChevronLeft, Image as ImageIcon } from 'lucide-react';
+import PhotoModal from './PhotoModal'; // Import the new modal
 
 export default function AllPhotos({ onBack }) {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPhoto, setSelectedPhoto] = useState(null); // Track clicked photo
 
   useEffect(() => {
     const fetchPhotos = async () => {
@@ -47,7 +49,11 @@ export default function AllPhotos({ onBack }) {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {photos.map((photo) => (
-            <div key={photo.id} className="group relative aspect-square bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div 
+                key={photo.id} 
+                onClick={() => setSelectedPhoto(photo)} // CLICK HANDLER
+                className="group relative aspect-square bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer"
+            >
               <img 
                 src={photo.url} 
                 alt="Team memory" 
@@ -66,6 +72,9 @@ export default function AllPhotos({ onBack }) {
           ))}
         </div>
       )}
+
+      {/* NEW FULL SCREEN VIEWER */}
+      <PhotoModal photo={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
     </div>
   );
 }
