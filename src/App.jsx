@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from './supabase'
 import Login from './Login'
-import Analysis, { AnalysisResult } from './Analysis' 
+import Analysis from './Analysis'
+import AnalysisResult from './AnalysisResult' // Now imported from its own file 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts'
