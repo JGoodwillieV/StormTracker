@@ -27,8 +27,6 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
   const [loading, setLoading] = useState(true);
 
   // Determine the "Representative Event" for each stroke based on age
-  // 12 & Under: 50s + 100 IM
-  // 13 & Over: 100s + 200 IM
   const isYounger = age <= 12;
   const strokeDist = isYounger ? '50' : '100';
   const imDist = isYounger ? '100' : '200';
@@ -38,7 +36,7 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
     { label: 'Free', dist: isYounger ? '50' : '100', type: 'Free' },
     { label: 'Back', dist: strokeDist, type: 'Back' },
     { label: 'Breast', dist: strokeDist, type: 'Breast' },
-    { label: 'Fly', dist: strokeDist, type: 'Fly' }, // 'Fly' matches 'Butterfly' too
+    { label: 'Fly', dist: strokeDist, type: 'Fly' }, 
     { label: 'IM', dist: imDist, type: 'IM' },
   ];
 
@@ -61,7 +59,6 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
         .eq('swimmer_id', swimmerId);
 
       // 2. Fetch ALL standards for this age/gender
-      // We fetch everything so we can find the highest match locally
       const { data: standards } = await supabase
         .from('time_standards')
         .select('*')
@@ -76,36 +73,43 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
 
       // 3. Calculate Score for each Stroke
       const scores = strokes.map(stroke => {
-        // A. Find swimmer's best time for this stroke/distance
-        // Matches "50 Free", "50 Freestyle", "50 FR"
+        // A. Find swimmer's best time
         const matchingTimes = myResults
           .filter(r => {
             const e = r.event.toLowerCase();
-            return e.includes(stroke.dist) && (e.includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && e.includes('butter'))); 
+            // Strict check: Event must START with distance + space (e.g. "100 " vs "1000")
+            // OR match "100 " somewhere if not start (unlikely for standard format)
+            const distMatch = e.startsWith(`${stroke.dist} `) || e.includes(` ${stroke.dist} `);
+            const strokeMatch = e.includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && e.includes('butter'));
+            return distMatch && strokeMatch;
           })
           .map(r => timeToSeconds(r.time));
         
         const bestTime = matchingTimes.length > 0 ? Math.min(...matchingTimes) : null;
 
         if (!bestTime) {
-            return { subject: stroke.label, score: 0, standard: 'N/A', fullMark: 150 };
+            return { subject: stroke.label, score: 0, standard: 'N/A', fullMark: 180 };
         }
 
-        // B. Find the Highest Standard Achieved
-        // Filter standards to just this event
+        // B. Find Highest Standard Achieved
         const eventStandards = standards
-            .filter(s => s.event.toLowerCase().includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && s.event.toLowerCase().includes('butter')))
-            .filter(s => s.event.includes(stroke.dist))
-            .sort((a, b) => a.time_seconds - b.time_seconds); // Fastest (Hardest) first
+            .filter(s => {
+                const e = s.event.toLowerCase();
+                const strokeMatch = e.includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && e.includes('butter'));
+                // STRICT FIX: Ensure "100" doesn't match "1000"
+                const distMatch = s.event.startsWith(`${stroke.dist} `); 
+                return strokeMatch && distMatch;
+            })
+            .sort((a, b) => a.time_seconds - b.time_seconds); // Fastest first
 
         let highestStd = 'Unranked';
-        let score = 10; // Base score for having a time at all
+        let score = 10; 
 
         for (let std of eventStandards) {
             if (bestTime <= std.time_seconds) {
                 highestStd = std.name;
-                score = STANDARD_SCORES[std.name] || 50; // Fallback score
-                break; // Stop at the hardest one we beat
+                score = STANDARD_SCORES[std.name] || 50;
+                break; 
             }
         }
 
@@ -113,7 +117,7 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
           subject: stroke.label,
           score: score,
           standard: highestStd,
-          fullMark: 180, // Max scale (Nationals)
+          fullMark: 180, 
         };
       });
 
@@ -126,7 +130,6 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
 
   if (loading) return <div className="h-64 w-full flex items-center justify-center text-slate-500">Loading Chart...</div>;
   
-  // If no data at all, show a placeholder
   if (chartData.every(d => d.score === 0)) {
       return (
         <div className="h-64 w-full bg-slate-900 rounded-xl border border-slate-700 p-4 flex flex-col items-center justify-center text-slate-500 text-sm">
@@ -145,10 +148,7 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
         </h4>
       </div>
       
-      <div className="h-64 w-full 
-
-[Image of radar chart for swimming strokes]
-">
+      <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
             <PolarGrid stroke="#334155" />
