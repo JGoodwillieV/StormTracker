@@ -1,8 +1,7 @@
 // src/App.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from './supabase'
 import Login from './Login'
-// IMPORT THE EXPORTED RESULT COMPONENT HERE
 import Analysis, { AnalysisResult } from './Analysis' 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -10,7 +9,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp
 } from 'lucide-react'
 
 // --- Icon Helper ---
@@ -19,7 +18,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'layout-dashboard': LayoutDashboard, 'video': Video, 'users': Users, 'file-video': FileVideo,
     'waves': Waves, 'settings': Settings, 'search': Search, 'plus': Plus, 'chevron-left': ChevronLeft,
     'trophy': Trophy, 'file-up': FileUp, 'x': X, 'play': Play, 'send': Send, 'loader-2': Loader2,
-    'check': Check, 'trending-down': TrendingDown, 'play-circle': PlayCircle, 
+    'check': Check, 'trending-down': TrendingDown, 'trending-up': TrendingUp, 'play-circle': PlayCircle, 
     'clipboard-list': ClipboardList, 'key': Key, 'upload-cloud': UploadCloud, 'cpu': Cpu, 
     'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download
   };
@@ -32,24 +31,20 @@ export default function App() {
   const [view, setView] = useState('dashboard')
   const [swimmers, setSwimmers] = useState([]) 
   const [selectedSwimmer, setSelectedSwimmer] = useState(null)
-  const [currentAnalysis, setCurrentAnalysis] = useState(null) // NEW: Holds the analysis to view
+  const [currentAnalysis, setCurrentAnalysis] = useState(null) 
   const [loading, setLoading] = useState(true)
 
-  // 1. Check Login Status
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
     })
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
-  // 2. Fetch Roster
   useEffect(() => {
     if (session) fetchRoster()
   }, [session])
@@ -64,10 +59,9 @@ export default function App() {
     else setSwimmers(data || [])
   }
 
-  // 3. Handlers
   const navigateTo = (v) => {
     setView(v)
-    if(v !== 'roster') setSelectedSwimmer(null)
+    if(v !== 'roster' && v !== 'view-analysis') setSelectedSwimmer(null)
   }
 
   const handleLogout = async () => {
@@ -80,16 +74,16 @@ export default function App() {
     setView('view-analysis');
   }
 
-  // --- RENDER ---
-
   if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>
   if (!session) return <Login />
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]">
-      <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
+      {view !== 'view-analysis' && (
+        <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
+      )}
       
-      <main className="flex-1 h-screen overflow-hidden md:ml-64">
+      <main className={`flex-1 h-screen overflow-hidden ${view !== 'view-analysis' ? 'md:ml-64' : ''}`}>
         {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} />}
         
         {view === 'roster' && (
@@ -107,11 +101,10 @@ export default function App() {
              swimmer={selectedSwimmer} 
              onBack={() => setView('roster')}
              navigateTo={navigateTo}
-             onViewAnalysis={handleViewAnalysis} // Pass the handler down
+             onViewAnalysis={handleViewAnalysis} 
            />
         )}
         
-        {/* New Analysis Creation Page */}
         {view === 'analysis' && (
           <Analysis 
             swimmers={swimmers} 
@@ -120,13 +113,11 @@ export default function App() {
           />
         )}
 
-        {/* VIEW EXISTING ANALYSIS (The new screen) */}
         {view === 'view-analysis' && currentAnalysis && (
           <AnalysisResult 
             data={currentAnalysis.json_data} 
             videoUrl={currentAnalysis.video_url}
             onBack={() => {
-                // If we have a swimmer selected, go back to their profile, otherwise dashboard
                 if (selectedSwimmer) setView('profile'); 
                 else setView('dashboard');
             }} 
@@ -626,4 +617,4 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             )}
         </div>
     );
-};"
+};
