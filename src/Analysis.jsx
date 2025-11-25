@@ -1,10 +1,22 @@
-// VERSION: DEBUG 5.0 - MODEL UPDATE (Gemini 3 Preview)
+// src/Analysis.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Play, ChevronLeft, Pause, PenTool, Scan 
 } from 'lucide-react';
 
-// --- 1. SUB-COMPONENT (MUST BE AT THE TOP) ---
+// Helper: Convert File to Base64 for Gemini
+const fileToGenerativePart = async (file) => {
+  const base64EncodedDataPromise = new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.readAsDataURL(file);
+  });
+  return {
+    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+  };
+};
+
+// --- 1. SUB-COMPONENT (EXPORT ADDED HERE) ---
 export const AnalysisResult = ({ data, videoUrl, onBack }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -187,21 +199,9 @@ export const AnalysisResult = ({ data, videoUrl, onBack }) => {
   );
 };
 
-// Helper: Convert File to Base64 for Gemini
-const fileToGenerativePart = async (file) => {
-  const base64EncodedDataPromise = new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.readAsDataURL(file);
-  });
-  return {
-    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-  };
-};
-
 // --- 2. MAIN COMPONENT ---
 export default function Analysis({ swimmers, onBack, supabase }) {
-  const [step, setStep] = useState('upload'); // upload, analyzing, results
+  const [step, setStep] = useState('upload'); 
   const [apiKey, setApiKey] = useState('');
   const [selectedSwimmerId, setSelectedSwimmerId] = useState('');
   const [stroke, setStroke] = useState('Freestyle');
@@ -210,7 +210,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
   const [videoUrl, setVideoUrl] = useState(null);
   const [uploadFileName, setUploadFileName] = useState("");
 
-  // --- ACTION: Handle Analysis ---
   const handleAnalyze = async (file) => {
     if (!apiKey) return alert("Please enter a Google Gemini API Key.");
     if (!selectedSwimmerId) return alert("Please select a swimmer.");
@@ -219,7 +218,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
     setStep('analyzing');
     
     try {
-      // 1. Upload to Supabase Storage
       const fileName = `${selectedSwimmerId}/${Date.now()}_${file.name}`;
       const { error: uploadError } = await supabase.storage
         .from('race-videos')
@@ -233,7 +231,6 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       
       setVideoUrl(publicUrl);
 
-      // 2. Prepare Gemini Request (Mock progress bar)
       let p = 0;
       const interval = setInterval(() => { p += 5; if(p < 90) setProgress(p); }, 500);
 
@@ -249,7 +246,7 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       - flaws: array of objects { title, timestamp (seconds as number), severity (High/Medium/Low), desc }
       - drills: array of objects { name, focus }`;
 
-      // 3. Call Gemini API (UPDATED TO gemini-3-pro-preview)
+      // UPDATED MODEL TO GEMINI-3-PRO-PREVIEW
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -262,21 +259,12 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       setProgress(100);
 
       const data = await response.json();
-      
-      // Check for Model Not Found Error specifically
-      if(data.error) {
-         if(data.error.message.includes('not found')) {
-             throw new Error(`Model 'gemini-3-pro-preview' not found. Check your API key access or try 'gemini-1.5-pro'`);
-         }
-         throw new Error(data.error.message);
-      }
+      if(data.error) throw new Error(data.error.message);
 
       const text = data.candidates[0].content.parts[0].text;
-      // Clean up markdown code blocks if Gemini adds them
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const resultData = JSON.parse(cleanJson);
 
-      // 4. Save to Database
       const { error: dbError } = await supabase
         .from('analyses')
         .insert([{
