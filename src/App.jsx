@@ -4,7 +4,7 @@ import { supabase } from './supabase'
 import Login from './Login'
 import Standards from './Standards'
 import Analysis from './Analysis'
-import AnalysisResult from './AnalysisResult' // Now imported from its own file 
+import AnalysisResult from './AnalysisResult' 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts'
@@ -189,6 +189,17 @@ const Dashboard = ({ navigateTo, swimmers }) => {
         <div onClick={() => navigateTo('analysis')} className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden cursor-pointer hover:bg-blue-700 transition-colors group">
           <div><h3 className="text-lg font-bold">New Analysis</h3><p className="text-blue-100 text-sm mt-1">Upload stroke video</p></div>
         </div>
+      </div>
+      
+      <div className="mt-8">
+         <h3 className="font-bold text-slate-800 text-lg mb-4">Attention Required</h3>
+         <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-4">
+            <div className="w-10 h-10 bg-white text-red-500 rounded-full flex items-center justify-center font-bold">M</div>
+            <div>
+               <h4 className="font-bold text-slate-800">Mia Kobayashi</h4>
+               <p className="text-xs text-red-500 font-medium">Efficiency dropped -4%</p>
+            </div>
+         </div>
       </div>
     </div>
   );
@@ -405,34 +416,17 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
     const [isUploading, setIsUploading] = useState(false);
     const videoInputRef = useRef(null);
 
-    // --- 1. Fetch Real Data ---
     useEffect(() => {
         const fetchData = async () => {
             if (!swimmer?.id) return;
-
-            // Fetch Results
-            const { data: resultsData } = await supabase
-                .from('results')
-                .select('*')
-                .eq('swimmer_id', swimmer.id)
-                .order('date', { ascending: true });
-            
+            const { data: resultsData } = await supabase.from('results').select('*').eq('swimmer_id', swimmer.id).order('date', { ascending: true });
             if (resultsData) setResults(resultsData);
-
-            // Fetch Analyses
-            const { data: analysesData } = await supabase
-                .from('analyses')
-                .select('*')
-                .eq('swimmer_id', swimmer.id)
-                .order('created_at', { ascending: false });
-
+            const { data: analysesData } = await supabase.from('analyses').select('*').eq('swimmer_id', swimmer.id).order('created_at', { ascending: false });
             if (analysesData) setAnalyses(analysesData);
         };
-
         fetchData();
     }, [swimmer]);
 
-    // --- 2. Helpers ---
     const getBaseEventName = (eventName) => {
         if (!eventName) return "";
         let clean = eventName.replace(/\s*\((Finals|Prelim)\)/i, '');
@@ -445,9 +439,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         if (!timeStr) return 999999; 
         const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
         const parts = cleanStr.split(':');
-        return parts.length === 2 
-            ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
-            : parseFloat(parts[0]);
+        return parts.length === 2 ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) : parseFloat(parts[0]);
     };
 
     const secondsToTime = (val) => {
@@ -457,7 +449,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
     };
 
-    // --- 3. Chart Data & Best Time Calculation ---
     const uniqueEvents = useMemo(() => {
         const events = new Set(results.map(r => getBaseEventName(r.event)));
         return Array.from(events).sort();
@@ -470,54 +461,38 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
     const chartData = useMemo(() => {
         const eventResults = results.filter(r => getBaseEventName(r.event) === selectedEvent);
         const bestTimePerDay = {};
-        
         eventResults.forEach(r => {
             const dateKey = r.date; 
             const seconds = timeToSeconds(r.time);
-            
             if (!bestTimePerDay[dateKey] || seconds < bestTimePerDay[dateKey].seconds) {
                 bestTimePerDay[dateKey] = {
                     date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
                     fullDate: r.date,
                     seconds: seconds,
                     timeStr: r.time,
-                    type: r.event.includes('Prelim') ? 'Prelim' : 'Finals' 
+                    type: r.event.includes('Prelim') ? 'Prelim' : 'Finals'
                 };
             }
         });
-
-        return Object.values(bestTimePerDay)
-            .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+        return Object.values(bestTimePerDay).sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
     }, [selectedEvent, results]);
 
-    // Calculate Best Time Overall for this event (to pass to Standards)
+    // Calculate Best Time Overall
     const bestTimeOverall = useMemo(() => {
         if (chartData.length === 0) return null;
         return Math.min(...chartData.map(d => d.seconds));
     }, [chartData]);
 
-    // --- 4. Table Data Grouping ---
     const groupedResults = useMemo(() => {
         const groups = {};
-
         results.forEach(r => {
             const baseName = getBaseEventName(r.event);
             const dateKey = r.date;
-            const key = `${dateKey}_${baseName}`; 
-
-            if (!groups[key]) {
-                groups[key] = {
-                    key,
-                    date: r.date,
-                    event: baseName,
-                    prelim: null,
-                    finals: null
-                };
-            }
+            const key = `${dateKey}_${baseName}`;
+            if (!groups[key]) groups[key] = { key, date: r.date, event: baseName, prelim: null, finals: null };
             if (r.event.includes('Prelim')) groups[key].prelim = r;
             else groups[key].finals = r;
         });
-
         return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [results]);
 
@@ -526,22 +501,15 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
         const fTime = group.finals ? timeToSeconds(group.finals.time) : 999999;
         const bestToday = Math.min(pTime, fTime);
         if (bestToday === 999999) return null;
-
-        const previousGroups = allGroups.filter(g => 
-            g.event === group.event && new Date(g.date) < new Date(group.date)
-        );
-        
+        const previousGroups = allGroups.filter(g => g.event === group.event && new Date(g.date) < new Date(group.date));
         if (previousGroups.length === 0) return null;
-
         const lastSwim = previousGroups.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
         const lastP = lastSwim.prelim ? timeToSeconds(lastSwim.prelim.time) : 999999;
         const lastF = lastSwim.finals ? timeToSeconds(lastSwim.finals.time) : 999999;
         const bestLast = Math.min(lastP, lastF);
-
         return bestToday - bestLast;
     };
 
-    // --- 5. Upload Logic ---
     const handleUploadClick = (resultId) => {
         setUploadingResultId(resultId);
         videoInputRef.current.click();
@@ -550,7 +518,6 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file || !uploadingResultId) return;
-
         setIsUploading(true);
         try {
             const fileName = `${swimmer.id}/${Date.now()}_${file.name}`;
@@ -559,30 +526,18 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
             const { data: { publicUrl } } = supabase.storage.from('race-videos').getPublicUrl(fileName);
             const { error: dbError } = await supabase.from('results').update({ video_url: publicUrl }).eq('id', uploadingResultId);
             if (dbError) throw dbError;
-
             alert("Video uploaded!");
             setResults(prev => prev.map(r => r.id === uploadingResultId ? { ...r, video_url: publicUrl } : r));
-        } catch (err) {
-            console.error(err);
-            alert("Upload failed: " + err.message);
-        } finally {
-            setIsUploading(false);
-            setUploadingResultId(null);
-            e.target.value = null;
-        }
+        } catch (err) { console.error(err); alert("Upload failed: " + err.message); } 
+        finally { setIsUploading(false); setUploadingResultId(null); e.target.value = null; }
     };
 
     return (
         <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
-                        <Icon name="chevron-left" size={24}/>
-                    </button>
-                    <div>
-                        <h2 className="text-3xl font-bold text-slate-900">{swimmer.name}</h2>
-                        <p className="text-slate-500">{swimmer.group_name || 'Unassigned'} • {swimmer.age || 'N/A'} Years Old</p>
-                    </div>
+                    <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500"><Icon name="chevron-left" size={24}/></button>
+                    <div><h2 className="text-3xl font-bold text-slate-900">{swimmer.name}</h2><p className="text-slate-500">{swimmer.group_name || 'Unassigned'} • {swimmer.age || 'N/A'} Years Old</p></div>
                 </div>
                 <div className="flex gap-3">
                     <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors ${activeTab === 'overview' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>Overview</button>
@@ -596,15 +551,8 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     <div className="lg:col-span-2 space-y-6">
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Performance Trend</h3>
-                                    <p className="text-slate-500 text-xs">Fastest time per meet</p>
-                                </div>
-                                <select 
-                                    value={selectedEvent} 
-                                    onChange={(e) => setSelectedEvent(e.target.value)} 
-                                    className="bg-slate-50 border border-slate-200 py-2 px-3 rounded-lg text-sm font-medium"
-                                >
+                                <div><h3 className="text-lg font-bold text-slate-800">Performance Trend</h3><p className="text-slate-500 text-xs">Fastest time per meet</p></div>
+                                <select value={selectedEvent} onChange={(e) => setSelectedEvent(e.target.value)} className="bg-slate-50 border border-slate-200 py-2 px-3 rounded-lg text-sm font-medium">
                                     {uniqueEvents.length === 0 && <option>No Data</option>}
                                     {uniqueEvents.map(ev => <option key={ev} value={ev}>{ev}</option>)}
                                 </select>
@@ -615,47 +563,26 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                             <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                                            <YAxis 
-                                                domain={['auto', 'auto']} 
-                                                axisLine={false} 
-                                                tickLine={false} 
-                                                tick={{fill: '#94a3b8', fontSize: 12}} 
-                                                tickFormatter={secondsToTime} 
-                                                width={50}
-                                            />
-                                            <Tooltip 
-                                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
-                                                formatter={(value) => [secondsToTime(value), "Time"]}
-                                                labelStyle={{color: '#64748b', marginBottom: '0.25rem'}}
-                                            />
-                                            <Line 
-                                                type="monotone" 
-                                                dataKey="seconds" 
-                                                stroke="#3b82f6" 
-                                                strokeWidth={3} 
-                                                dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
-                                            />
+                                            <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} tickFormatter={secondsToTime} width={50} />
+                                            <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} formatter={(value) => [secondsToTime(value), "Time"]} labelStyle={{color: '#64748b', marginBottom: '0.25rem'}} />
+                                            <Line type="monotone" dataKey="seconds" stroke="#3b82f6" strokeWidth={3} dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} />
                                         </LineChart>
                                     </ResponsiveContainer>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-slate-50 rounded-lg">
-                                        Select an event to see progress.
-                                    </div>
-                                )}
+                                ) : <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-slate-50 rounded-lg">Select an event to see progress.</div>}
                             </div>
-                            
-                            {/* --- NEW STANDARDS COMPONENT --- */}
+
+                            {/* --- STANDARDS COMPONENT --- */}
                             {bestTimeOverall && (
                                 <Standards 
                                     eventName={selectedEvent}
                                     bestTime={bestTimeOverall}
-                                    gender={swimmer.gender || 'M'} // Assuming M default if missing
+                                    gender={swimmer.gender || 'M'} 
                                     age={swimmer.age}
                                 />
                             )}
+
                         </div>
                     </div>
-                    
                     <div className="space-y-6">
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
@@ -671,24 +598,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
 
             {activeTab === 'results' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800 text-lg">Meet Results</h3>
-                        <button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button>
-                    </div>
-                    
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-slate-800 text-lg">Meet Results</h3><button className="text-blue-600 text-sm font-medium hover:underline">Import New CSV</button></div>
                     <input type="file" ref={videoInputRef} onChange={handleFileChange} className="hidden" accept="video/mp4,video/quicktime" />
-
                     {groupedResults.length > 0 ? (
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                                <tr>
-                                    <th className="px-6 py-4 font-medium">Date</th>
-                                    <th className="px-6 py-4 font-medium">Event</th>
-                                    <th className="px-6 py-4 font-medium">Prelim</th>
-                                    <th className="px-6 py-4 font-medium">Finals</th>
-                                    <th className="px-6 py-4 font-medium">Improvement</th>
-                                    <th className="px-6 py-4 font-medium text-right">Video</th>
-                                </tr>
+                                <tr><th className="px-6 py-4 font-medium">Date</th><th className="px-6 py-4 font-medium">Event</th><th className="px-6 py-4 font-medium">Prelim</th><th className="px-6 py-4 font-medium">Finals</th><th className="px-6 py-4 font-medium">Improvement</th><th className="px-6 py-4 font-medium text-right">Video</th></tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {groupedResults.map((group, idx) => {
@@ -697,52 +612,13 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-6 py-4 text-slate-500">{new Date(group.date).toLocaleDateString()}</td>
                                             <td className="px-6 py-4 font-medium text-slate-900">{group.event}</td>
-                                            
-                                            {/* Prelim Cell */}
-                                            <td className="px-6 py-4 text-slate-600">
-                                                {group.prelim ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-mono">{group.prelim.time}</span>
-                                                    </div>
-                                                ) : <span className="text-slate-300">-</span>}
-                                            </td>
-
-                                            {/* Finals Cell */}
-                                            <td className="px-6 py-4 font-bold text-blue-600">
-                                                {group.finals ? (
-                                                    <span className="font-mono">{group.finals.time}</span>
-                                                ) : <span className="text-slate-300 font-normal">-</span>}
-                                            </td>
-
-                                            {/* Improvement */}
-                                            <td className="px-6 py-4">
-                                                {improvement !== null ? (
-                                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${improvement < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                                                        <Icon name={improvement < 0 ? "trending-down" : "trending-up"} size={12} />
-                                                        {Math.abs(improvement).toFixed(2)}s
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400 text-xs">-</span>
-                                                )}
-                                            </td>
-
-                                            {/* Video Actions */}
+                                            <td className="px-6 py-4 text-slate-600">{group.prelim ? <div className="flex flex-col"><span className="font-mono">{group.prelim.time}</span></div> : <span className="text-slate-300">-</span>}</td>
+                                            <td className="px-6 py-4 font-bold text-blue-600">{group.finals ? <span className="font-mono">{group.finals.time}</span> : <span className="text-slate-300 font-normal">-</span>}</td>
+                                            <td className="px-6 py-4">{improvement !== null ? <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${improvement < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}><Icon name={improvement < 0 ? "trending-down" : "trending-up"} size={12} />{Math.abs(improvement).toFixed(2)}s</span> : <span className="text-slate-400 text-xs">-</span>}</td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex justify-end gap-2">
-                                                    {group.finals && (
-                                                        group.finals.video_url ? (
-                                                            <a href={group.finals.video_url} target="_blank" rel="noreferrer" className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Finals Video"><Icon name="play-circle" size={16} /></a>
-                                                        ) : (
-                                                            <button onClick={() => handleUploadClick(group.finals.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-blue-600 hover:border-blue-400" title="Upload Finals"><Icon name="upload-cloud" size={16} /></button>
-                                                        )
-                                                    )}
-                                                    {group.prelim && (
-                                                        group.prelim.video_url ? (
-                                                            <a href={group.prelim.video_url} target="_blank" rel="noreferrer" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200" title="Prelim Video"><Icon name="play-circle" size={16} /></a>
-                                                        ) : (
-                                                            <button onClick={() => handleUploadClick(group.prelim.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-slate-600 hover:border-slate-400" title="Upload Prelim"><Icon name="upload-cloud" size={16} /></button>
-                                                        )
-                                                    )}
+                                                    {group.finals && (group.finals.video_url ? <a href={group.finals.video_url} target="_blank" rel="noreferrer" className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Finals Video"><Icon name="play-circle" size={16} /></a> : <button onClick={() => handleUploadClick(group.finals.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-blue-600 hover:border-blue-400" title="Upload Finals"><Icon name="upload-cloud" size={16} /></button>)}
+                                                    {group.prelim && (group.prelim.video_url ? <a href={group.prelim.video_url} target="_blank" rel="noreferrer" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200" title="Prelim Video"><Icon name="play-circle" size={16} /></a> : <button onClick={() => handleUploadClick(group.prelim.id)} className="p-2 border border-slate-200 text-slate-400 rounded-lg hover:text-slate-600 hover:border-slate-400" title="Upload Prelim"><Icon name="upload-cloud" size={16} /></button>)}
                                                 </div>
                                             </td>
                                         </tr>
@@ -750,44 +626,23 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                                 })}
                             </tbody>
                         </table>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                            <Icon name="clipboard-list" size={32} className="opacity-50 mb-4" />
-                            <p>No results found for this swimmer.</p>
-                        </div>
-                    )}
+                    ) : <div className="flex flex-col items-center justify-center h-64 text-slate-400"><Icon name="clipboard-list" size={32} className="opacity-50 mb-4" /><p>No results found for this swimmer.</p></div>}
                 </div>
             )}
 
-            {/* --- TAB 3: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
-                    <div className="p-6 border-b border-slate-100">
-                        <h3 className="font-bold text-slate-800 text-lg">AI Video Analyses</h3>
-                    </div>
+                    <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-800 text-lg">AI Video Analyses</h3></div>
                     {analyses.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
                             {analyses.map((analysis, idx) => (
                                 <div key={idx} onClick={() => onViewAnalysis(analysis)} className="group relative aspect-video bg-slate-900 rounded-xl overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-all">
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/20 transition-colors">
-                                        <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                            <Icon name="play" size={24} className="text-white fill-white ml-1" />
-                                        </div>
-                                    </div>
-                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-                                        <p className="text-white font-bold text-sm">Analysis #{analysis.id}</p>
-                                        <p className="text-slate-300 text-xs">{new Date(analysis.created_at).toLocaleDateString()}</p>
-                                    </div>
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/20 transition-colors"><div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><Icon name="play" size={24} className="text-white fill-white ml-1" /></div></div>
+                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent"><p className="text-white font-bold text-sm">Analysis #{analysis.id}</p><p className="text-slate-300 text-xs">{new Date(analysis.created_at).toLocaleDateString()}</p></div>
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                            <Icon name="video" size={32} className="opacity-50 mb-4" />
-                            <p>No AI analyses saved yet.</p>
-                            <button onClick={() => navigateTo('analysis')} className="mt-2 text-blue-600 hover:underline text-sm font-medium">Go to Analysis Tool</button>
-                        </div>
-                    )}
+                    ) : <div className="flex flex-col items-center justify-center h-64 text-slate-400"><Icon name="video" size={32} className="opacity-50 mb-4" /><p>No AI analyses saved yet.</p><button onClick={() => navigateTo('analysis')} className="mt-2 text-blue-600 hover:underline text-sm font-medium">Go to Analysis Tool</button></div>}
                 </div>
             )}
         </div>
