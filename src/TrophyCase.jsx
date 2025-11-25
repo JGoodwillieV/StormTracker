@@ -27,6 +27,19 @@ export default function TrophyCase({ swimmerId, age, gender }) {
       : parseFloat(parts[0]);
   };
 
+  // Helper: Clean Event Names safely
+  const normalizeEventName = (evt) => {
+    let name = evt.replace(/\s*\((Finals|Prelim)\)/i, '').trim();
+    
+    // Use Word Boundaries (\b) to avoid replacing "Freestyle" with "Freestystyle"
+    name = name.replace(/\bFree\b/i, 'Freestyle')
+               .replace(/\bBack\b/i, 'Backstroke')
+               .replace(/\bBreast\b/i, 'Breaststroke')
+               .replace(/\bFly\b/i, 'Butterfly');
+               
+    return name.toLowerCase(); // Normalize case for comparison
+  };
+
   useEffect(() => {
     const calculateBadges = async () => {
       if (!swimmerId) return;
@@ -42,7 +55,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
         .from('time_standards')
         .select('*')
         .eq('gender', gender)
-        .in('name', ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA']) // Only get these specific cuts
+        .in('name', ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA']) 
         .lte('age_min', age)
         .gte('age_max', age);
 
@@ -54,28 +67,25 @@ export default function TrophyCase({ swimmerId, age, gender }) {
       // 3. Group Results by Event (Find best time per event)
       const bestTimes = {};
       results.forEach(r => {
-        // Normalize name: "100 Freestyle (Prelim)" -> "100 Freestyle"
-        let baseName = r.event.replace(/\s*\((Finals|Prelim)\)/i, '').trim();
-        
-        // Fix short names like "50 Free" -> "50 Freestyle" to match DB
-        baseName = baseName.replace('Free', 'Freestyle').replace('Back', 'Backstroke').replace('Breast', 'Breaststroke').replace('Fly', 'Butterfly');
-
+        const normName = normalizeEventName(r.event);
         const seconds = timeToSeconds(r.time);
-        if (!bestTimes[baseName] || seconds < bestTimes[baseName]) {
-          bestTimes[baseName] = seconds;
+        
+        if (!bestTimes[normName] || seconds < bestTimes[normName]) {
+          bestTimes[normName] = seconds;
         }
       });
 
       // 4. Calculate Highest Badge per Event
       const badgeCounts = { B: 0, BB: 0, A: 0, AA: 0, AAA: 0, AAAA: 0 };
 
-      Object.keys(bestTimes).forEach(event => {
-        const time = bestTimes[event];
+      // Iterate through every event the swimmer has swum
+      Object.keys(bestTimes).forEach(swamEvent => {
+        const time = bestTimes[swamEvent];
         
-        // Find standards for this specific event
-        // Strict check: "100 Freestyle" should not match "1000 Freestyle"
+        // Find matching standards for this specific event
+        // We compare normalized names (e.g. "100 freestyle" === "100 freestyle")
         const eventStds = standards
-            .filter(s => s.event === event) 
+            .filter(s => s.event.toLowerCase() === swamEvent) 
             .sort((a, b) => a.time_seconds - b.time_seconds); // Fastest (AAAA) first
 
         // Check from hardest to easiest. Stop at the first one we beat.
@@ -84,7 +94,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
             if (badgeCounts[std.name] !== undefined) {
               badgeCounts[std.name]++;
             }
-            break; // We found the highest badge for this event, move to next event
+            break; // Found highest badge for this event, move to next event
           }
         }
       });
@@ -123,7 +133,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
               <div className="text-[9px] font-medium uppercase mt-1 opacity-80">{isUnlocked ? 'Unlocked' : 'Locked'}</div>
 
               {/* Counter Badge (Bottom Right) */}
-              {count > 1 && (
+              {count > 0 && (
                 <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-white text-slate-900 border-2 border-slate-900 rounded-full flex items-center justify-center text-xs font-bold shadow-sm z-10">
                   {count}
                 </div>
