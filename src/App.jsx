@@ -728,7 +728,12 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     </div>
                     
                     <div className="space-y-6">
-                        {/* Add Versatility Chart Here if needed */}
+                        {/* NEW RADAR CHART */}
+                          <VersatilityChart 
+                          swimmerId={swimmer.id} 
+                          age={swimmer.age} 
+                          gender={swimmer.gender || 'M'} 
+                          />
                         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                             <h3 className="font-bold text-slate-800 mb-4">Coach's Notes</h3>
                             <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 mb-4">
