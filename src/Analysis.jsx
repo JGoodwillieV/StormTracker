@@ -65,9 +65,9 @@ export default function Analysis({ swimmers, onBack, supabase }) {
       - drills: array of objects { name, focus }`;
 
       // 3. Call Gemini API
-      // Using gemini-1.5-flash as it's currently the most stable for video, 
+      // Using gemini-3-pro-preview as it's currently the most stable for video, 
       // but you can change to gemini-1.5-pro if needed.
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
