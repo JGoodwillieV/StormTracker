@@ -11,7 +11,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut
 } from 'lucide-react'
 
 // --- Icon Helper ---
@@ -22,7 +22,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'trophy': Trophy, 'file-up': FileUp, 'x': X, 'play': Play, 'send': Send, 'loader-2': Loader2,
     'check': Check, 'trending-down': TrendingDown, 'trending-up': TrendingUp, 'play-circle': PlayCircle, 
     'clipboard-list': ClipboardList, 'key': Key, 'upload-cloud': UploadCloud, 'cpu': Cpu, 
-    'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download
+    'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut
   };
   const LucideIcon = icons[name] || Waves;
   return <LucideIcon size={size} className={className} />;
@@ -81,12 +81,18 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]">
+      {/* Desktop Sidebar */}
       {view !== 'view-analysis' && (
         <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
       )}
+
+      {/* Mobile Bottom Nav (Only visible on mobile) */}
+      {view !== 'view-analysis' && (
+        <MobileNav activeTab={view} setActiveTab={navigateTo} />
+      )}
       
       <main className={`flex-1 h-screen overflow-hidden ${view !== 'view-analysis' ? 'md:ml-64' : ''}`}>
-        {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} />}
+        {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} onLogout={handleLogout} />}
         
         {view === 'roster' && (
           <Roster 
@@ -132,6 +138,32 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
+// NEW: Mobile Navigation Bar
+const MobileNav = ({ activeTab, setActiveTab }) => {
+  const items = [
+    { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
+    { id: 'analysis', icon: 'video', label: 'Analyze' },
+    { id: 'roster', icon: 'users', label: 'Roster' },
+  ];
+
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 z-50 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      {items.map(item => (
+        <button 
+          key={item.id} 
+          onClick={() => setActiveTab(item.id)}
+          className={`flex flex-col items-center gap-1 min-w-[60px] ${activeTab === item.id ? 'text-blue-600' : 'text-slate-400'}`}
+        >
+          <div className={`p-1 rounded-xl transition-colors ${activeTab === item.id ? 'bg-blue-50' : ''}`}>
+            <Icon name={item.icon} size={24} />
+          </div>
+          <span className="text-[10px] font-bold">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
@@ -156,19 +188,25 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
                </div>
            ))}
        </nav>
-       <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm">Sign Out</button>
+       <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm flex items-center gap-2 px-4">
+         <Icon name="log-out" size={16} /> Sign Out
+       </button>
     </aside>
   );
 };
 
-const Dashboard = ({ navigateTo, swimmers }) => {
+const Dashboard = ({ navigateTo, swimmers, onLogout }) => {
   const activeCount = swimmers ? swimmers.length : 0;
 
   return (
-    <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
+    <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full pb-24 md:pb-8">
       <header className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
         <div className="flex items-center gap-4">
+           {/* Mobile Logout Button */}
+           <button onClick={onLogout} className="md:hidden text-slate-400 p-2">
+             <Icon name="log-out" size={20} />
+           </button>
           <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">HC</div>
         </div>
       </header>
@@ -364,7 +402,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
     };
 
     return (
-        <div className="p-4 md:p-8 h-full flex flex-col relative">
+        <div className="p-4 md:p-8 h-full flex flex-col relative pb-24 md:pb-8">
              <header className="flex justify-between items-center mb-8 shrink-0">
                 <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
                 <div className="flex gap-3">
@@ -533,7 +571,7 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
     };
 
     return (
-        <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full">
+        <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full pb-24 md:pb-8">
             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500"><Icon name="chevron-left" size={24}/></button>
