@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // --- 1. SUB-COMPONENT (MUST BE AT THE TOP) ---
-const AnalysisResult = ({ data, videoUrl, onBack }) => {
+export const AnalysisResult = ({ data, videoUrl, onBack }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
