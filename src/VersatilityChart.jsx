@@ -26,14 +26,22 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Determine the "Representative Event" for each stroke based on age
-  const isYounger = age <= 12;
-  const strokeDist = isYounger ? '50' : '100';
-  const imDist = isYounger ? '100' : '200';
+  // Determine the "Representative Events" based on age tiers
+  let strokeDist, imDist;
+  if (age <= 8) {
+      strokeDist = '25';
+      imDist = '100'; // Some 8&Us swim 100 IM
+  } else if (age <= 12) {
+      strokeDist = '50';
+      imDist = '100';
+  } else {
+      strokeDist = '100';
+      imDist = '200';
+  }
 
-  // Define targets with keywords for fuzzy matching
   const strokes = [
-    { label: 'Free', dist: isYounger ? '50' : '100', type: 'Free' },
+    // Freestyle is always 50 for 12&U, 100 for 13+
+    { label: 'Free', dist: age <= 12 ? '50' : '100', type: 'Free' },
     { label: 'Back', dist: strokeDist, type: 'Back' },
     { label: 'Breast', dist: strokeDist, type: 'Breast' },
     { label: 'Fly', dist: strokeDist, type: 'Fly' }, 
@@ -77,8 +85,7 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
         const matchingTimes = myResults
           .filter(r => {
             const e = r.event.toLowerCase();
-            // Strict check: Event must START with distance + space (e.g. "100 " vs "1000")
-            // OR match "100 " somewhere if not start (unlikely for standard format)
+            // Strict check: Event must START with distance + space
             const distMatch = e.startsWith(`${stroke.dist} `) || e.includes(` ${stroke.dist} `);
             const strokeMatch = e.includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && e.includes('butter'));
             return distMatch && strokeMatch;
@@ -88,6 +95,11 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
         const bestTime = matchingTimes.length > 0 ? Math.min(...matchingTimes) : null;
 
         if (!bestTime) {
+            // Check if 8&U has a 50 Free to use as a fallback for IM slot
+            if (age <= 8 && stroke.type === 'IM') {
+                 // Fallback logic here if desired, but for now, just 0 it.
+                 // A true 8&U chart might just be a 4-point diamond of 25s.
+            }
             return { subject: stroke.label, score: 0, standard: 'N/A', fullMark: 180 };
         }
 
@@ -96,7 +108,6 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
             .filter(s => {
                 const e = s.event.toLowerCase();
                 const strokeMatch = e.includes(stroke.type.toLowerCase()) || (stroke.type === 'Fly' && e.includes('butter'));
-                // STRICT FIX: Ensure "100" doesn't match "1000"
                 const distMatch = s.event.startsWith(`${stroke.dist} `); 
                 return strokeMatch && distMatch;
             })
@@ -130,12 +141,15 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
 
   if (loading) return <div className="h-64 w-full flex items-center justify-center text-slate-500">Loading Chart...</div>;
   
+  // Filter out 0 scores for the chart data itself so they don't plot at the center
+  const plottedData = chartData.map(d => ({...d, score: d.score === 0 ? 5 : d.score})); // Use a small base for missing data
+
   if (chartData.every(d => d.score === 0)) {
       return (
         <div className="h-64 w-full bg-slate-900 rounded-xl border border-slate-700 p-4 flex flex-col items-center justify-center text-slate-500 text-sm">
             <Activity size={24} className="mb-2 opacity-50"/>
             <p>Not enough data for chart.</p>
-            <p className="text-xs">Need 50/100 stroke times.</p>
+            <p className="text-xs">Need representative stroke times.</p>
         </div>
       );
   }
@@ -150,7 +164,7 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
       
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
+          <RadarChart cx="50%" cy="50%" outerRadius="70%" data={plottedData}>
             <PolarGrid stroke="#334155" />
             <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} />
             <PolarRadiusAxis angle={30} domain={[0, 180]} tick={false} axisLine={false} />
