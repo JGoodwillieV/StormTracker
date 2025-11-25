@@ -6,6 +6,7 @@ import Standards from './Standards'
 import Analysis from './Analysis'
 import AnalysisResult from './AnalysisResult'
 import VersatilityChart from './VersatilityChart'
+import TrophyCase from './TrophyCase'
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts'
@@ -728,7 +729,14 @@ const SwimmerProfile = ({ swimmer, onBack, navigateTo, onViewAnalysis }) => {
                     </div>
                     
                     <div className="space-y-6">
-                        {/* NEW RADAR CHART */}
+                      {/* NEW TROPHY CASE */}
+                          <TrophyCase 
+                          swimmerId={swimmer.id}
+                          age={swimmer.age}
+                          gender={swimmer.gender || 'M'}
+                          />  
+                      
+                      {/* NEW RADAR CHART */}
                           <VersatilityChart 
                           swimmerId={swimmer.id} 
                           age={swimmer.age} 
