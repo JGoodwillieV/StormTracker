@@ -4,18 +4,19 @@ import { supabase } from './supabase'
 import Login from './Login'
 import Standards from './Standards'
 import Analysis from './Analysis'
-import AnalysisResult from './AnalysisResult'
-import VersatilityChart from './VersatilityChart'
+import AnalysisResult from './AnalysisResult' 
 import TrophyCase from './TrophyCase'
+import VersatilityChart from './VersatilityChart'
 import PhotoGallery from './PhotoGallery'
-import { Image as ImageIcon } from 'lucide-react' // Add Image icon import
+import AllPhotos from './AllPhotos' // NEW IMPORT
+
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts'
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera
 } from 'lucide-react'
 
 // --- Icon Helper ---
@@ -26,7 +27,8 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'trophy': Trophy, 'file-up': FileUp, 'x': X, 'play': Play, 'send': Send, 'loader-2': Loader2,
     'check': Check, 'trending-down': TrendingDown, 'trending-up': TrendingUp, 'play-circle': PlayCircle, 
     'clipboard-list': ClipboardList, 'key': Key, 'upload-cloud': UploadCloud, 'cpu': Cpu, 
-    'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut
+    'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut,
+    'image': ImageIcon, 'camera': Camera
   };
   const LucideIcon = icons[name] || Waves;
   return <LucideIcon size={size} className={className} />;
@@ -39,6 +41,9 @@ export default function App() {
   const [selectedSwimmer, setSelectedSwimmer] = useState(null)
   const [currentAnalysis, setCurrentAnalysis] = useState(null) 
   const [loading, setLoading] = useState(true)
+  
+  // Dashboard Stats
+  const [stats, setStats] = useState({ photos: 0, analyses: 0 });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -52,7 +57,10 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (session) fetchRoster()
+    if (session) {
+        fetchRoster();
+        fetchStats();
+    }
   }, [session])
 
   const fetchRoster = async () => {
@@ -63,6 +71,23 @@ export default function App() {
     
     if (error) console.error('Error fetching roster:', error)
     else setSwimmers(data || [])
+  }
+
+  const fetchStats = async () => {
+      // Get count of analyses
+      const { count: analysisCount } = await supabase
+        .from('analyses')
+        .select('*', { count: 'exact', head: true });
+        
+      // Get count of photos
+      const { count: photoCount } = await supabase
+        .from('photos')
+        .select('*', { count: 'exact', head: true });
+
+      setStats({ 
+          analyses: analysisCount || 0, 
+          photos: photoCount || 0 
+      });
   }
 
   const navigateTo = (v) => {
@@ -85,19 +110,29 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]">
-      {/* Desktop Sidebar */}
       {view !== 'view-analysis' && (
         <Sidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
       )}
 
-      {/* Mobile Bottom Nav (Only visible on mobile) */}
       {view !== 'view-analysis' && (
         <MobileNav activeTab={view} setActiveTab={navigateTo} />
       )}
       
       <main className={`flex-1 h-screen overflow-hidden ${view !== 'view-analysis' ? 'md:ml-64' : ''}`}>
-        {view === 'dashboard' && <Dashboard navigateTo={navigateTo} swimmers={swimmers} onLogout={handleLogout} />}
         
+        {view === 'dashboard' && (
+            <Dashboard 
+                navigateTo={navigateTo} 
+                swimmers={swimmers} 
+                stats={stats} // Pass real stats
+                onLogout={handleLogout} 
+            />
+        )}
+        
+        {view === 'all-photos' && (
+            <AllPhotos onBack={() => navigateTo('dashboard')} />
+        )}
+
         {view === 'roster' && (
           <Roster 
             swimmers={swimmers} 
@@ -143,7 +178,6 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
-// NEW: Mobile Navigation Bar
 const MobileNav = ({ activeTab, setActiveTab }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
@@ -200,7 +234,7 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   );
 };
 
-const Dashboard = ({ navigateTo, swimmers, onLogout }) => {
+const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
   const activeCount = swimmers ? swimmers.length : 0;
 
   return (
@@ -208,7 +242,6 @@ const Dashboard = ({ navigateTo, swimmers, onLogout }) => {
       <header className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
         <div className="flex items-center gap-4">
-           {/* Mobile Logout Button */}
            <button onClick={onLogout} className="md:hidden text-slate-400 p-2">
              <Icon name="log-out" size={20} />
            </button>
@@ -227,20 +260,36 @@ const Dashboard = ({ navigateTo, swimmers, onLogout }) => {
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <p className="text-slate-500 text-sm font-medium mb-2">Videos Analyzed</p>
-          <h3 className="text-3xl font-bold text-slate-800">142</h3>
+          <h3 className="text-3xl font-bold text-slate-800">{stats?.analyses || 0}</h3>
         </div>
-        <div onClick={() => navigateTo('analysis')} className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden cursor-pointer hover:bg-blue-700 transition-colors group">
-          <div><h3 className="text-lg font-bold">New Analysis</h3><p className="text-blue-100 text-sm mt-1">Upload stroke video</p></div>
+        
+        {/* NEW PHOTOS CARD */}
+        <div 
+            onClick={() => navigateTo('all-photos')}
+            className="bg-indigo-600 p-6 rounded-2xl shadow-lg shadow-indigo-200 text-white relative overflow-hidden cursor-pointer hover:bg-indigo-700 transition-colors group"
+        >
+          <div className="relative z-10">
+             <div className="flex items-center justify-between mb-2">
+                <p className="text-indigo-100 text-sm font-medium">Team Photos</p>
+                <Icon name="camera" size={20} className="text-indigo-200"/>
+             </div>
+             <h3 className="text-3xl font-bold">{stats?.photos || 0}</h3>
+             <p className="text-xs text-indigo-200 mt-1">View full gallery</p>
+          </div>
+          <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-indigo-500 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500"></div>
         </div>
       </div>
       
       <div className="mt-8">
-         <h3 className="font-bold text-slate-800 text-lg mb-4">Attention Required</h3>
-         <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-4">
-            <div className="w-10 h-10 bg-white text-red-500 rounded-full flex items-center justify-center font-bold">M</div>
-            <div>
-               <h4 className="font-bold text-slate-800">Mia Kobayashi</h4>
-               <p className="text-xs text-red-500 font-medium">Efficiency dropped -4%</p>
+         <h3 className="font-bold text-slate-800 text-lg mb-4">Quick Actions</h3>
+         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div onClick={() => navigateTo('analysis')} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-blue-100 transition-colors">
+                <div className="w-10 h-10 bg-white text-blue-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="video" size={20}/></div>
+                <div className="font-bold text-blue-900">New AI Analysis</div>
+            </div>
+            <div onClick={() => navigateTo('roster')} className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-emerald-100 transition-colors">
+                <div className="w-10 h-10 bg-white text-emerald-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="users" size={20}/></div>
+                <div className="font-bold text-emerald-900">Manage Roster</div>
             </div>
          </div>
       </div>
@@ -385,12 +434,22 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                 if (cleanName) {
                     cleanName = cleanName.replace(/\s[A-Z0-9]{6,}$/i, '').trim();
                     age = calculateAge(line.substring(55, 63).trim());
+                    
+                    // Gender Extraction (Based on typical SD3 format: Last char or near end)
+                    // Defaulting to M if unclear, but user should verify.
+                    // Ideally, SD3 has gender code. 
+                    // From user previous prompt: "Gender is the letter right after their age"
+                    // Line sample: "...08102016 9F" -> DOB=08102016, Age=9, Gender=F
+                    let gender = 'M';
+                    const genderMatch = line.match(/\d{8}\s*\d{1,2}([MF])/);
+                    if (genderMatch) gender = genderMatch[1];
+
                     if (cleanName.includes(',')) {
                         const parts = cleanName.split(',');
                         if (parts.length >= 2) cleanName = `${parts[1].trim()} ${parts[0].trim()}`;
                     }
                     const formattedName = cleanName.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                    newEntries.push({ name: formattedName, group_name: "Imported", status: "New", efficiency_score: 70, age: age, coach_id: user.id });
+                    newEntries.push({ name: formattedName, group_name: "Imported", status: "New", efficiency_score: 70, age: age, gender: gender, coach_id: user.id });
                 }
             }
         });
