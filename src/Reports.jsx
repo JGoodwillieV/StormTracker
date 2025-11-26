@@ -36,34 +36,21 @@ export default function Reports({ onBack }) {
   const parseEvent = (evt) => {
     if (!evt) return { dist: '', stroke: '' };
     
-    let clean = evt.toLowerCase();
-    
-    // 1. Remove content in parentheses
-    clean = clean.replace(/\(.*?\)/g, '');
-    
-    // 2. Remove "X & Over", "X & Under", "X-Y" age groups to prevent number confusion
-    // Matches "15 & over", "10 & under", "13-14"
-    clean = clean.replace(/\d+\s*&\s*(over|under)/g, '');
-    clean = clean.replace(/\b\d{1,2}-\d{1,2}\b/g, ''); 
-
-    // 3. Find standard swimming distances (25 - 1650)
-    // We look for the distance followed by text
-    const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
+    // Non-greedy remove of parens
+    const clean = evt.replace(/\(.*?\)/g, '').trim().toLowerCase(); 
+    const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
     
     if (match) {
-        const dist = match[1];
         let stroke = match[2];
-        
         if (stroke.includes('free')) stroke = 'free';
         else if (stroke.includes('back')) stroke = 'back';
         else if (stroke.includes('breast')) stroke = 'breast';
         else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
         else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
-        else return { dist: '', stroke: '' }; // Failed to identify stroke
         
-        return { dist, stroke: stroke.trim() };
+        return { dist: match[1], stroke: stroke.trim() };
     }
-    return { dist: '', stroke: '' };
+    return { dist: '', stroke: clean };
   };
 
   useEffect(() => {
@@ -94,11 +81,14 @@ export default function Reports({ onBack }) {
       let page = 0;
       const pageSize = 2000;
       let keepFetching = true;
+      
+      // FIX: Added .order('id') to guarantee consistent pagination
       while (keepFetching) {
-          setProgressMsg(`Scanning database... (${page * pageSize} records)`);
+          setProgressMsg(`Fetching results ${page * pageSize}...`);
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
+            .order('id', { ascending: true }) 
             .range(page * pageSize, (page + 1) * pageSize - 1);
           
           if (error || !batch || batch.length === 0) {
@@ -106,7 +96,7 @@ export default function Reports({ onBack }) {
           } else {
               allResults = [...allResults, ...batch];
               page++;
-              if (allResults.length > 50000) keepFetching = false;
+              if (allResults.length > 100000) keepFetching = false; // Increased limit
           }
       }
 
@@ -122,7 +112,7 @@ export default function Reports({ onBack }) {
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
         const myBestTimes = {}; 
-        const history = []; // For debugger
+        const history = []; 
 
         myResults.forEach(r => {
             const { dist, stroke } = parseEvent(r.event);
@@ -131,13 +121,14 @@ export default function Reports({ onBack }) {
             const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
             
+            // Store debug info
+            if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
+                 history.push({ event: r.event, parsed: key, time: r.time, sec });
+            }
+
             if (sec > 0 && sec < 999999) {
                 if (!myBestTimes[key] || sec < myBestTimes[key].val) {
                     myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
-                }
-                // Log history for debug target
-                if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
-                    history.push({ event: r.event, parsed: key, time: r.time, sec });
                 }
             }
         });
@@ -145,14 +136,14 @@ export default function Reports({ onBack }) {
         const swimmerAge = parseInt(swimmer.age) || 0; 
         const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
 
-        // DEBUG CAPTURE
         if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
              debugTarget = {
                 name: swimmer.name,
                 age: swimmerAge,
                 gender: swimmerGender,
+                totalResultsFound: myResults.length,
                 bestTimes: myBestTimes,
-                history: history,
+                history: history.slice(-20), // Show last 20 scanned
                 rejections: []
              };
         }
@@ -178,6 +169,7 @@ export default function Reports({ onBack }) {
 
             if (myBest) {
                 const diff = myBest.val - cut.time_seconds;
+                // Use epsilon for float comparison
                 if (diff <= 0.00001) {
                      if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                         myQualifyingEvents.push({
@@ -259,12 +251,13 @@ export default function Reports({ onBack }) {
               <Bug size={14} className="text-slate-400"/>
               <input 
                 type="text" 
-                placeholder="Debug Name (e.g. Mason)" 
+                placeholder="Debug Swimmer Name..." 
                 value={debugName}
                 onChange={(e) => setDebugName(e.target.value)}
                 className="bg-transparent text-xs outline-none w-32"
               />
           </div>
+
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
                   type="checkbox" 
@@ -290,12 +283,13 @@ export default function Reports({ onBack }) {
                 <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mb-6 border-l-4 border-yellow-500 shadow-lg max-h-96 overflow-y-auto">
                     <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug Analysis: {debugLog.name}</h4>
                     <p>Swimmer Data: {debugLog.gender}, Age {debugLog.age}</p>
+                    <p>Total Results for Swimmer: {debugLog.totalResultsFound}</p>
                     
                     <div className="mt-2 border-t border-slate-700 pt-2">
                         <strong className="text-yellow-400">Latest 20 Parsed Events:</strong>
                         <ul className="space-y-1 mt-1">
                             {debugLog.history.slice(-20).map((h, i) => (
-                                <li key={i} className="flex justify-between border-b border-slate-800 pb-1">
+                                <li key={i} className="flex flex-col border-b border-slate-800 pb-1">
                                     <span>{h.event}</span>
                                     <span className="text-blue-400">Parsed: {h.parsed} ({h.sec}s)</span>
                                 </li>
@@ -358,6 +352,19 @@ export default function Reports({ onBack }) {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            )}
+
+                            {!swimmer.isQualified && swimmer.closestMiss && (
+                                <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
+                                    <p className="font-bold text-red-800 mb-1">Closest Attempt:</p>
+                                    <div className="flex justify-between">
+                                        <span>{swimmer.closestMiss.event}</span>
+                                        <span className="font-mono text-red-600">
+                                            {swimmer.closestMiss.time} (Cut: {swimmer.closestMiss.standard}) 
+                                            <span className="ml-2 font-bold">+{swimmer.closestMiss.diff}s</span>
+                                        </span>
+                                    </div>
                                 </div>
                             )}
                         </div>
