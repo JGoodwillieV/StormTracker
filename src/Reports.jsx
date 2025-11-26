@@ -1,31 +1,40 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2 } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [standardNames, setStandardNames] = useState([]);
   const [selectedStandard, setSelectedStandard] = useState("");
   const [qualifiers, setQualifiers] = useState([]);
+  const [debugStats, setDebugStats] = useState({ s: 0, r: 0, c: 0 });
 
   // --- HELPERS ---
-  const timeToSeconds = (t) => {
-    if (!t) return 999999;
-    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => t.toUpperCase().includes(s))) return 999999;
-    const parts = t.replace(/[A-Z]/g, '').trim().split(':');
-    return parts.length === 2 
-      ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
-      : parseFloat(parts[0]);
+  const timeToSeconds = (timeStr) => {
+    if (!timeStr) return 999999;
+    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
+    
+    const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
+    if (!cleanStr) return 999999;
+
+    const parts = cleanStr.split(':');
+    let val = 0;
+    if (parts.length === 2) {
+        val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+    } else {
+        val = parseFloat(parts[0]);
+    }
+    return isNaN(val) ? 999999 : val;
   };
 
   const normalizeEventName = (evt) => {
     if (!evt) return "";
     
-    // FIX: Remove anything in parentheses first (e.g. "(10 & Under)", "(Prelim)")
-    // This prevents the "10" in "10 & Under" from confusing the distance parser
+    // 1. Remove parentheses content (e.g. "(10 & Under)", "(Finals)")
     const cleanString = evt.replace(/\(.*\)/g, '').trim(); 
 
+    // 2. Extract Distance and Stroke
     const match = cleanString.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
     
     if (match) {
@@ -51,7 +60,8 @@ export default function Reports({ onBack }) {
       if (data) {
         const unique = [...new Set(data.map(d => d.name))].sort();
         setStandardNames(unique);
-        if (unique.includes('Sectionals')) setSelectedStandard('Sectionals');
+        // Default: Try to find a middle-ground standard, or just the first one
+        if (unique.includes('BB')) setSelectedStandard('BB');
         else if (unique.length > 0) setSelectedStandard(unique[0]);
       }
     };
@@ -65,7 +75,7 @@ export default function Reports({ onBack }) {
       setLoading(true);
       setQualifiers([]);
 
-      // A. Fetch Everything (with high limit)
+      // A. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: results } = await supabase.from('results').select('*').range(0, 9999);
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
@@ -74,50 +84,50 @@ export default function Reports({ onBack }) {
           setLoading(false);
           return;
       }
+      
+      setDebugStats({ s: swimmers.length, r: results.length, c: cuts.length });
 
       // B. Process Each Swimmer
       const qualifiedList = [];
 
       swimmers.forEach(swimmer => {
-        // Handle string vs int ID mismatch
+        // 1. Get this swimmer's results
         const myResults = results.filter(r => r.swimmer_id == swimmer.id);
-        const myQualifyingEvents = [];
-
-        // Group my best times by event (Normalized)
-        const myBestTimes = {};
+        
+        // 2. Find their BEST time for every event they swam
+        const myBestTimes = {}; // Key: "100 freestyle" -> { val: 55.5, str: "55.50" }
+        
         myResults.forEach(r => {
             const norm = normalizeEventName(r.event);
             const sec = timeToSeconds(r.time);
             
             if (sec > 0 && sec < 999999) {
-                // Keep the fastest time for this normalized event
                 if (!myBestTimes[norm] || sec < myBestTimes[norm].val) {
                     myBestTimes[norm] = { val: sec, str: r.time, date: r.date };
                 }
             }
         });
 
-        // Filter cuts relevant to this swimmer
-        const relevantCuts = cuts.filter(c => {
-            const genderMatch = c.gender === (swimmer.gender || 'M');
-            const age = swimmer.age || 99; 
-            const ageMatch = age >= c.age_min && age <= c.age_max;
+        // 3. Filter standards relevant to THIS swimmer (Age/Gender)
+        const swimmerGender = (swimmer.gender || 'M').toUpperCase();
+        const swimmerAge = swimmer.age || 99; // Default to Open if unknown
+
+        const myRelevantCuts = cuts.filter(c => {
+            const genderMatch = c.gender.toUpperCase() === swimmerGender;
+            const ageMatch = swimmerAge >= c.age_min && swimmerAge <= c.age_max;
             return genderMatch && ageMatch;
         });
 
-        // Check for Qualifiers
-        relevantCuts.forEach(cut => {
+        // 4. Check for Qualifiers
+        const myQualifyingEvents = [];
+
+        myRelevantCuts.forEach(cut => {
             const cutEventNorm = normalizeEventName(cut.event);
             const myBest = myBestTimes[cutEventNorm];
 
-            // Strict check: Time must be <= standard
             if (myBest && myBest.val <= cut.time_seconds) {
-                // Avoid duplicate entries (e.g. SCY vs LCM cut for same event name)
-                // We assume if they beat ONE of them, they qualify.
-                // Check if we already added this event
-                const alreadyAdded = myQualifyingEvents.some(e => e.event === cut.event);
-                
-                if (!alreadyAdded) {
+                 // Avoid duplicates (e.g. SCY vs LCM matching same normalized name)
+                 if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                     myQualifyingEvents.push({
                         event: cut.event,
                         time: myBest.str,
@@ -125,7 +135,7 @@ export default function Reports({ onBack }) {
                         standard: cut.time_string,
                         diff: (myBest.val - cut.time_seconds).toFixed(2)
                     });
-                }
+                 }
             }
         });
 
@@ -137,7 +147,7 @@ export default function Reports({ onBack }) {
         }
       });
 
-      // Sort by number of qualifying events
+      // Sort list by most qualifiers
       qualifiedList.sort((a, b) => b.events.length - a.events.length);
 
       setQualifiers(qualifiedList);
@@ -179,7 +189,7 @@ export default function Reports({ onBack }) {
       {loading && (
         <div className="h-64 flex flex-col items-center justify-center text-slate-400 animate-pulse">
             <Loader2 size={40} className="animate-spin mb-4 text-blue-500"/>
-            <p>Scanning all results for qualifiers...</p>
+            <p>Scanning {debugStats.r > 0 ? debugStats.r : 'all'} results...</p>
         </div>
       )}
 
@@ -197,7 +207,11 @@ export default function Reports({ onBack }) {
 
             {qualifiers.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
-                    No swimmers have achieved this standard yet.
+                    <div className="mb-2 flex justify-center"><AlertCircle size={32} className="text-slate-300"/></div>
+                    <p>No swimmers found for this standard.</p>
+                    <p className="text-xs mt-2 text-slate-300 font-mono">
+                        Debug: Scanned {debugStats.s} swimmers, {debugStats.r} results, {debugStats.c} cuts.
+                    </p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 gap-4">
