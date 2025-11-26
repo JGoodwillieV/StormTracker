@@ -292,9 +292,9 @@ export default function Reports({ onBack }) {
                     <p>Swimmer Data: {debugLog.gender}, Age {debugLog.age}</p>
                     
                     <div className="mt-2 border-t border-slate-700 pt-2">
-                        <strong className="text-yellow-400">Latest 10 Parsed Events:</strong>
+                        <strong className="text-yellow-400">Latest 20 Parsed Events:</strong>
                         <ul className="space-y-1 mt-1">
-                            {debugLog.history.slice(-10).map((h, i) => (
+                            {debugLog.history.slice(-20).map((h, i) => (
                                 <li key={i} className="flex justify-between border-b border-slate-800 pb-1">
                                     <span>{h.event}</span>
                                     <span className="text-blue-400">Parsed: {h.parsed} ({h.sec}s)</span>
