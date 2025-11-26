@@ -1,7 +1,7 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug, CheckCircle2, XCircle } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug, CheckCircle2, XCircle, Database } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
@@ -11,9 +11,12 @@ export default function Reports({ onBack }) {
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
   
+  // DEBUG TOOLS
   const [debugName, setDebugName] = useState("");
   const [debugLog, setDebugLog] = useState(null);
+  const [globalStats, setGlobalStats] = useState({ swimmers: 0, results: 0 });
 
+  // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
@@ -31,9 +34,8 @@ export default function Reports({ onBack }) {
 
   const parseEvent = (evt) => {
     if (!evt) return { dist: '', stroke: '' };
-    const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); // Remove parens content
     
-    // Strict distance match (25-1650) + Text
+    const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); 
     const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
     
     if (match) {
@@ -74,19 +76,19 @@ export default function Reports({ onBack }) {
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
-      // --- FETCH ALL RESULTS (HIGH CAPACITY) ---
+      // --- FETCH ALL RESULTS (SAFE BATCHING) ---
       let allResults = [];
       let page = 0;
-      const pageSize = 5000; // Bigger chunks for speed
+      const pageSize = 1000; // Safe Supabase Limit
       let keepFetching = true;
       
       while (keepFetching) {
-          setProgressMsg(`Fetching rows ${page * pageSize} to ${(page + 1) * pageSize}...`);
+          setProgressMsg(`Fetching results ${page * pageSize} - ${(page + 1) * pageSize}...`);
           
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
-            .order('id', { ascending: true }) // Sort by ID to ensure we get newest rows at the end
+            .order('id', { ascending: true }) 
             .range(page * pageSize, (page + 1) * pageSize - 1);
           
           if (error || !batch || batch.length === 0) {
@@ -94,10 +96,11 @@ export default function Reports({ onBack }) {
           } else {
               allResults = [...allResults, ...batch];
               page++;
-              // INCREASED LIMIT TO 500k to cover full history
-              if (allResults.length > 500000) keepFetching = false;
+              if (allResults.length > 200000) keepFetching = false; // Safety Cap
           }
       }
+      
+      setGlobalStats({ swimmers: swimmers?.length || 0, results: allResults.length });
 
       if (!swimmers || !cuts) {
           setLoading(false);
@@ -120,7 +123,6 @@ export default function Reports({ onBack }) {
             const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
             
-            // Debug Logger
             if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
                  history.push({ event: r.event, parsed: key, time: r.time, sec, date: r.date });
             }
@@ -142,7 +144,6 @@ export default function Reports({ onBack }) {
                 gender: swimmerGender,
                 totalResultsFound: myResults.length,
                 bestTimes: myBestTimes,
-                // Show NEWEST 5 results in history to prove we fetched them
                 latestResults: history.sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 5),
                 rejections: []
              };
@@ -245,16 +246,25 @@ export default function Reports({ onBack }) {
         </div>
       </div>
 
+      {/* STATUS BAR & DEBUG */}
       <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-1">
-              <Bug size={14} className="text-slate-400"/>
-              <input 
-                type="text" 
-                placeholder="Debug Name (e.g. Mason)" 
-                value={debugName}
-                onChange={(e) => setDebugName(e.target.value)}
-                className="bg-transparent text-xs outline-none w-32"
-              />
+          <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-1">
+                  <Bug size={14} className="text-slate-400"/>
+                  <input 
+                    type="text" 
+                    placeholder="Debug Name (e.g. Mason)" 
+                    value={debugName}
+                    onChange={(e) => setDebugName(e.target.value)}
+                    className="bg-transparent text-xs outline-none w-32"
+                  />
+              </div>
+              {!loading && (
+                  <div className="flex items-center gap-2 text-[10px] text-slate-400 bg-white px-2 py-1 rounded-lg border">
+                      <Database size={10}/>
+                      <span>{globalStats.results} Results Loaded</span>
+                  </div>
+              )}
           </div>
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
@@ -283,7 +293,7 @@ export default function Reports({ onBack }) {
                     <p>Total Results Fetched for Swimmer: {debugLog.totalResultsFound}</p>
                     
                     <div className="mt-2 border-t border-slate-700 pt-2">
-                        <strong className="text-yellow-400">5 Most Recent Results Found (by Date):</strong>
+                        <strong className="text-yellow-400">Latest 5 Results (Date Desc):</strong>
                         <ul className="space-y-1 mt-1">
                             {debugLog.latestResults.map((h, i) => (
                                 <li key={i} className="flex flex-col border-b border-slate-800 pb-1">
@@ -293,9 +303,8 @@ export default function Reports({ onBack }) {
                             ))}
                         </ul>
                     </div>
-
                     <div className="mt-4 pt-2 border-t border-slate-700">
-                        <strong className="text-green-400">Final Best Times Selected:</strong>
+                        <strong className="text-green-400">Final Best Times:</strong>
                         <pre className="mt-1 bg-black/30 p-2 rounded">{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
                     </div>
                 </div>
@@ -313,7 +322,6 @@ export default function Reports({ onBack }) {
 
             {displayedRows.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
-                    <div className="mb-2 flex justify-center"><AlertCircle size={32} className="text-slate-300"/></div>
                     <p>No swimmers match criteria.</p>
                 </div>
             ) : (
