@@ -21,15 +21,23 @@ export default function Reports({ onBack }) {
 
   const normalizeEventName = (evt) => {
     if (!evt) return "";
-    const match = evt.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
+    
+    // FIX: Remove anything in parentheses first (e.g. "(10 & Under)", "(Prelim)")
+    // This prevents the "10" in "10 & Under" from confusing the distance parser
+    const cleanString = evt.replace(/\(.*\)/g, '').trim(); 
+
+    const match = cleanString.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
+    
     if (match) {
         const dist = match[1];
         let stroke = match[2].toLowerCase();
+        
         if (stroke === 'free') stroke = 'freestyle';
         if (stroke === 'back') stroke = 'backstroke';
         if (stroke === 'breast') stroke = 'breaststroke';
         if (stroke === 'fly') stroke = 'butterfly';
         if (stroke === 'individual medley') stroke = 'im'; 
+        
         if (stroke === 'im') return `${dist} im`;
         return `${dist} ${stroke}`;
     }
@@ -57,12 +65,9 @@ export default function Reports({ onBack }) {
       setLoading(true);
       setQualifiers([]);
 
-      // A. Fetch Everything (Increase limit to 10,000 to capture all results)
+      // A. Fetch Everything (with high limit)
       const { data: swimmers } = await supabase.from('swimmers').select('*');
-      
-      // LIMIT FIX: Explicitly ask for 10,000 rows
       const { data: results } = await supabase.from('results').select('*').range(0, 9999);
-      
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
       if (!swimmers || !results || !cuts) {
@@ -74,45 +79,53 @@ export default function Reports({ onBack }) {
       const qualifiedList = [];
 
       swimmers.forEach(swimmer => {
-        // Use loose comparison (==) for IDs to handle string/int mismatches
+        // Handle string vs int ID mismatch
         const myResults = results.filter(r => r.swimmer_id == swimmer.id);
         const myQualifyingEvents = [];
 
-        // Group my best times by event
+        // Group my best times by event (Normalized)
         const myBestTimes = {};
         myResults.forEach(r => {
             const norm = normalizeEventName(r.event);
             const sec = timeToSeconds(r.time);
+            
             if (sec > 0 && sec < 999999) {
+                // Keep the fastest time for this normalized event
                 if (!myBestTimes[norm] || sec < myBestTimes[norm].val) {
                     myBestTimes[norm] = { val: sec, str: r.time, date: r.date };
                 }
             }
         });
 
-        // Check against cuts
+        // Filter cuts relevant to this swimmer
         const relevantCuts = cuts.filter(c => {
             const genderMatch = c.gender === (swimmer.gender || 'M');
-            
-            // Handle null age: if swimmer age is unknown, assume they are eligible for "Open" (0-99) cuts only
             const age = swimmer.age || 99; 
             const ageMatch = age >= c.age_min && age <= c.age_max;
-            
             return genderMatch && ageMatch;
         });
 
+        // Check for Qualifiers
         relevantCuts.forEach(cut => {
             const cutEventNorm = normalizeEventName(cut.event);
             const myBest = myBestTimes[cutEventNorm];
 
+            // Strict check: Time must be <= standard
             if (myBest && myBest.val <= cut.time_seconds) {
-                myQualifyingEvents.push({
-                    event: cut.event,
-                    time: myBest.str,
-                    date: myBest.date,
-                    standard: cut.time_string,
-                    diff: (myBest.val - cut.time_seconds).toFixed(2)
-                });
+                // Avoid duplicate entries (e.g. SCY vs LCM cut for same event name)
+                // We assume if they beat ONE of them, they qualify.
+                // Check if we already added this event
+                const alreadyAdded = myQualifyingEvents.some(e => e.event === cut.event);
+                
+                if (!alreadyAdded) {
+                    myQualifyingEvents.push({
+                        event: cut.event,
+                        time: myBest.str,
+                        date: myBest.date,
+                        standard: cut.time_string,
+                        diff: (myBest.val - cut.time_seconds).toFixed(2)
+                    });
+                }
             }
         });
 
@@ -209,7 +222,7 @@ export default function Reports({ onBack }) {
                                         </div>
                                         <div className="text-right">
                                             <div className="font-mono font-bold text-blue-600 text-sm">{evt.time}</div>
-                                            <div className="text-[10px] text-emerald-600 font-bold">cut: {evt.standard}</div>
+                                            <div className="text-[10px] text-emerald-600 font-bold">-{Math.abs(evt.diff)}s</div>
                                         </div>
                                     </div>
                                 ))}
