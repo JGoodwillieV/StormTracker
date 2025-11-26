@@ -1,14 +1,16 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [standardNames, setStandardNames] = useState([]);
   const [selectedStandard, setSelectedStandard] = useState("");
   const [qualifiers, setQualifiers] = useState([]);
-  const [debugStats, setDebugStats] = useState({ s: 0, r: 0, c: 0 });
+  
+  // Debug state to see what's happening inside the logic
+  const [debugLog, setDebugLog] = useState(null);
 
   // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
@@ -28,24 +30,20 @@ export default function Reports({ onBack }) {
     return isNaN(val) ? 999999 : val;
   };
 
-  const normalizeEventName = (evt) => {
-    if (!evt) return "";
-    
-    // 1. Remove parentheses content (e.g. "(10 & Under)", "(Finals)")
-    const cleanString = evt.replace(/\(.*\)/g, '').trim().toLowerCase();
-
-    // 2. Normalize Stroke Names
-    let normalized = cleanString
-        .replace('freestyle', 'free')
-        .replace('backstroke', 'back')
-        .replace('breaststroke', 'breast')
-        .replace('butterfly', 'fly')
-        .replace('individual medley', 'im');
-
-    // 3. Standardize Spacing (e.g. "100  Free" -> "100 free")
-    normalized = normalized.replace(/\s+/g, ' ').trim();
-
-    return normalized;
+  const parseEvent = (evt) => {
+    if (!evt) return { dist: '', stroke: '' };
+    const clean = evt.replace(/\(.*\)/g, '').trim().toLowerCase();
+    const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
+    if (match) {
+        let stroke = match[2];
+        if (stroke.includes('free')) stroke = 'free';
+        if (stroke.includes('back')) stroke = 'back';
+        if (stroke.includes('breast')) stroke = 'breast';
+        if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
+        if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
+        return { dist: match[1], stroke };
+    }
+    return { dist: '', stroke: clean };
   };
 
   // --- 1. FETCH STANDARD NAMES ---
@@ -55,8 +53,7 @@ export default function Reports({ onBack }) {
       if (data) {
         const unique = [...new Set(data.map(d => d.name))].sort();
         setStandardNames(unique);
-        // Default: Try to find NCSA JR or similar to test
-        if (unique.includes('NCSA JR')) setSelectedStandard('NCSA JR');
+        if (unique.includes('Sectionals')) setSelectedStandard('Sectionals');
         else if (unique.length > 0) setSelectedStandard(unique[0]);
       }
     };
@@ -69,6 +66,7 @@ export default function Reports({ onBack }) {
       if (!selectedStandard) return;
       setLoading(true);
       setQualifiers([]);
+      setDebugLog(null);
 
       // A. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
@@ -79,73 +77,69 @@ export default function Reports({ onBack }) {
           setLoading(false);
           return;
       }
-      
-      setDebugStats({ s: swimmers.length, r: results.length, c: cuts.length });
 
       // B. Process Each Swimmer
       const qualifiedList = [];
+      
+      // Debug Logger for the first swimmer found
+      let debugData = null;
 
-      swimmers.forEach(swimmer => {
-        // 1. Get this swimmer's results
+      swimmers.forEach((swimmer, idx) => {
         const myResults = results.filter(r => r.swimmer_id == swimmer.id);
-        
-        // 2. Find their BEST time for every event they swam
+        const myQualifyingEvents = [];
         const myBestTimes = {}; 
         
+        // 1. Normalize my results
         myResults.forEach(r => {
-            const norm = normalizeEventName(r.event);
+            const { dist, stroke } = parseEvent(r.event);
+            const key = `${dist} ${stroke}`; // e.g. "100 free"
             const sec = timeToSeconds(r.time);
             
             if (sec > 0 && sec < 999999) {
-                if (!myBestTimes[norm] || sec < myBestTimes[norm].val) {
-                    myBestTimes[norm] = { val: sec, str: r.time, date: r.date };
+                if (!myBestTimes[key] || sec < myBestTimes[key].val) {
+                    myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
                 }
             }
         });
 
-        // 3. Filter standards relevant to THIS swimmer
-        // AGE LOGIC FIX: If standard is "0-18" (Junior), allow anyone under 19 OR anyone with unknown age.
-        const swimmerAge = swimmer.age || 0; 
-        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase(); // Handle ' M ' vs 'M'
+        // 2. Filter cuts for this swimmer
+        const swimmerAge = swimmer.age || 99; 
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
 
         const myRelevantCuts = cuts.filter(c => {
             const cutGender = c.gender.trim().toUpperCase();
-            const genderMatch = cutGender === swimmerGender;
-            
-            // Loose Age Match: If standard is Open (0-99), everyone matches.
-            // If standard is Junior (0-18), matches if age <= 18.
             const ageMatch = swimmerAge >= c.age_min && swimmerAge <= c.age_max;
-            
-            return genderMatch && ageMatch;
+            return cutGender === swimmerGender && ageMatch;
         });
 
-        // 4. Check for Qualifiers
-        const myQualifyingEvents = [];
+        // Capture debug info for the first swimmer who has results
+        if (!debugData && myResults.length > 0) {
+            debugData = {
+                name: swimmer.name,
+                age: swimmerAge,
+                gender: swimmerGender,
+                resultsCount: myResults.length,
+                bestTimes: myBestTimes,
+                cutsCount: myRelevantCuts.length,
+                sampleCut: myRelevantCuts[0]
+            };
+        }
 
+        // 3. Match
         myRelevantCuts.forEach(cut => {
-            const cutNorm = normalizeEventName(cut.event);
+            const { dist, stroke } = parseEvent(cut.event);
+            const key = `${dist} ${stroke}`;
             
-            // Try exact match first
-            let match = myBestTimes[cutNorm];
+            const myBest = myBestTimes[key];
 
-            // If no exact match, try fuzzy matching distance + stroke
-            if (!match) {
-                const cutParts = cutNorm.split(' ');
-                // Look for keys that contain "100" AND "back"
-                const fuzzyKey = Object.keys(myBestTimes).find(k => 
-                    k.includes(cutParts[0]) && k.includes(cutParts[1])
-                );
-                if (fuzzyKey) match = myBestTimes[fuzzyKey];
-            }
-
-            if (match && match.val <= cut.time_seconds) {
+            if (myBest && myBest.val <= cut.time_seconds) {
                  if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                     myQualifyingEvents.push({
                         event: cut.event,
-                        time: match.str,
-                        date: match.date,
+                        time: myBest.str,
+                        date: myBest.date,
                         standard: cut.time_string,
-                        diff: (match.val - cut.time_seconds).toFixed(2)
+                        diff: (myBest.val - cut.time_seconds).toFixed(2)
                     });
                  }
             }
@@ -160,8 +154,8 @@ export default function Reports({ onBack }) {
       });
 
       qualifiedList.sort((a, b) => b.events.length - a.events.length);
-
       setQualifiers(qualifiedList);
+      setDebugLog(debugData);
       setLoading(false);
     };
 
@@ -200,7 +194,7 @@ export default function Reports({ onBack }) {
       {loading && (
         <div className="h-64 flex flex-col items-center justify-center text-slate-400 animate-pulse">
             <Loader2 size={40} className="animate-spin mb-4 text-blue-500"/>
-            <p>Scanning {debugStats.r > 0 ? debugStats.r : 'all'} results...</p>
+            <p>Scanning results...</p>
         </div>
       )}
 
@@ -220,9 +214,6 @@ export default function Reports({ onBack }) {
                 <div className="text-center py-12 text-slate-400">
                     <div className="mb-2 flex justify-center"><AlertCircle size={32} className="text-slate-300"/></div>
                     <p>No swimmers found for this standard.</p>
-                    <p className="text-xs mt-2 text-slate-300 font-mono">
-                        Debug: Scanned {debugStats.s} swimmers, {debugStats.r} results, {debugStats.c} cuts.
-                    </p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 gap-4">
@@ -254,6 +245,26 @@ export default function Reports({ onBack }) {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* DEBUG PANEL (Remove later) */}
+            {debugLog && (
+                <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mt-8">
+                    <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug Info (First Swimmer)</h4>
+                    <p>Name: {debugLog.name} ({debugLog.gender}, Age {debugLog.age})</p>
+                    <p>Results Found: {debugLog.resultsCount}</p>
+                    <p>Standards Found for this Age/Gender: {debugLog.cutsCount}</p>
+                    <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                            <strong className="text-slate-500">My Best Times (Parsed):</strong>
+                            <pre>{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
+                        </div>
+                        <div>
+                            <strong className="text-slate-500">Sample Standard:</strong>
+                            <pre>{JSON.stringify(debugLog.sampleCut, null, 2)}</pre>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
