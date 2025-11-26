@@ -6,6 +6,56 @@ import {
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database
 } from 'lucide-react';
 
+// --- SHARED HELPERS (Available to all components) ---
+
+const timeToSeconds = (timeStr) => {
+  if (!timeStr) return 999999;
+  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
+  
+  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
+  if (!cleanStr) return 999999;
+
+  const parts = cleanStr.split(':');
+  let val = 0;
+  if (parts.length === 2) {
+      val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+  } else {
+      val = parseFloat(parts[0]);
+  }
+  return isNaN(val) ? 999999 : val;
+};
+
+const secondsToTime = (val) => {
+  if (!val || val >= 999999) return "-";
+  const mins = Math.floor(val / 60);
+  const secs = (val % 60).toFixed(2);
+  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
+};
+
+const parseEvent = (evt) => {
+  if (!evt) return { dist: '', stroke: '' };
+  
+  // Non-greedy remove of parens
+  const clean = evt.toLowerCase().replace(/\(.*?\)/g, '').trim(); 
+  const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
+  
+  if (match) {
+      const dist = match[1];
+      let stroke = match[2];
+      if (stroke.includes('free')) stroke = 'free';
+      else if (stroke.includes('back')) stroke = 'back';
+      else if (stroke.includes('breast')) stroke = 'breast';
+      else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
+      else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
+      else return { dist: '', stroke: '' };
+      
+      return { dist, stroke: stroke.trim() };
+  }
+  return { dist: '', stroke: '' };
+};
+
+
+// --- MAIN COMPONENT ---
 export default function Reports({ onBack }) {
   const [currentReport, setCurrentReport] = useState(null);
 
@@ -13,7 +63,7 @@ export default function Reports({ onBack }) {
     switch (currentReport) {
       case 'qualifiers': return <QualifiersReport onBack={() => setCurrentReport(null)} />;
       case 'relays': return <RelayGenerator onBack={() => setCurrentReport(null)} />;
-      // Placeholders for future
+      // Placeholders
       case 'movers': return <BigMoversReport onBack={() => setCurrentReport(null)} />;
       case 'closecalls': return <CloseCallsReport onBack={() => setCurrentReport(null)} />;
       case 'heatmap': return <FlawHeatmapReport onBack={() => setCurrentReport(null)} />;
@@ -46,7 +96,7 @@ export default function Reports({ onBack }) {
                 <p className="text-slate-500 text-sm mt-1">See who made the cut for Champs, Sectionals, etc.</p>
             </div>
 
-            {/* 2. RELAY GENERATOR (NEW) */}
+            {/* 2. RELAY GENERATOR */}
             <div onClick={() => setCurrentReport('relays')} className="bg-white p-6 rounded-2xl border hover:border-purple-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
                 <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Layers size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Relay Generator</h3>
@@ -64,7 +114,9 @@ export default function Reports({ onBack }) {
   );
 }
 
-// --- 1. QUALIFIERS REPORT (Proven Logic) ---
+// --- SUB-COMPONENTS ---
+
+// 1. QUALIFIERS REPORT
 const QualifiersReport = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
@@ -73,37 +125,6 @@ const QualifiersReport = ({ onBack }) => {
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
   const [globalStats, setGlobalStats] = useState({ swimmers: 0, results: 0 });
-
-  // --- HELPERS (From your trusted version) ---
-  const timeToSeconds = (timeStr) => {
-    if (!timeStr) return 999999;
-    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-    const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
-    if (!cleanStr) return 999999;
-    const parts = cleanStr.split(':');
-    let val = 0;
-    if (parts.length === 2) val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-    else val = parseFloat(parts[0]);
-    return isNaN(val) ? 999999 : val;
-  };
-
-  const parseEvent = (evt) => {
-    if (!evt) return { dist: '', stroke: '' };
-    const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); 
-    const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
-    if (match) {
-        const dist = match[1];
-        let stroke = match[2];
-        if (stroke.includes('free')) stroke = 'free';
-        else if (stroke.includes('back')) stroke = 'back';
-        else if (stroke.includes('breast')) stroke = 'breast';
-        else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
-        else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
-        else return { dist: '', stroke: '' };
-        return { dist, stroke: stroke.trim() };
-    }
-    return { dist: '', stroke: '' };
-  };
 
   useEffect(() => {
     const fetchStandardsList = async () => {
@@ -127,24 +148,24 @@ const QualifiersReport = ({ onBack }) => {
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
+      // Fetch ALL results
       let allResults = [];
       let page = 0;
-      const pageSize = 1000;
       let keepFetching = true;
       
       while (keepFetching) {
-          setProgressMsg(`Fetching results ${page * pageSize} - ${(page + 1) * pageSize}...`);
+          setProgressMsg(`Fetching results ${page * 1000} - ${(page + 1) * 1000}...`);
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
             .order('id', { ascending: true }) 
-            .range(page * pageSize, (page + 1) * pageSize - 1);
+            .range(page * 1000, (page + 1) * 1000 - 1);
           
           if (error || !batch || batch.length === 0) keepFetching = false;
           else {
               allResults = [...allResults, ...batch];
               page++;
-              if (allResults.length > 200000) keepFetching = false; 
+              if (allResults.length > 500000) keepFetching = false; 
           }
       }
       
@@ -312,45 +333,14 @@ const QualifiersReport = ({ onBack }) => {
   );
 };
 
-// --- 2. RELAY GENERATOR (New Feature) ---
+// --- 2. RELAY GENERATOR ---
 const RelayGenerator = ({ onBack }) => {
     const [ageGroup, setAgeGroup] = useState('11-12');
     const [gender, setGender] = useState('M');
     const [relayType, setRelayType] = useState('200 Free');
     const [relays, setRelays] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [progress, setProgress] = useState("");
-
-    // Re-using the helpers from Qualifiers to ensure consistency
-    const timeToSeconds = (t) => {
-        if (!t) return 9999;
-        const clean = t.replace(/[A-Z]/g, '').trim();
-        const parts = clean.split(':');
-        return parts.length === 2 ? parseInt(parts[0])*60 + parseFloat(parts[1]) : parseFloat(parts[0]) || 9999;
-    };
-    
-    const secondsToTime = (val) => {
-        if (!val || val >= 9999) return "-";
-        const mins = Math.floor(val / 60);
-        const secs = (val % 60).toFixed(2);
-        return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-    };
-
-    const parseEvent = (evt) => {
-        const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); 
-        const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
-        if (match) {
-            let stroke = match[2];
-            if (stroke.includes('free')) stroke = 'free';
-            else if (stroke.includes('back')) stroke = 'back';
-            else if (stroke.includes('breast')) stroke = 'breast';
-            else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
-            else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
-            else return { dist: '', stroke: '' };
-            return { dist: match[1], stroke: stroke.trim() };
-        }
-        return { dist: '', stroke: '' };
-    };
+    const [progressMsg, setProgressMsg] = useState("");
 
     const generate = async () => {
         setLoading(true);
@@ -358,7 +348,7 @@ const RelayGenerator = ({ onBack }) => {
 
         const { data: swimmers } = await supabase.from('swimmers').select('*');
         
-        // Fetch ALL results (Safe Batching) - Reusing logic to be safe
+        // Fetch ALL results (Safe Batching)
         let allResults = [];
         let page = 0;
         let keepFetching = true;
@@ -369,7 +359,7 @@ const RelayGenerator = ({ onBack }) => {
             else {
                 allResults = [...allResults, ...batch];
                 page++;
-                if (allResults.length > 100000) keepFetching = false; 
+                if (allResults.length > 500000) keepFetching = false; 
             }
         }
 
@@ -390,11 +380,15 @@ const RelayGenerator = ({ onBack }) => {
             const myResults = allResults.filter(r => r.swimmer_id == s.id);
             const times = { id: s.id, name: s.name };
             requiredStrokes.forEach(stk => {
-                const matches = myResults.map(r => {
-                    const p = parseEvent(r.event);
-                    return (p.dist === dist && p.stroke === stk) ? timeToSeconds(r.time) : 9999;
-                });
-                times[stk] = matches.length > 0 ? Math.min(...matches) : 9999;
+                // Find best time for this specific stroke/dist
+                const matches = myResults
+                    .map(r => {
+                        const p = parseEvent(r.event);
+                        return (p.dist === dist && p.stroke === stk) ? timeToSeconds(r.time) : 999999;
+                    })
+                    .filter(t => t < 999999);
+                
+                times[stk] = matches.length > 0 ? Math.min(...matches) : 999999;
             });
             return times;
         });
@@ -407,33 +401,39 @@ const RelayGenerator = ({ onBack }) => {
             let team = [];
             if (!isMedley) {
                 pool.sort((a,b) => a.free - b.free);
-                if (pool.length >= 4) {
-                    team = pool.slice(0, 4).map(s => ({ ...s, stroke: 'Free', split: s.free }));
-                    pool = pool.slice(4);
+                const eligible = pool.filter(p => p.free < 999999);
+                if (eligible.length >= 4) {
+                    team = eligible.slice(0, 4).map(s => ({ ...s, stroke: 'Free', split: s.free }));
+                    const usedIds = new Set(team.map(t => t.id));
+                    pool = pool.filter(s => !usedIds.has(s.id));
                 }
             } else {
-                // Simple Medley Logic: Best Available for each slot
-                const strokes = ['back', 'breast', 'fly', 'free'];
-                strokes.forEach(stk => {
-                    let best = null;
-                    let bestTime = 9999;
-                    pool.forEach(s => {
-                        if (!team.find(t => t.id === s.id) && s[stk] < bestTime) {
-                            bestTime = s[stk];
-                            best = s;
+                // Medley Logic
+                const validPool = pool.filter(s => Math.min(s.back, s.breast, s.fly, s.free) < 999999);
+                if (validPool.length >= 4) {
+                    const strokes = ['back', 'breast', 'fly', 'free'];
+                    const currentTeam = [];
+                    const usedIds = new Set();
+                    
+                    strokes.forEach(stk => {
+                        let bestSwimmer = null;
+                        let bestTime = 999999;
+                        validPool.forEach(s => {
+                            if (!usedIds.has(s.id) && s[stk] < bestTime) {
+                                bestTime = s[stk];
+                                bestSwimmer = s;
+                            }
+                        });
+                        if (bestSwimmer) {
+                            currentTeam.push({ ...bestSwimmer, stroke: stk.charAt(0).toUpperCase() + stk.slice(1), split: bestTime });
+                            usedIds.add(bestSwimmer.id);
                         }
                     });
-                    if (best) {
-                        team.push({ ...best, stroke: stk.charAt(0).toUpperCase() + stk.slice(1), split: bestTime });
+
+                    if (currentTeam.length === 4) {
+                        team = currentTeam;
+                        pool = pool.filter(s => !usedIds.has(s.id));
                     }
-                });
-                
-                // If we found 4 distinct swimmers, remove them from pool
-                if (team.length === 4) {
-                    const ids = team.map(t => t.id);
-                    pool = pool.filter(s => !ids.includes(s.id));
-                } else {
-                    team = []; // Incomplete relay
                 }
             }
 
