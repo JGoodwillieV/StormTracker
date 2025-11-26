@@ -9,6 +9,8 @@ import TrophyCase from './TrophyCase'
 import VersatilityChart from './VersatilityChart'
 import PhotoGallery from './PhotoGallery'
 import AllPhotos from './AllPhotos' // NEW IMPORT
+import Reports from './Reports'
+import { FileText } from 'lucide-react' // Ensure FileText is imported
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -28,6 +30,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'check': Check, 'trending-down': TrendingDown, 'trending-up': TrendingUp, 'play-circle': PlayCircle, 
     'clipboard-list': ClipboardList, 'key': Key, 'upload-cloud': UploadCloud, 'cpu': Cpu, 
     'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut,
+    'file-text': FileText,
     'image': ImageIcon, 'camera': Camera
   };
   const LucideIcon = icons[name] || Waves;
@@ -171,6 +174,12 @@ export default function App() {
             }} 
           />
         )}
+
+        {/* REPORTS PAGE */}
+{view === 'reports' && (
+  <Reports onBack={() => navigateTo('dashboard')} />
+)}
+        
       </main>
     </div>
   )
