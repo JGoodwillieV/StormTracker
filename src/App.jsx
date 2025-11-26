@@ -347,6 +347,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return age;
     };
 
+    // CSV Parser
     const parseCSVWithQuotes = (text) => {
         const rows = [];
         let currentRow = [];
@@ -370,13 +371,12 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return rows;
     };
 
-    // --- SMART IMPORT WITH DUPLICATE CHECK ---
-    const handleResultsImport = async (text) => {
-        const rows = parseCSVWithQuotes(text);
-        const potentialEntries = [];
-        
-        // Create lookup map
+    // --- IMPORT HANDLER (Supports CSV & Excel Rows) ---
+    const handleResultsImport = async (rows) => {
+        const entriesToInsert = [];
         const swimmerMap = {}; 
+        
+        // Build Name Map
         swimmers.forEach(s => {
             const parts = s.name.toLowerCase().trim().split(' ');
             const first = parts[0];
@@ -385,19 +385,20 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
             swimmerMap[`${last},${first}`] = s.id;
         });
 
+        // Skip header (i=1)
         for(let i = 1; i < rows.length; i++) {
             const row = rows[i];
-            if(row.length < 5) continue; 
+            if(!row || row.length < 5) continue; 
 
             const nameCell = row[1]; 
             const eventCell = row[2]; 
             const prelimTime = row[4];
             const finalsTime = row[5]; 
-            const dateStr = row[10];  
+            const dateVal = row[10];  
 
             if (!nameCell) continue;
 
-            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim().toLowerCase();
+            let rawName = String(nameCell).split('\n')[0].replace(/['"]/g, '').trim().toLowerCase();
             let targetId = null;
             
             if (rawName.includes(',')) {
@@ -409,89 +410,119 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
             }
 
             if (targetId) {
-                let cleanEvent = eventCell.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                let cleanEvent = String(eventCell).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                
+                // Handle Date (Excel Object vs CSV String)
                 let cleanDate = new Date().toISOString().split('T')[0];
-                if (dateStr) {
-                    const dParts = dateStr.split('/'); 
-                    if (dParts.length === 3) cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
+                if (dateVal) {
+                    if (dateVal instanceof Date) {
+                        cleanDate = dateVal.toISOString().split('T')[0];
+                    } else if (typeof dateVal === 'string' && dateVal.includes('/')) {
+                        const dParts = dateVal.split('/'); 
+                        if (dParts.length === 3) cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
+                    }
                 }
-                const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN") && !['DQ','NS','DFS'].some(x=>t.includes(x));
+
+                // Check for valid time
+                const isValidTime = (t) => {
+                    const s = String(t);
+                    return s && s !== "0.00" && s.trim() !== "" && !s.includes("NaN") && !['DQ','NS','DFS','SCR'].some(x => s.toUpperCase().includes(x));
+                };
                 
                 if (isValidTime(prelimTime)) {
-                    potentialEntries.push({ swimmer_id: targetId, event: `${cleanEvent} (Prelim)`, time: prelimTime, date: cleanDate, video_url: null });
+                    entriesToInsert.push({ swimmer_id: targetId, event: `${cleanEvent} (Prelim)`, time: String(prelimTime), date: cleanDate, video_url: null });
                 }
                 if (isValidTime(finalsTime)) {
-                    potentialEntries.push({ swimmer_id: targetId, event: `${cleanEvent} (Finals)`, time: finalsTime, date: cleanDate, video_url: null });
+                    entriesToInsert.push({ swimmer_id: targetId, event: `${cleanEvent} (Finals)`, time: String(finalsTime), date: cleanDate, video_url: null });
                 }
             }
         }
 
-        if (potentialEntries.length > 0) {
-            // 1. Fetch existing results for these swimmers to check for duplicates
-            const uniqueSwimmerIds = [...new Set(potentialEntries.map(e => e.swimmer_id))];
-            
-            const { data: existingData, error: fetchError } = await supabase
+        if (entriesToInsert.length > 0) {
+            // Duplicate Check
+            const uniqueSwimmerIds = [...new Set(entriesToInsert.map(e => e.swimmer_id))];
+            const { data: existingData } = await supabase
                 .from('results')
                 .select('swimmer_id, event, time, date')
                 .in('swimmer_id', uniqueSwimmerIds);
 
-            if (fetchError) {
-                alert("Error checking duplicates: " + fetchError.message);
-                return;
-            }
-
-            // 2. Create a set of signatures "ID|Event|Time|Date"
-            const existingSignatures = new Set(
-                existingData.map(r => `${r.swimmer_id}|${r.event}|${r.time}|${r.date}`)
-            );
-
-            // 3. Filter out duplicates
-            const newEntries = potentialEntries.filter(e => {
-                const sig = `${e.swimmer_id}|${e.event}|${e.time}|${e.date}`;
-                return !existingSignatures.has(sig);
-            });
+            const existingSignatures = new Set(existingData?.map(r => `${r.swimmer_id}|${r.event}|${r.time}|${r.date}`));
+            
+            const newEntries = entriesToInsert.filter(e => !existingSignatures.has(`${e.swimmer_id}|${e.event}|${e.time}|${e.date}`));
 
             if (newEntries.length > 0) {
                 const { error } = await supabase.from('results').insert(newEntries);
                 if (error) alert("Database error: " + error.message);
                 else { 
-                    alert(`Success! Imported ${newEntries.length} new results. (${potentialEntries.length - newEntries.length} duplicates skipped)`); 
+                    alert(`Success! Imported ${newEntries.length} results. (${entriesToInsert.length - newEntries.length} skipped as duplicates)`); 
                     setShowImport(false); 
                 }
             } else {
-                alert("No new results found. All " + potentialEntries.length + " entries were duplicates.");
+                alert("No new results found. All entries were duplicates.");
                 setShowImport(false);
             }
         } else {
-            alert("Found 0 matches. Check that Last/First names match the roster.");
+            alert("Found 0 valid matches.");
         }
     };
 
+    // --- FILE SELECTION & PARSING ---
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         setIsImporting(true);
+        
+        const isExcel = file.name.match(/\.(xls|xlsx)$/i);
         const reader = new FileReader();
+
         reader.onload = async (event) => {
-            const text = event.target.result;
             try {
-                if (importType === 'roster') {
-                    const newSwimmersData = await parseSD3Roster(text);
-                    if (newSwimmersData.length > 0) {
-                        const { data, error } = await supabase.from('swimmers').insert(newSwimmersData).select();
-                        if (error) throw error;
-                        setSwimmers(prev => [...prev, ...data]);
-                        alert(`Successfully imported ${data.length} swimmers!`);
-                        setShowImport(false);
-                    } else { alert("No valid roster records found."); }
-                } else { await handleResultsImport(text); }
-            } catch (err) { console.error(err); alert("Error importing: " + err.message); } 
-            finally { setIsImporting(false); }
+                // A. EXCEL FILE
+                if (isExcel) {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array', cellDates: true }); // Parse dates automatically
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                    
+                    if (importType === 'results') {
+                        await handleResultsImport(rows);
+                    } else {
+                        alert("Excel import is currently only supported for Results. Use .sd3 for Roster.");
+                    }
+                } 
+                // B. TEXT/CSV FILE
+                else {
+                    const text = event.target.result;
+                    if (importType === 'roster') {
+                        const newSwimmersData = await parseSD3Roster(text);
+                        if (newSwimmersData.length > 0) {
+                            const { data, error } = await supabase.from('swimmers').insert(newSwimmersData).select();
+                            if (error) throw error;
+                            setSwimmers(prev => [...prev, ...data]);
+                            alert(`Successfully imported ${data.length} swimmers!`);
+                            setShowImport(false);
+                        } else { alert("No valid roster records found."); }
+                    } else { 
+                        const rows = parseCSVWithQuotes(text);
+                        await handleResultsImport(rows); 
+                    }
+                }
+            } catch (err) { 
+                console.error(err); 
+                alert("Error importing: " + err.message); 
+            } finally { 
+                setIsImporting(false); 
+            }
         };
-        reader.readAsText(file);
+
+        if (isExcel) reader.readAsArrayBuffer(file);
+        else reader.readAsText(file);
+        
         e.target.value = null; 
     };
 
+    // SD3 Logic (Unchanged)
     const parseSD3Roster = async (text) => {
         const lines = text.split(/\r\n|\n/);
         const newEntries = [];
@@ -501,6 +532,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
             if (line.startsWith("D0")) {
                 let cleanName = "";
                 let age = null;
+                let gender = 'M';
                 const match = line.match(d0Regex);
                 if (match && match[1]) cleanName = match[1].trim();
                 else {
@@ -510,8 +542,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                 if (cleanName) {
                     cleanName = cleanName.replace(/\s[A-Z0-9]{6,}$/i, '').trim();
                     age = calculateAge(line.substring(55, 63).trim());
-                    
-                    let gender = 'M';
                     const genderMatch = line.match(/\d{8}\s*\d{1,2}([MF])/);
                     if (genderMatch) gender = genderMatch[1];
 
@@ -541,7 +571,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
              <header className="flex flex-col md:flex-row justify-between md:items-center mb-8 shrink-0 gap-4">
                 <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
                 
-                {/* SEARCH BAR */}
                 <div className="relative w-full md:w-64">
                     <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input 
@@ -556,7 +585,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                 <div className="flex gap-3 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
                      <button onClick={() => { setImportType('results'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-blue-600 transition-colors whitespace-nowrap"><Icon name="trophy" size={16} /> Import Results</button>
                      <button onClick={() => { setImportType('roster'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors whitespace-nowrap"><Icon name="file-up" size={16} /> Import Roster</button>
-                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"><Icon name="plus" size={16} /> Add Swimmer</button>
+                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"><Icon name="plus" size={16} /> Add Swimmer</button>
                 </div>
             </header>
             
@@ -605,7 +634,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         </div>
     );
 };
-
 const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis }) => {
     const [activeTab, setActiveTab] = useState('overview');
     const [results, setResults] = useState([]);
