@@ -32,25 +32,20 @@ export default function Reports({ onBack }) {
     if (!evt) return "";
     
     // 1. Remove parentheses content (e.g. "(10 & Under)", "(Finals)")
-    const cleanString = evt.replace(/\(.*\)/g, '').trim(); 
+    const cleanString = evt.replace(/\(.*\)/g, '').trim().toLowerCase();
 
-    // 2. Extract Distance and Stroke
-    const match = cleanString.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
-    
-    if (match) {
-        const dist = match[1];
-        let stroke = match[2].toLowerCase();
-        
-        if (stroke === 'free') stroke = 'freestyle';
-        if (stroke === 'back') stroke = 'backstroke';
-        if (stroke === 'breast') stroke = 'breaststroke';
-        if (stroke === 'fly') stroke = 'butterfly';
-        if (stroke === 'individual medley') stroke = 'im'; 
-        
-        if (stroke === 'im') return `${dist} im`;
-        return `${dist} ${stroke}`;
-    }
-    return evt.toLowerCase();
+    // 2. Normalize Stroke Names
+    let normalized = cleanString
+        .replace('freestyle', 'free')
+        .replace('backstroke', 'back')
+        .replace('breaststroke', 'breast')
+        .replace('butterfly', 'fly')
+        .replace('individual medley', 'im');
+
+    // 3. Standardize Spacing (e.g. "100  Free" -> "100 free")
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+
+    return normalized;
   };
 
   // --- 1. FETCH STANDARD NAMES ---
@@ -60,8 +55,8 @@ export default function Reports({ onBack }) {
       if (data) {
         const unique = [...new Set(data.map(d => d.name))].sort();
         setStandardNames(unique);
-        // Default: Try to find a middle-ground standard, or just the first one
-        if (unique.includes('BB')) setSelectedStandard('BB');
+        // Default: Try to find NCSA JR or similar to test
+        if (unique.includes('NCSA JR')) setSelectedStandard('NCSA JR');
         else if (unique.length > 0) setSelectedStandard(unique[0]);
       }
     };
@@ -95,7 +90,7 @@ export default function Reports({ onBack }) {
         const myResults = results.filter(r => r.swimmer_id == swimmer.id);
         
         // 2. Find their BEST time for every event they swam
-        const myBestTimes = {}; // Key: "100 freestyle" -> { val: 55.5, str: "55.50" }
+        const myBestTimes = {}; 
         
         myResults.forEach(r => {
             const norm = normalizeEventName(r.event);
@@ -108,13 +103,19 @@ export default function Reports({ onBack }) {
             }
         });
 
-        // 3. Filter standards relevant to THIS swimmer (Age/Gender)
-        const swimmerGender = (swimmer.gender || 'M').toUpperCase();
-        const swimmerAge = swimmer.age || 99; // Default to Open if unknown
+        // 3. Filter standards relevant to THIS swimmer
+        // AGE LOGIC FIX: If standard is "0-18" (Junior), allow anyone under 19 OR anyone with unknown age.
+        const swimmerAge = swimmer.age || 0; 
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase(); // Handle ' M ' vs 'M'
 
         const myRelevantCuts = cuts.filter(c => {
-            const genderMatch = c.gender.toUpperCase() === swimmerGender;
+            const cutGender = c.gender.trim().toUpperCase();
+            const genderMatch = cutGender === swimmerGender;
+            
+            // Loose Age Match: If standard is Open (0-99), everyone matches.
+            // If standard is Junior (0-18), matches if age <= 18.
             const ageMatch = swimmerAge >= c.age_min && swimmerAge <= c.age_max;
+            
             return genderMatch && ageMatch;
         });
 
@@ -122,18 +123,29 @@ export default function Reports({ onBack }) {
         const myQualifyingEvents = [];
 
         myRelevantCuts.forEach(cut => {
-            const cutEventNorm = normalizeEventName(cut.event);
-            const myBest = myBestTimes[cutEventNorm];
+            const cutNorm = normalizeEventName(cut.event);
+            
+            // Try exact match first
+            let match = myBestTimes[cutNorm];
 
-            if (myBest && myBest.val <= cut.time_seconds) {
-                 // Avoid duplicates (e.g. SCY vs LCM matching same normalized name)
+            // If no exact match, try fuzzy matching distance + stroke
+            if (!match) {
+                const cutParts = cutNorm.split(' ');
+                // Look for keys that contain "100" AND "back"
+                const fuzzyKey = Object.keys(myBestTimes).find(k => 
+                    k.includes(cutParts[0]) && k.includes(cutParts[1])
+                );
+                if (fuzzyKey) match = myBestTimes[fuzzyKey];
+            }
+
+            if (match && match.val <= cut.time_seconds) {
                  if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                     myQualifyingEvents.push({
                         event: cut.event,
-                        time: myBest.str,
-                        date: myBest.date,
+                        time: match.str,
+                        date: match.date,
                         standard: cut.time_string,
-                        diff: (myBest.val - cut.time_seconds).toFixed(2)
+                        diff: (match.val - cut.time_seconds).toFixed(2)
                     });
                  }
             }
@@ -147,7 +159,6 @@ export default function Reports({ onBack }) {
         }
       });
 
-      // Sort list by most qualifiers
       qualifiedList.sort((a, b) => b.events.length - a.events.length);
 
       setQualifiers(qualifiedList);
