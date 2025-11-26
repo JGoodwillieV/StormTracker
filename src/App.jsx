@@ -303,6 +303,22 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
     const [isImporting, setIsImporting] = useState(false);
     const fileInputRef = useRef(null);
 
+    // --- SORTING: Alphabetical by Last Name ---
+    const sortedSwimmers = useMemo(() => {
+        return [...swimmers].sort((a, b) => {
+            // Split "First Middle Last" and grab the last chunk
+            const lastA = a.name.trim().split(' ').pop().toLowerCase();
+            const lastB = b.name.trim().split(' ').pop().toLowerCase();
+            
+            // If last names are identical, sort by first name
+            if (lastA === lastB) {
+                return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+            }
+            
+            return lastA.localeCompare(lastB);
+        });
+    }, [swimmers]);
+
     const calculateAge = (dobStr) => {
         if (!dobStr || dobStr.length !== 8) return null;
         const month = parseInt(dobStr.substring(0, 2)) - 1;
@@ -435,11 +451,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                     cleanName = cleanName.replace(/\s[A-Z0-9]{6,}$/i, '').trim();
                     age = calculateAge(line.substring(55, 63).trim());
                     
-                    // Gender Extraction (Based on typical SD3 format: Last char or near end)
-                    // Defaulting to M if unclear, but user should verify.
-                    // Ideally, SD3 has gender code. 
-                    // From user previous prompt: "Gender is the letter right after their age"
-                    // Line sample: "...08102016 9F" -> DOB=08102016, Age=9, Gender=F
                     let gender = 'M';
                     const genderMatch = line.match(/\d{8}\s*\d{1,2}([MF])/);
                     if (genderMatch) gender = genderMatch[1];
@@ -481,7 +492,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                         <tr><th className="px-6 py-4 font-medium bg-slate-50">Name</th><th className="px-6 py-4 font-medium bg-slate-50">Group</th><th className="px-6 py-4 font-medium bg-slate-50">Status</th><th className="px-6 py-4 font-medium bg-slate-50">Efficiency Score</th><th className="px-6 py-4 font-medium text-right bg-slate-50">Action</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {swimmers.map(s => (
+                        {sortedSwimmers.map(s => (
                             <tr key={s.id} onClick={() => { setViewSwimmer(s); }} className="hover:bg-slate-50 cursor-pointer transition-colors group">
                                 <td className="px-6 py-4 font-medium text-slate-900">{s.name}</td>
                                 <td className="px-6 py-4 text-slate-500">{s.group_name || 'Unassigned'}</td>
