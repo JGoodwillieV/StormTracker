@@ -314,17 +314,15 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
     const [showImport, setShowImport] = useState(false);
     const [importType, setImportType] = useState('roster'); 
     const [isImporting, setIsImporting] = useState(false);
-    const [searchQuery, setSearchQuery] = useState(""); // NEW: Search State
+    const [searchQuery, setSearchQuery] = useState(""); 
     const fileInputRef = useRef(null);
 
     // --- FILTER & SORT ---
     const filteredSwimmers = useMemo(() => {
-        // 1. Filter by Search Query
         const filtered = swimmers.filter(s => 
             s.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
 
-        // 2. Sort Alphabetically by Last Name
         return filtered.sort((a, b) => {
             const lastA = a.name.trim().split(' ').pop().toLowerCase();
             const lastB = b.name.trim().split(' ').pop().toLowerCase();
@@ -372,30 +370,43 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         return rows;
     };
 
+    // --- SMART IMPORT WITH DUPLICATE CHECK ---
     const handleResultsImport = async (text) => {
         const rows = parseCSVWithQuotes(text);
-        const entriesToInsert = [];
+        const potentialEntries = [];
+        
+        // Create lookup map
         const swimmerMap = {}; 
-        swimmers.forEach(s => { swimmerMap[s.name.toLowerCase().trim()] = s.id; });
+        swimmers.forEach(s => {
+            const parts = s.name.toLowerCase().trim().split(' ');
+            const first = parts[0];
+            const last = parts[parts.length - 1];
+            swimmerMap[`${last}, ${first}`] = s.id;
+            swimmerMap[`${last},${first}`] = s.id;
+        });
 
         for(let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if(row.length < 5) continue; 
+
             const nameCell = row[1]; 
             const eventCell = row[2]; 
             const prelimTime = row[4];
             const finalsTime = row[5]; 
             const dateStr = row[10];  
+
             if (!nameCell) continue;
 
+            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim().toLowerCase();
             let targetId = null;
-            let rawName = nameCell.split('\n')[0].replace(/['"]/g, '').trim(); 
-            let formattedName = rawName;
+            
             if (rawName.includes(',')) {
-                const parts = rawName.split(',');
-                if (parts.length >= 2) formattedName = `${parts[1].trim()} ${parts[0].trim()}`;
+                const p = rawName.split(',');
+                const last = p[0].trim();
+                const firstChunk = p[1].trim().split(' ')[0]; 
+                const key = `${last}, ${firstChunk}`;
+                if (swimmerMap[key]) targetId = swimmerMap[key];
             }
-            if (swimmerMap[formattedName.toLowerCase()]) targetId = swimmerMap[formattedName.toLowerCase()];
 
             if (targetId) {
                 let cleanEvent = eventCell.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
@@ -404,23 +415,55 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                     const dParts = dateStr.split('/'); 
                     if (dParts.length === 3) cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
                 }
-                const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN");
+                const isValidTime = (t) => t && t !== "0.00" && t.trim() !== "" && !t.includes("NaN") && !['DQ','NS','DFS'].some(x=>t.includes(x));
                 
                 if (isValidTime(prelimTime)) {
-                    entriesToInsert.push({ swimmer_id: targetId, event: `${cleanEvent} (Prelim)`, time: prelimTime, date: cleanDate, video_url: null });
+                    potentialEntries.push({ swimmer_id: targetId, event: `${cleanEvent} (Prelim)`, time: prelimTime, date: cleanDate, video_url: null });
                 }
                 if (isValidTime(finalsTime)) {
-                    entriesToInsert.push({ swimmer_id: targetId, event: `${cleanEvent} (Finals)`, time: finalsTime, date: cleanDate, video_url: null });
+                    potentialEntries.push({ swimmer_id: targetId, event: `${cleanEvent} (Finals)`, time: finalsTime, date: cleanDate, video_url: null });
                 }
             }
         }
 
-        if (entriesToInsert.length > 0) {
-            const { error } = await supabase.from('results').insert(entriesToInsert);
-            if (error) alert("Database error: " + error.message);
-            else { alert(`Success! Imported ${entriesToInsert.length} results.`); setShowImport(false); }
+        if (potentialEntries.length > 0) {
+            // 1. Fetch existing results for these swimmers to check for duplicates
+            const uniqueSwimmerIds = [...new Set(potentialEntries.map(e => e.swimmer_id))];
+            
+            const { data: existingData, error: fetchError } = await supabase
+                .from('results')
+                .select('swimmer_id, event, time, date')
+                .in('swimmer_id', uniqueSwimmerIds);
+
+            if (fetchError) {
+                alert("Error checking duplicates: " + fetchError.message);
+                return;
+            }
+
+            // 2. Create a set of signatures "ID|Event|Time|Date"
+            const existingSignatures = new Set(
+                existingData.map(r => `${r.swimmer_id}|${r.event}|${r.time}|${r.date}`)
+            );
+
+            // 3. Filter out duplicates
+            const newEntries = potentialEntries.filter(e => {
+                const sig = `${e.swimmer_id}|${e.event}|${e.time}|${e.date}`;
+                return !existingSignatures.has(sig);
+            });
+
+            if (newEntries.length > 0) {
+                const { error } = await supabase.from('results').insert(newEntries);
+                if (error) alert("Database error: " + error.message);
+                else { 
+                    alert(`Success! Imported ${newEntries.length} new results. (${potentialEntries.length - newEntries.length} duplicates skipped)`); 
+                    setShowImport(false); 
+                }
+            } else {
+                alert("No new results found. All " + potentialEntries.length + " entries were duplicates.");
+                setShowImport(false);
+            }
         } else {
-            alert("Found 0 matches.");
+            alert("Found 0 matches. Check that Last/First names match the roster.");
         }
     };
 
@@ -498,7 +541,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
              <header className="flex flex-col md:flex-row justify-between md:items-center mb-8 shrink-0 gap-4">
                 <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
                 
-                {/* NEW SEARCH BAR */}
+                {/* SEARCH BAR */}
                 <div className="relative w-full md:w-64">
                     <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input 
@@ -529,7 +572,6 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {/* Use filtered list here */}
                         {filteredSwimmers.length > 0 ? filteredSwimmers.map(s => (
                             <tr key={s.id} onClick={() => { setViewSwimmer(s); }} className="hover:bg-slate-50 cursor-pointer transition-colors group">
                                 <td className="px-6 py-4 font-medium text-slate-900">{s.name}</td>
