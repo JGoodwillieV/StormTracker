@@ -11,6 +11,7 @@ import PhotoGallery from './PhotoGallery'
 import AllPhotos from './AllPhotos' // NEW IMPORT
 import Reports from './Reports'
 import { FileText } from 'lucide-react' // Ensure FileText is imported
+import * as XLSX from 'xlsx'
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
