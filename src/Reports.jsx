@@ -11,18 +11,14 @@ export default function Reports({ onBack }) {
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
   
-  // DEBUG TOOLS
   const [debugName, setDebugName] = useState("");
   const [debugLog, setDebugLog] = useState(null);
 
-  // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-    
     const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
     if (!cleanStr) return 999999;
-
     const parts = cleanStr.split(':');
     let val = 0;
     if (parts.length === 2) {
@@ -35,22 +31,24 @@ export default function Reports({ onBack }) {
 
   const parseEvent = (evt) => {
     if (!evt) return { dist: '', stroke: '' };
+    const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); // Remove parens content
     
-    // Non-greedy remove of parens
-    const clean = evt.replace(/\(.*?\)/g, '').trim().toLowerCase(); 
-    const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
+    // Strict distance match (25-1650) + Text
+    const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
     
     if (match) {
+        const dist = match[1];
         let stroke = match[2];
         if (stroke.includes('free')) stroke = 'free';
         else if (stroke.includes('back')) stroke = 'back';
         else if (stroke.includes('breast')) stroke = 'breast';
         else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
         else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
+        else return { dist: '', stroke: '' };
         
-        return { dist: match[1], stroke: stroke.trim() };
+        return { dist, stroke: stroke.trim() };
     }
-    return { dist: '', stroke: clean };
+    return { dist: '', stroke: '' };
   };
 
   useEffect(() => {
@@ -73,22 +71,22 @@ export default function Reports({ onBack }) {
       setRows([]);
       setDebugLog(null);
 
-      // A. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
+      // --- FETCH ALL RESULTS (HIGH CAPACITY) ---
       let allResults = [];
       let page = 0;
-      const pageSize = 2000;
+      const pageSize = 5000; // Bigger chunks for speed
       let keepFetching = true;
       
-      // FIX: Added .order('id') to guarantee consistent pagination
       while (keepFetching) {
-          setProgressMsg(`Fetching results ${page * pageSize}...`);
+          setProgressMsg(`Fetching rows ${page * pageSize} to ${(page + 1) * pageSize}...`);
+          
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
-            .order('id', { ascending: true }) 
+            .order('id', { ascending: true }) // Sort by ID to ensure we get newest rows at the end
             .range(page * pageSize, (page + 1) * pageSize - 1);
           
           if (error || !batch || batch.length === 0) {
@@ -96,7 +94,8 @@ export default function Reports({ onBack }) {
           } else {
               allResults = [...allResults, ...batch];
               page++;
-              if (allResults.length > 100000) keepFetching = false; // Increased limit
+              // INCREASED LIMIT TO 500k to cover full history
+              if (allResults.length > 500000) keepFetching = false;
           }
       }
 
@@ -112,7 +111,7 @@ export default function Reports({ onBack }) {
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
         const myBestTimes = {}; 
-        const history = []; 
+        const history = [];
 
         myResults.forEach(r => {
             const { dist, stroke } = parseEvent(r.event);
@@ -121,9 +120,9 @@ export default function Reports({ onBack }) {
             const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
             
-            // Store debug info
+            // Debug Logger
             if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
-                 history.push({ event: r.event, parsed: key, time: r.time, sec });
+                 history.push({ event: r.event, parsed: key, time: r.time, sec, date: r.date });
             }
 
             if (sec > 0 && sec < 999999) {
@@ -143,7 +142,8 @@ export default function Reports({ onBack }) {
                 gender: swimmerGender,
                 totalResultsFound: myResults.length,
                 bestTimes: myBestTimes,
-                history: history.slice(-20), // Show last 20 scanned
+                // Show NEWEST 5 results in history to prove we fetched them
+                latestResults: history.sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 5),
                 rejections: []
              };
         }
@@ -169,7 +169,6 @@ export default function Reports({ onBack }) {
 
             if (myBest) {
                 const diff = myBest.val - cut.time_seconds;
-                // Use epsilon for float comparison
                 if (diff <= 0.00001) {
                      if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                         myQualifyingEvents.push({
@@ -251,13 +250,12 @@ export default function Reports({ onBack }) {
               <Bug size={14} className="text-slate-400"/>
               <input 
                 type="text" 
-                placeholder="Debug Swimmer Name..." 
+                placeholder="Debug Name (e.g. Mason)" 
                 value={debugName}
                 onChange={(e) => setDebugName(e.target.value)}
                 className="bg-transparent text-xs outline-none w-32"
               />
           </div>
-
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
                   type="checkbox" 
@@ -282,16 +280,15 @@ export default function Reports({ onBack }) {
              {debugLog && (
                 <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mb-6 border-l-4 border-yellow-500 shadow-lg max-h-96 overflow-y-auto">
                     <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug Analysis: {debugLog.name}</h4>
-                    <p>Swimmer Data: {debugLog.gender}, Age {debugLog.age}</p>
-                    <p>Total Results for Swimmer: {debugLog.totalResultsFound}</p>
+                    <p>Total Results Fetched for Swimmer: {debugLog.totalResultsFound}</p>
                     
                     <div className="mt-2 border-t border-slate-700 pt-2">
-                        <strong className="text-yellow-400">Latest 20 Parsed Events:</strong>
+                        <strong className="text-yellow-400">5 Most Recent Results Found (by Date):</strong>
                         <ul className="space-y-1 mt-1">
-                            {debugLog.history.slice(-20).map((h, i) => (
+                            {debugLog.latestResults.map((h, i) => (
                                 <li key={i} className="flex flex-col border-b border-slate-800 pb-1">
-                                    <span>{h.event}</span>
-                                    <span className="text-blue-400">Parsed: {h.parsed} ({h.sec}s)</span>
+                                    <span>{h.date} - {h.event}</span>
+                                    <span className="text-blue-400">Time: {h.time} ({h.sec}s)</span>
                                 </li>
                             ))}
                         </ul>
@@ -352,19 +349,6 @@ export default function Reports({ onBack }) {
                                             </div>
                                         </div>
                                     ))}
-                                </div>
-                            )}
-
-                            {!swimmer.isQualified && swimmer.closestMiss && (
-                                <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
-                                    <p className="font-bold text-red-800 mb-1">Closest Attempt:</p>
-                                    <div className="flex justify-between">
-                                        <span>{swimmer.closestMiss.event}</span>
-                                        <span className="font-mono text-red-600">
-                                            {swimmer.closestMiss.time} (Cut: {swimmer.closestMiss.standard}) 
-                                            <span className="ml-2 font-bold">+{swimmer.closestMiss.diff}s</span>
-                                        </span>
-                                    </div>
                                 </div>
                             )}
                         </div>
