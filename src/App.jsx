@@ -301,23 +301,27 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
     const [showImport, setShowImport] = useState(false);
     const [importType, setImportType] = useState('roster'); 
     const [isImporting, setIsImporting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState(""); // NEW: Search State
     const fileInputRef = useRef(null);
 
-    // --- SORTING: Alphabetical by Last Name ---
-    const sortedSwimmers = useMemo(() => {
-        return [...swimmers].sort((a, b) => {
-            // Split "First Middle Last" and grab the last chunk
+    // --- FILTER & SORT ---
+    const filteredSwimmers = useMemo(() => {
+        // 1. Filter by Search Query
+        const filtered = swimmers.filter(s => 
+            s.name.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+
+        // 2. Sort Alphabetically by Last Name
+        return filtered.sort((a, b) => {
             const lastA = a.name.trim().split(' ').pop().toLowerCase();
             const lastB = b.name.trim().split(' ').pop().toLowerCase();
             
-            // If last names are identical, sort by first name
             if (lastA === lastB) {
                 return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
             }
-            
             return lastA.localeCompare(lastB);
         });
-    }, [swimmers]);
+    }, [swimmers, searchQuery]);
 
     const calculateAge = (dobStr) => {
         if (!dobStr || dobStr.length !== 8) return null;
@@ -478,21 +482,42 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
 
     return (
         <div className="p-4 md:p-8 h-full flex flex-col relative pb-24 md:pb-8">
-             <header className="flex justify-between items-center mb-8 shrink-0">
+             <header className="flex flex-col md:flex-row justify-between md:items-center mb-8 shrink-0 gap-4">
                 <h2 className="text-2xl font-bold text-slate-800">Team Roster</h2>
-                <div className="flex gap-3">
-                     <button onClick={() => { setImportType('results'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-blue-600 transition-colors"><Icon name="trophy" size={16} /> Import Results</button>
-                     <button onClick={() => { setImportType('roster'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"><Icon name="file-up" size={16} /> Import Roster</button>
-                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"><Icon name="plus" size={16} /> Add Swimmer</button>
+                
+                {/* NEW SEARCH BAR */}
+                <div className="relative w-full md:w-64">
+                    <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Search roster..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 pr-4 py-2 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+                    />
+                </div>
+
+                <div className="flex gap-3 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
+                     <button onClick={() => { setImportType('results'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-blue-600 transition-colors whitespace-nowrap"><Icon name="trophy" size={16} /> Import Results</button>
+                     <button onClick={() => { setImportType('roster'); setShowImport(true); }} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors whitespace-nowrap"><Icon name="file-up" size={16} /> Import Roster</button>
+                    <button onClick={handleAddManual} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"><Icon name="plus" size={16} /> Add Swimmer</button>
                 </div>
             </header>
+            
             <div className="bg-white border border-slate-200 rounded-xl overflow-y-auto flex-1 min-h-0 shadow-sm">
                 <table className="w-full text-left text-sm">
                     <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                        <tr><th className="px-6 py-4 font-medium bg-slate-50">Name</th><th className="px-6 py-4 font-medium bg-slate-50">Group</th><th className="px-6 py-4 font-medium bg-slate-50">Status</th><th className="px-6 py-4 font-medium bg-slate-50">Efficiency Score</th><th className="px-6 py-4 font-medium text-right bg-slate-50">Action</th></tr>
+                        <tr>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Name</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Group</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Status</th>
+                            <th className="px-6 py-4 font-medium bg-slate-50">Efficiency Score</th>
+                            <th className="px-6 py-4 font-medium text-right bg-slate-50">Action</th>
+                        </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {sortedSwimmers.map(s => (
+                        {/* Use filtered list here */}
+                        {filteredSwimmers.length > 0 ? filteredSwimmers.map(s => (
                             <tr key={s.id} onClick={() => { setViewSwimmer(s); }} className="hover:bg-slate-50 cursor-pointer transition-colors group">
                                 <td className="px-6 py-4 font-medium text-slate-900">{s.name}</td>
                                 <td className="px-6 py-4 text-slate-500">{s.group_name || 'Unassigned'}</td>
@@ -500,7 +525,13 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                                 <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${s.efficiency_score < 75 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${s.efficiency_score || 50}%` }}></div></div><span className="font-bold text-slate-700">{s.efficiency_score || '-'}</span></div></td>
                                 <td className="px-6 py-4 text-right"><button className="text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">Edit</button></td>
                             </tr>
-                        ))}
+                        )) : (
+                            <tr>
+                                <td colSpan="5" className="px-6 py-12 text-center text-slate-400">
+                                    No swimmers match "{searchQuery}"
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
