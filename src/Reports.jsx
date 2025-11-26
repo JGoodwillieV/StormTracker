@@ -1,7 +1,7 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug, CheckCircle2, XCircle } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
@@ -10,19 +10,41 @@ export default function Reports({ onBack }) {
   const [selectedStandard, setSelectedStandard] = useState("");
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
-  
-  // DEBUG TOOLS
-  const [debugName, setDebugName] = useState("");
-  const [debugLog, setDebugLog] = useState(null);
 
-  // --- HELPERS ---
+  // --- SHARED HELPERS (MATCHING SWIMMER PROFILE EXACTLY) ---
+  
+  // 1. Event Normalizer
+  // Converts "Male (11-12) 100 Free (Finals)" -> "100 Freestyle"
+  const getBaseEventName = (eventName) => {
+    if (!eventName) return "";
+    // Remove (Finals), (Prelims), (Age Groups)
+    let clean = eventName.replace(/\s*\((.*?)\)/g, '').trim(); 
+    
+    // Regex to find "100" + "Stroke"
+    const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(Free|Back|Breast|Fly|IM|Freestyle|Backstroke|Breaststroke|Butterfly|Ind\.?\s*Medley)/i);
+    
+    if (match) {
+        const dist = match[1];
+        let stroke = match[2].toLowerCase();
+        
+        // Normalize to full names to match DB standards
+        if (stroke.startsWith('free')) stroke = 'Freestyle';
+        else if (stroke.startsWith('back')) stroke = 'Backstroke';
+        else if (stroke.startsWith('breast')) stroke = 'Breaststroke';
+        else if (stroke.startsWith('fly') || stroke.startsWith('butter')) stroke = 'Butterfly';
+        else if (stroke.startsWith('im') || stroke.startsWith('ind')) stroke = 'IM'; // DB uses "200 IM" typically
+        
+        return `${dist} ${stroke}`;
+    }
+    return clean.trim();
+  };
+
+  // 2. Time Parser
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
-    // Common non-time codes
-    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
+    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
     
-    // Remove non-numeric chars except : and .
-    const cleanStr = timeStr.replace(/[^0-9:.]/g, '');
+    const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
     if (!cleanStr) return 999999;
 
     const parts = cleanStr.split(':');
@@ -35,26 +57,7 @@ export default function Reports({ onBack }) {
     return isNaN(val) ? 999999 : val;
   };
 
-  const parseEvent = (evt) => {
-    if (!evt) return { dist: '', stroke: '' };
-    
-    // Non-greedy remove of parens
-    const clean = evt.replace(/\(.*?\)/g, '').trim().toLowerCase(); 
-    const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
-    
-    if (match) {
-        let stroke = match[2];
-        if (stroke.includes('free')) stroke = 'free';
-        else if (stroke.includes('back')) stroke = 'back';
-        else if (stroke.includes('breast')) stroke = 'breast';
-        else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
-        else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
-        
-        return { dist: match[1], stroke: stroke.trim() };
-    }
-    return { dist: '', stroke: clean };
-  };
-
+  // --- 1. FETCH STANDARD NAMES ---
   useEffect(() => {
     const fetchStandardsList = async () => {
       const { data } = await supabase.from('time_standards').select('name');
@@ -68,23 +71,24 @@ export default function Reports({ onBack }) {
     fetchStandardsList();
   }, []);
 
+  // --- 2. CALCULATE QUALIFIERS ---
   useEffect(() => {
     const runReport = async () => {
       if (!selectedStandard) return;
       setLoading(true);
       setRows([]);
-      setDebugLog(null);
 
       // A. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
+      // B. Fetch ALL Results (Chunked Loop)
       let allResults = [];
       let page = 0;
       const pageSize = 2000;
       let keepFetching = true;
       while (keepFetching) {
-          setProgressMsg(`Fetching results ${page * pageSize}...`);
+          setProgressMsg(`Scanning database... (${page * pageSize} records)`);
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
@@ -104,85 +108,66 @@ export default function Reports({ onBack }) {
           return;
       }
 
-      setProgressMsg("Analyzing data...");
+      setProgressMsg("Processing qualifiers...");
       const processedList = [];
-      let debugTarget = null;
 
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
         const myBestTimes = {}; 
-        const myRawHistory = []; // Debug log for this swimmer's event processing
         
+        // 1. Find Best Time per Normalized Event
         myResults.forEach(r => {
-            const { dist, stroke } = parseEvent(r.event);
-            if (!dist || !stroke) return;
+            const normEvent = getBaseEventName(r.event); // "100 Freestyle"
+            if (!normEvent) return;
 
-            const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
             
-            // DEBUG: Track why a result might be ignored
-            const debugEntry = { event: r.event, time: r.time, sec: sec, key: key, status: 'pending' };
-
             if (sec > 0 && sec < 999999) {
-                if (!myBestTimes[key] || sec < myBestTimes[key].val) {
-                    myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
-                    debugEntry.status = 'NEW BEST';
-                } else {
-                    debugEntry.status = 'SLOWER';
+                // Keep the fastest time found for this event
+                if (!myBestTimes[normEvent] || sec < myBestTimes[normEvent].val) {
+                    myBestTimes[normEvent] = { val: sec, str: r.time, date: r.date };
                 }
-            } else {
-                debugEntry.status = 'INVALID TIME';
             }
-            myRawHistory.push(debugEntry);
         });
 
-        const swimmerAge = parseInt(swimmer.age) || 0; 
+        // 2. Filter Standards for this Swimmer
+        const swimmerAge = swimmer.age || 0; 
         const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
-
-        // DEBUG CAPTURE
-        if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
-             debugTarget = {
-                name: swimmer.name,
-                age: swimmerAge,
-                gender: swimmerGender,
-                bestTimes: myBestTimes,
-                rawHistory: myRawHistory, // Show exactly what we parsed
-                rejections: []
-             };
-        }
 
         const myRelevantCuts = cuts.filter(c => {
             const cutGender = c.gender.trim().toUpperCase();
-            const genderMatch = cutGender === swimmerGender;
-            const ageMatch = (c.age_max === 99) || (swimmerAge >= c.age_min && swimmerAge <= c.age_max);
-            
-            if (debugTarget && debugTarget.name === swimmer.name && !genderMatch) {
-                 if (debugTarget.rejections.length < 3) debugTarget.rejections.push(`Gender Mismatch: Swim(${swimmerGender}) vs Cut(${cutGender})`);
-            }
-            return genderMatch && ageMatch;
+            if (cutGender !== swimmerGender) return false;
+            if (c.age_max === 99) return true; 
+            return swimmerAge >= c.age_min && swimmerAge <= c.age_max;
         });
 
+        // 3. Check Matches
         const myQualifyingEvents = [];
-        let closestMiss = null;
+        let closestMiss = null; 
 
         myRelevantCuts.forEach(cut => {
-            const { dist, stroke } = parseEvent(cut.event);
-            const key = `${dist} ${stroke}`;
-            const myBest = myBestTimes[key];
+            // We assume the Cut Event Name in DB is already "Clean" (e.g. "100 Freestyle")
+            // But we run it through normalizer just in case to match keys
+            const cutKey = getBaseEventName(cut.event); 
+            const myBest = myBestTimes[cutKey];
 
             if (myBest) {
                 const diff = myBest.val - cut.time_seconds;
-                if (diff <= 0) {
+                
+                // Use a small epsilon for float comparison safety, or just <=
+                if (diff <= 0.00001) { 
+                     // Prevent duplicates if multiple standards map to same event key
                      if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                         myQualifyingEvents.push({
                             event: cut.event,
                             time: myBest.str,
                             date: myBest.date,
                             standard: cut.time_string,
-                            diff: diff.toFixed(2)
+                            diff: Math.abs(diff).toFixed(2)
                         });
                      }
                 } else {
+                    // Track closest miss
                     if (!closestMiss || diff < closestMiss.diffVal) {
                         closestMiss = {
                             event: cut.event,
@@ -204,23 +189,25 @@ export default function Reports({ onBack }) {
         });
       });
 
+      // Sort: Most qualified events at top
       processedList.sort((a, b) => {
           if (a.isQualified !== b.isQualified) return a.isQualified ? -1 : 1;
+          if (a.events.length !== b.events.length) return b.events.length - a.events.length;
           return a.name.localeCompare(b.name);
       });
 
       setRows(processedList);
-      if (debugTarget) setDebugLog(debugTarget);
       setLoading(false);
     };
 
     runReport();
-  }, [selectedStandard, debugName]); 
+  }, [selectedStandard]);
 
   const displayedRows = showQualifiersOnly ? rows.filter(r => r.isQualified) : rows;
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-[#f8fafc]">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-8">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
@@ -248,18 +235,8 @@ export default function Reports({ onBack }) {
         </div>
       </div>
 
-      <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-1">
-              <Bug size={14} className="text-slate-400"/>
-              <input 
-                type="text" 
-                placeholder="Debug Swimmer Name..." 
-                value={debugName}
-                onChange={(e) => setDebugName(e.target.value)}
-                className="bg-transparent text-xs outline-none w-32"
-              />
-          </div>
-
+      {/* Filter Toggle */}
+      <div className="flex justify-end mb-4">
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
                   type="checkbox" 
@@ -280,30 +257,7 @@ export default function Reports({ onBack }) {
 
       {!loading && (
         <div className="space-y-6">
-            {/* DEBUG PANEL */}
-            {debugLog && (
-                <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mb-6 border-l-4 border-yellow-500 shadow-lg max-h-96 overflow-y-auto">
-                    <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug Analysis: {debugLog.name}</h4>
-                    <p>Swimmer Data: {debugLog.gender}, Age {debugLog.age}</p>
-                    
-                    <div className="mt-2">
-                        <strong>Raw Result Processing (Latest 10):</strong>
-                        <ul className="list-none pl-0 mt-1 space-y-1">
-                            {debugLog.rawHistory.slice(-10).map((h, i) => (
-                                <li key={i} className={`p-1 rounded ${h.status === 'NEW BEST' ? 'bg-green-900/30 text-green-400' : 'text-slate-500'}`}>
-                                    {h.event} -> {h.time} ({h.sec}s) -> <strong>{h.status}</strong>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-slate-700">
-                        <strong>Final Best Times:</strong>
-                        <pre className="mt-1 bg-black/30 p-2 rounded">{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
-                    </div>
-                </div>
-            )}
-
+            {/* Summary Card */}
             <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-6 text-white shadow-lg flex justify-between items-center">
                 <div>
                     <h3 className="text-3xl font-bold">{rows.filter(r => r.isQualified).length}</h3>
@@ -338,6 +292,7 @@ export default function Reports({ onBack }) {
                                 )}
                             </div>
                             
+                            {/* QUALIFIED EVENTS */}
                             {swimmer.isQualified && (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                     {swimmer.events.map((evt, i) => (
@@ -355,6 +310,7 @@ export default function Reports({ onBack }) {
                                 </div>
                             )}
 
+                            {/* MISSED CUT DETAILS */}
                             {!swimmer.isQualified && swimmer.closestMiss && (
                                 <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
                                     <p className="font-bold text-red-800 mb-1">Closest Attempt:</p>
