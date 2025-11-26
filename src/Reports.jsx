@@ -1,7 +1,7 @@
 // src/Reports.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, CheckCircle, Loader2, Download } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2 } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
@@ -12,7 +12,7 @@ export default function Reports({ onBack }) {
   // --- HELPERS ---
   const timeToSeconds = (t) => {
     if (!t) return 999999;
-    if (['DQ', 'NS', 'DFS', 'SCR'].some(s => t.toUpperCase().includes(s))) return 999999;
+    if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => t.toUpperCase().includes(s))) return 999999;
     const parts = t.replace(/[A-Z]/g, '').trim().split(':');
     return parts.length === 2 
       ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
@@ -39,13 +39,10 @@ export default function Reports({ onBack }) {
   // --- 1. FETCH STANDARD NAMES ---
   useEffect(() => {
     const fetchStandardsList = async () => {
-      // We fetch all to get unique names. 
-      // (Supabase doesn't have a distinct() helper easily accessible on client, so we fetch "name" and dedup in JS)
       const { data } = await supabase.from('time_standards').select('name');
       if (data) {
         const unique = [...new Set(data.map(d => d.name))].sort();
         setStandardNames(unique);
-        // Default to a high-level one if available, else the first one
         if (unique.includes('Sectionals')) setSelectedStandard('Sectionals');
         else if (unique.length > 0) setSelectedStandard(unique[0]);
       }
@@ -60,10 +57,12 @@ export default function Reports({ onBack }) {
       setLoading(true);
       setQualifiers([]);
 
-      // A. Fetch Everything (Roster, Results, Specific Standards)
-      // In a larger app, you'd filter this more server-side, but for ~100 swimmers this is fast.
+      // A. Fetch Everything (Increase limit to 10,000 to capture all results)
       const { data: swimmers } = await supabase.from('swimmers').select('*');
-      const { data: results } = await supabase.from('results').select('*');
+      
+      // LIMIT FIX: Explicitly ask for 10,000 rows
+      const { data: results } = await supabase.from('results').select('*').range(0, 9999);
+      
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
       if (!swimmers || !results || !cuts) {
@@ -75,7 +74,8 @@ export default function Reports({ onBack }) {
       const qualifiedList = [];
 
       swimmers.forEach(swimmer => {
-        const myResults = results.filter(r => r.swimmer_id === swimmer.id);
+        // Use loose comparison (==) for IDs to handle string/int mismatches
+        const myResults = results.filter(r => r.swimmer_id == swimmer.id);
         const myQualifyingEvents = [];
 
         // Group my best times by event
@@ -91,12 +91,15 @@ export default function Reports({ onBack }) {
         });
 
         // Check against cuts
-        // Filter cuts relevant to this swimmer's age and gender
-        const relevantCuts = cuts.filter(c => 
-            c.gender === (swimmer.gender || 'M') && 
-            swimmer.age >= c.age_min && 
-            swimmer.age <= c.age_max
-        );
+        const relevantCuts = cuts.filter(c => {
+            const genderMatch = c.gender === (swimmer.gender || 'M');
+            
+            // Handle null age: if swimmer age is unknown, assume they are eligible for "Open" (0-99) cuts only
+            const age = swimmer.age || 99; 
+            const ageMatch = age >= c.age_min && age <= c.age_max;
+            
+            return genderMatch && ageMatch;
+        });
 
         relevantCuts.forEach(cut => {
             const cutEventNorm = normalizeEventName(cut.event);
@@ -121,11 +124,8 @@ export default function Reports({ onBack }) {
         }
       });
 
-      // Sort by number of qualifying events (most first), then name
-      qualifiedList.sort((a, b) => {
-          if (b.events.length !== a.events.length) return b.events.length - a.events.length;
-          return a.name.localeCompare(b.name);
-      });
+      // Sort by number of qualifying events
+      qualifiedList.sort((a, b) => b.events.length - a.events.length);
 
       setQualifiers(qualifiedList);
       setLoading(false);
@@ -136,7 +136,6 @@ export default function Reports({ onBack }) {
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-[#f8fafc]">
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-8">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
@@ -150,7 +149,6 @@ export default function Reports({ onBack }) {
           </div>
         </div>
 
-        {/* Filter Controls */}
         <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
             <Filter size={16} className="text-slate-400 ml-2"/>
             <select 
@@ -165,7 +163,6 @@ export default function Reports({ onBack }) {
         </div>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="h-64 flex flex-col items-center justify-center text-slate-400 animate-pulse">
             <Loader2 size={40} className="animate-spin mb-4 text-blue-500"/>
@@ -173,10 +170,8 @@ export default function Reports({ onBack }) {
         </div>
       )}
 
-      {/* Results List */}
       {!loading && (
         <div className="space-y-6">
-            {/* Summary Card */}
             <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-6 text-white shadow-lg flex justify-between items-center">
                 <div>
                     <h3 className="text-3xl font-bold">{qualifiers.length}</h3>
@@ -198,14 +193,13 @@ export default function Reports({ onBack }) {
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-900">{swimmer.name}</h3>
-                                    <p className="text-slate-500 text-sm">{swimmer.age} Years Old • {swimmer.gender} • {swimmer.group_name}</p>
+                                    <p className="text-slate-500 text-sm">{swimmer.age || '?'} Years Old • {swimmer.gender} • {swimmer.group_name}</p>
                                 </div>
                                 <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full">
                                     {swimmer.events.length} Events
                                 </span>
                             </div>
                             
-                            {/* Events Grid */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                 {swimmer.events.map((evt, i) => (
                                     <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
@@ -215,7 +209,7 @@ export default function Reports({ onBack }) {
                                         </div>
                                         <div className="text-right">
                                             <div className="font-mono font-bold text-blue-600 text-sm">{evt.time}</div>
-                                            <div className="text-[10px] text-emerald-600 font-bold">-{Math.abs(evt.diff)}s</div>
+                                            <div className="text-[10px] text-emerald-600 font-bold">cut: {evt.standard}</div>
                                         </div>
                                     </div>
                                 ))}
