@@ -300,6 +300,10 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
                 <div className="w-10 h-10 bg-white text-emerald-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="users" size={20}/></div>
                 <div className="font-bold text-emerald-900">Manage Roster</div>
             </div>
+           <div onClick={() => navigateTo('reports')} className="bg-purple-50 border border-purple-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-purple-100 transition-colors">
+                <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="file-text" size={20}/></div>
+                <div className="font-bold text-purple-900">Team Reports</div>
+          </div>
          </div>
       </div>
     </div>
