@@ -1,7 +1,7 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, Bug, Search } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
@@ -10,12 +10,19 @@ export default function Reports({ onBack }) {
   const [selectedStandard, setSelectedStandard] = useState("");
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
+  
+  // DEBUG TOOLS
+  const [debugName, setDebugName] = useState("");
+  const [debugLog, setDebugLog] = useState(null);
 
+  // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
+    
     const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
     if (!cleanStr) return 999999;
+
     const parts = cleanStr.split(':');
     let val = 0;
     if (parts.length === 2) {
@@ -30,6 +37,7 @@ export default function Reports({ onBack }) {
     if (!evt) return { dist: '', stroke: '' };
     const clean = evt.replace(/\(.*?\)/g, '').trim().toLowerCase(); 
     const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
+    
     if (match) {
         let stroke = match[2];
         if (stroke.includes('free')) stroke = 'free';
@@ -60,6 +68,7 @@ export default function Reports({ onBack }) {
       if (!selectedStandard) return;
       setLoading(true);
       setRows([]);
+      setDebugLog(null);
 
       // 1. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
@@ -92,6 +101,7 @@ export default function Reports({ onBack }) {
 
       setProgressMsg("Analyzing data...");
       const processedList = [];
+      let debugTarget = null;
 
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
@@ -105,23 +115,44 @@ export default function Reports({ onBack }) {
             
             if (sec > 0 && sec < 999999) {
                 if (!myBestTimes[key] || sec < myBestTimes[key].val) {
-                    myBestTimes[key] = { val: sec, str: r.time, date: r.date };
+                    myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
                 }
             }
         });
 
-        const swimmerAge = swimmer.age || 0; 
+        const swimmerAge = parseInt(swimmer.age) || 0; 
         const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+
+        // DEBUG CAPTURE
+        if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
+             debugTarget = {
+                name: swimmer.name,
+                age: swimmerAge,
+                gender: swimmerGender,
+                bestTimes: myBestTimes,
+                rejections: []
+             };
+        }
 
         const myRelevantCuts = cuts.filter(c => {
             const cutGender = c.gender.trim().toUpperCase();
-            if (cutGender !== swimmerGender) return false;
-            if (c.age_max === 99) return true; 
-            return swimmerAge >= c.age_min && swimmerAge <= c.age_max;
+            const genderMatch = cutGender === swimmerGender;
+            
+            // Loose Age Match
+            const ageMatch = (c.age_max === 99) || (swimmerAge >= c.age_min && swimmerAge <= c.age_max);
+            
+            if (debugTarget && debugTarget.name === swimmer.name && !genderMatch) {
+                 if (debugTarget.rejections.length < 3) debugTarget.rejections.push(`Gender Mismatch: Swim(${swimmerGender}) vs Cut(${cutGender})`);
+            }
+            if (debugTarget && debugTarget.name === swimmer.name && genderMatch && !ageMatch) {
+                 if (debugTarget.rejections.length < 3) debugTarget.rejections.push(`Age Mismatch: Swim(${swimmerAge}) vs Cut(${c.age_min}-${c.age_max})`);
+            }
+
+            return genderMatch && ageMatch;
         });
 
         const myQualifyingEvents = [];
-        let closestMiss = null; 
+        let closestMiss = null;
 
         myRelevantCuts.forEach(cut => {
             const { dist, stroke } = parseEvent(cut.event);
@@ -168,17 +199,17 @@ export default function Reports({ onBack }) {
       });
 
       setRows(processedList);
+      if (debugTarget) setDebugLog(debugTarget);
       setLoading(false);
     };
 
     runReport();
-  }, [selectedStandard]);
+  }, [selectedStandard, debugName]); // Run when debug name changes
 
   const displayedRows = showQualifiersOnly ? rows.filter(r => r.isQualified) : rows;
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-[#f8fafc]">
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-8">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
@@ -206,8 +237,19 @@ export default function Reports({ onBack }) {
         </div>
       </div>
 
-      {/* Toggle */}
-      <div className="flex justify-end mb-4">
+      {/* FILTER & DEBUG ROW */}
+      <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-1">
+              <Bug size={14} className="text-slate-400"/>
+              <input 
+                type="text" 
+                placeholder="Debug Swimmer Name..." 
+                value={debugName}
+                onChange={(e) => setDebugName(e.target.value)}
+                className="bg-transparent text-xs outline-none w-32"
+              />
+          </div>
+
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
                   type="checkbox" 
@@ -228,7 +270,28 @@ export default function Reports({ onBack }) {
 
       {!loading && (
         <div className="space-y-6">
-            {/* Summary Card */}
+             {/* DEBUG PANEL */}
+             {debugLog && (
+                <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mb-6 border-l-4 border-yellow-500 shadow-lg">
+                    <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug Analysis: {debugLog.name}</h4>
+                    <p>Swimmer Data: {debugLog.gender}, Age {debugLog.age}</p>
+                    
+                    {debugLog.rejections.length > 0 ? (
+                        <div className="mt-2 text-red-400">
+                            <strong>Rejected Reasons (Sample):</strong>
+                            <ul className="list-disc pl-4">
+                                {debugLog.rejections.slice(0, 5).map((r, i) => <li key={i}>{r}</li>)}
+                            </ul>
+                        </div>
+                    ) : <p className="text-green-400">Profile matched standards correctly.</p>}
+
+                    <div className="mt-2">
+                        <strong>Best Times Found:</strong>
+                        <pre className="mt-1 bg-black/30 p-2 rounded max-h-40 overflow-y-auto">{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-6 text-white shadow-lg flex justify-between items-center">
                 <div>
                     <h3 className="text-3xl font-bold">{rows.filter(r => r.isQualified).length}</h3>
@@ -254,7 +317,7 @@ export default function Reports({ onBack }) {
                                         {swimmer.name}
                                         {swimmer.isQualified ? <CheckCircle2 size={16} className="text-emerald-500"/> : <XCircle size={16} className="text-slate-400"/>}
                                     </h3>
-                                    <p className="text-slate-500 text-sm">{swimmer.age || '?'} Years • {swimmer.gender} • {swimmer.group_name}</p>
+                                    <p className="text-slate-500 text-sm">{swimmer.age} Years • {swimmer.gender} • {swimmer.group_name}</p>
                                 </div>
                                 {swimmer.isQualified && (
                                     <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full">
@@ -263,7 +326,6 @@ export default function Reports({ onBack }) {
                                 )}
                             </div>
                             
-                            {/* QUALIFIED EVENTS */}
                             {swimmer.isQualified && (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                     {swimmer.events.map((evt, i) => (
@@ -281,7 +343,6 @@ export default function Reports({ onBack }) {
                                 </div>
                             )}
 
-                            {/* MISSED CUT DETAILS */}
                             {!swimmer.isQualified && swimmer.closestMiss && (
                                 <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
                                     <p className="font-bold text-red-800 mb-1">Closest Attempt:</p>
@@ -293,9 +354,6 @@ export default function Reports({ onBack }) {
                                         </span>
                                     </div>
                                 </div>
-                            )}
-                            {!swimmer.isQualified && !swimmer.closestMiss && (
-                                <p className="text-xs text-slate-400 italic">No valid times found for this standard's events.</p>
                             )}
                         </div>
                     ))}
