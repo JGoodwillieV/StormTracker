@@ -1,7 +1,7 @@
 // src/Reports.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug, Search } from 'lucide-react';
+import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
@@ -10,12 +10,7 @@ export default function Reports({ onBack }) {
   const [selectedStandard, setSelectedStandard] = useState("");
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
-  
-  // DEBUGGING TOOLS
-  const [debugName, setDebugName] = useState(""); // Type a name to debug specific swimmer
-  const [debugLog, setDebugLog] = useState(null);
 
-  // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
@@ -47,37 +42,26 @@ export default function Reports({ onBack }) {
     return { dist: '', stroke: clean };
   };
 
-  const normalizeGender = (g) => {
-      if (!g) return 'M';
-      const clean = g.trim().toUpperCase();
-      if (clean === 'MALE' || clean === 'BOY') return 'M';
-      if (clean === 'FEMALE' || clean === 'GIRL') return 'F';
-      return clean; // 'M' or 'F'
-  };
-
-  // --- 1. FETCH STANDARD NAMES ---
   useEffect(() => {
     const fetchStandardsList = async () => {
       const { data } = await supabase.from('time_standards').select('name');
       if (data) {
         const unique = [...new Set(data.map(d => d.name))].sort();
         setStandardNames(unique);
-        if (unique.includes('AAA')) setSelectedStandard('AAA');
+        if (unique.includes('Sectionals')) setSelectedStandard('Sectionals');
         else if (unique.length > 0) setSelectedStandard(unique[0]);
       }
     };
     fetchStandardsList();
   }, []);
 
-  // --- 2. CALCULATE QUALIFIERS ---
   useEffect(() => {
     const runReport = async () => {
       if (!selectedStandard) return;
       setLoading(true);
       setRows([]);
-      setDebugLog(null);
 
-      // A. Fetch Data
+      // 1. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
@@ -108,7 +92,6 @@ export default function Reports({ onBack }) {
 
       setProgressMsg("Analyzing data...");
       const processedList = [];
-      let debugTarget = null; // Will hold data for the name typed in 'debugName'
 
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
@@ -119,6 +102,7 @@ export default function Reports({ onBack }) {
             if (!dist || !stroke) return;
             const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
+            
             if (sec > 0 && sec < 999999) {
                 if (!myBestTimes[key] || sec < myBestTimes[key].val) {
                     myBestTimes[key] = { val: sec, str: r.time, date: r.date };
@@ -126,44 +110,18 @@ export default function Reports({ onBack }) {
             }
         });
 
-        const swimmerAge = parseInt(swimmer.age) || 0; 
-        const swimmerGender = normalizeGender(swimmer.gender);
-
-        // --- DEBUG CAPTURE ---
-        if (debugName && swimmer.name.toLowerCase().includes(debugName.toLowerCase())) {
-            debugTarget = {
-                name: swimmer.name,
-                age: swimmerAge,
-                gender: swimmerGender,
-                bestTimes: myBestTimes,
-                rejections: []
-            };
-        }
+        const swimmerAge = swimmer.age || 0; 
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
 
         const myRelevantCuts = cuts.filter(c => {
-            const cutGender = normalizeGender(c.gender);
-            
-            // Check Gender
-            if (cutGender !== swimmerGender) {
-                if (debugTarget && debugTarget.name === swimmer.name && debugTarget.rejections.length < 5) {
-                    debugTarget.rejections.push(`Gender mismatch: ${cutGender} cut vs ${swimmerGender} swimmer`);
-                }
-                return false;
-            }
-
-            // Check Age
-            if (c.age_max === 99) return true; // Open cut
-            
-            const ageMatch = swimmerAge >= c.age_min && swimmerAge <= c.age_max;
-            if (!ageMatch && debugTarget && debugTarget.name === swimmer.name && debugTarget.rejections.length < 5) {
-                debugTarget.rejections.push(`Age mismatch: Cut ${c.age_min}-${c.age_max} vs Swimmer ${swimmerAge}`);
-            }
-
-            return ageMatch;
+            const cutGender = c.gender.trim().toUpperCase();
+            if (cutGender !== swimmerGender) return false;
+            if (c.age_max === 99) return true; 
+            return swimmerAge >= c.age_min && swimmerAge <= c.age_max;
         });
 
         const myQualifyingEvents = [];
-        let closestMiss = null;
+        let closestMiss = null; 
 
         myRelevantCuts.forEach(cut => {
             const { dist, stroke } = parseEvent(cut.event);
@@ -210,17 +168,17 @@ export default function Reports({ onBack }) {
       });
 
       setRows(processedList);
-      if (debugTarget) setDebugLog(debugTarget);
       setLoading(false);
     };
 
     runReport();
-  }, [selectedStandard, debugName]); // Re-run if user types in debug box
+  }, [selectedStandard]);
 
   const displayedRows = showQualifiersOnly ? rows.filter(r => r.isQualified) : rows;
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto bg-[#f8fafc]">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-8">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
@@ -248,19 +206,8 @@ export default function Reports({ onBack }) {
         </div>
       </div>
 
-      <div className="flex justify-between items-center mb-4">
-          {/* DEBUG INPUT */}
-          <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-1">
-              <Bug size={14} className="text-slate-400"/>
-              <input 
-                type="text" 
-                placeholder="Debug Swimmer Name..." 
-                value={debugName}
-                onChange={(e) => setDebugName(e.target.value)}
-                className="bg-transparent text-xs outline-none w-32"
-              />
-          </div>
-
+      {/* Toggle */}
+      <div className="flex justify-end mb-4">
           <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
               <input 
                   type="checkbox" 
@@ -292,30 +239,9 @@ export default function Reports({ onBack }) {
                 </div>
             </div>
 
-            {/* DEBUG PANEL */}
-            {debugLog && (
-                <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs border-l-4 border-yellow-500">
-                    <h4 className="text-white font-bold mb-2">Debug Analysis: {debugLog.name}</h4>
-                    <p>Age: {debugLog.age}, Gender: {debugLog.gender}</p>
-                    
-                    {debugLog.rejections.length > 0 ? (
-                        <div className="mt-2 text-red-400">
-                            <strong>Rejected Reasons (First 5):</strong>
-                            <ul className="list-disc pl-4">
-                                {debugLog.rejections.map((r, i) => <li key={i}>{r}</li>)}
-                            </ul>
-                        </div>
-                    ) : <p className="text-green-400">Profile matched standards correctly.</p>}
-
-                    <div className="mt-2">
-                        <strong>Best Times Found:</strong>
-                        <pre>{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
-                    </div>
-                </div>
-            )}
-
             {displayedRows.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
+                    <div className="mb-2 flex justify-center"><AlertCircle size={32} className="text-slate-300"/></div>
                     <p>No swimmers match criteria.</p>
                 </div>
             ) : (
@@ -328,7 +254,7 @@ export default function Reports({ onBack }) {
                                         {swimmer.name}
                                         {swimmer.isQualified ? <CheckCircle2 size={16} className="text-emerald-500"/> : <XCircle size={16} className="text-slate-400"/>}
                                     </h3>
-                                    <p className="text-slate-500 text-sm">{swimmer.age} Years • {swimmer.gender}</p>
+                                    <p className="text-slate-500 text-sm">{swimmer.age || '?'} Years • {swimmer.gender} • {swimmer.group_name}</p>
                                 </div>
                                 {swimmer.isQualified && (
                                     <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full">
@@ -337,6 +263,7 @@ export default function Reports({ onBack }) {
                                 )}
                             </div>
                             
+                            {/* QUALIFIED EVENTS */}
                             {swimmer.isQualified && (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                     {swimmer.events.map((evt, i) => (
@@ -354,6 +281,7 @@ export default function Reports({ onBack }) {
                                 </div>
                             )}
 
+                            {/* MISSED CUT DETAILS */}
                             {!swimmer.isQualified && swimmer.closestMiss && (
                                 <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
                                     <p className="font-bold text-red-800 mb-1">Closest Attempt:</p>
@@ -365,6 +293,9 @@ export default function Reports({ onBack }) {
                                         </span>
                                     </div>
                                 </div>
+                            )}
+                            {!swimmer.isQualified && !swimmer.closestMiss && (
+                                <p className="text-xs text-slate-400 italic">No valid times found for this standard's events.</p>
                             )}
                         </div>
                     ))}
