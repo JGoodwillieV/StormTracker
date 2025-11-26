@@ -1,9 +1,9 @@
 // src/Reports.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
-  TrendingUp, Activity, Users, Target, ArrowRight
+  TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database
 } from 'lucide-react';
 
 export default function Reports({ onBack }) {
@@ -12,6 +12,8 @@ export default function Reports({ onBack }) {
   const renderReport = () => {
     switch (currentReport) {
       case 'qualifiers': return <QualifiersReport onBack={() => setCurrentReport(null)} />;
+      case 'relays': return <RelayGenerator onBack={() => setCurrentReport(null)} />;
+      // Placeholders for future
       case 'movers': return <BigMoversReport onBack={() => setCurrentReport(null)} />;
       case 'closecalls': return <CloseCallsReport onBack={() => setCurrentReport(null)} />;
       case 'heatmap': return <FlawHeatmapReport onBack={() => setCurrentReport(null)} />;
@@ -44,41 +46,25 @@ export default function Reports({ onBack }) {
                 <p className="text-slate-500 text-sm mt-1">See who made the cut for Champs, Sectionals, etc.</p>
             </div>
 
-            {/* 2. BIG MOVERS */}
+            {/* 2. RELAY GENERATOR (NEW) */}
+            <div onClick={() => setCurrentReport('relays')} className="bg-white p-6 rounded-2xl border hover:border-purple-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Layers size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Relay Generator</h3>
+                <p className="text-slate-500 text-sm mt-1">Auto-build optimal A, B, and C relays.</p>
+            </div>
+
+            {/* 3. BIG MOVERS */}
             <div onClick={() => setCurrentReport('movers')} className="bg-white p-6 rounded-2xl border hover:border-emerald-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
                 <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><TrendingUp size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Big Movers</h3>
                 <p className="text-slate-500 text-sm mt-1">Leaderboard of total time dropped this season.</p>
-            </div>
-
-            {/* 3. CLOSE CALLS */}
-            <div onClick={() => setCurrentReport('closecalls')} className="bg-white p-6 rounded-2xl border hover:border-orange-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
-                <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Target size={24}/></div>
-                <h3 className="font-bold text-lg text-slate-800">Close Calls</h3>
-                <p className="text-slate-500 text-sm mt-1">Swimmers within 0.5s of a new standard.</p>
-            </div>
-
-            {/* 4. FLAW HEATMAP */}
-            <div onClick={() => setCurrentReport('heatmap')} className="bg-white p-6 rounded-2xl border hover:border-rose-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
-                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Activity size={24}/></div>
-                <h3 className="font-bold text-lg text-slate-800">Flaw Heatmap</h3>
-                <p className="text-slate-500 text-sm mt-1">Most common technical errors detected by AI.</p>
-            </div>
-
-            {/* 5. GROUPS */}
-            <div onClick={() => setCurrentReport('groups')} className="bg-white p-6 rounded-2xl border hover:border-purple-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
-                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Users size={24}/></div>
-                <h3 className="font-bold text-lg text-slate-800">Group Progression</h3>
-                <p className="text-slate-500 text-sm mt-1">Average improvement per training group.</p>
             </div>
         </div>
     </div>
   );
 }
 
-// --- SUB-COMPONENTS ---
-
-// 1. QUALIFIERS REPORT (Using the EXACT logic from your "Working" version)
+// --- 1. QUALIFIERS REPORT (Proven Logic) ---
 const QualifiersReport = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
@@ -86,8 +72,9 @@ const QualifiersReport = ({ onBack }) => {
   const [selectedStandard, setSelectedStandard] = useState("");
   const [rows, setRows] = useState([]);
   const [showQualifiersOnly, setShowQualifiersOnly] = useState(true);
-  
-  // --- HELPERS ---
+  const [globalStats, setGlobalStats] = useState({ swimmers: 0, results: 0 });
+
+  // --- HELPERS (From your trusted version) ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
@@ -95,38 +82,24 @@ const QualifiersReport = ({ onBack }) => {
     if (!cleanStr) return 999999;
     const parts = cleanStr.split(':');
     let val = 0;
-    if (parts.length === 2) {
-        val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-    } else {
-        val = parseFloat(parts[0]);
-    }
+    if (parts.length === 2) val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+    else val = parseFloat(parts[0]);
     return isNaN(val) ? 999999 : val;
   };
 
   const parseEvent = (evt) => {
     if (!evt) return { dist: '', stroke: '' };
-    
-    // 1. Remove content in parentheses
-    let clean = evt.toLowerCase().replace(/\(.*?\)/g, '');
-    
-    // 2. Remove "X & Over", "X & Under", "X-Y" age groups
-    clean = clean.replace(/\d+\s*&\s*(over|under)/g, '');
-    clean = clean.replace(/\b\d{1,2}-\d{1,2}\b/g, ''); 
-
-    // 3. Find standard swimming distances
+    const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); 
     const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
-    
     if (match) {
         const dist = match[1];
         let stroke = match[2];
-        
         if (stroke.includes('free')) stroke = 'free';
         else if (stroke.includes('back')) stroke = 'back';
         else if (stroke.includes('breast')) stroke = 'breast';
         else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
         else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
         else return { dist: '', stroke: '' };
-        
         return { dist, stroke: stroke.trim() };
     }
     return { dist: '', stroke: '' };
@@ -151,34 +124,33 @@ const QualifiersReport = ({ onBack }) => {
       setLoading(true);
       setRows([]);
 
-      // A. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
       let allResults = [];
       let page = 0;
-      const pageSize = 2000;
+      const pageSize = 1000;
       let keepFetching = true;
+      
       while (keepFetching) {
-          setProgressMsg(`Scanning database... (${page * pageSize} records)`);
+          setProgressMsg(`Fetching results ${page * pageSize} - ${(page + 1) * pageSize}...`);
           const { data: batch, error } = await supabase
             .from('results')
             .select('swimmer_id, event, time, date')
+            .order('id', { ascending: true }) 
             .range(page * pageSize, (page + 1) * pageSize - 1);
           
-          if (error || !batch || batch.length === 0) {
-              keepFetching = false;
-          } else {
+          if (error || !batch || batch.length === 0) keepFetching = false;
+          else {
               allResults = [...allResults, ...batch];
               page++;
-              if (allResults.length > 50000) keepFetching = false;
+              if (allResults.length > 200000) keepFetching = false; 
           }
       }
+      
+      setGlobalStats({ swimmers: swimmers?.length || 0, results: allResults.length });
 
-      if (!swimmers || !cuts) {
-          setLoading(false);
-          return;
-      }
+      if (!swimmers || !cuts) { setLoading(false); return; }
 
       setProgressMsg("Analyzing data...");
       const processedList = [];
@@ -186,17 +158,15 @@ const QualifiersReport = ({ onBack }) => {
       swimmers.forEach((swimmer) => {
         const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
         const myBestTimes = {}; 
-        
+
         myResults.forEach(r => {
             const { dist, stroke } = parseEvent(r.event);
             if (!dist || !stroke) return;
-
             const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
-            
             if (sec > 0 && sec < 999999) {
                 if (!myBestTimes[key] || sec < myBestTimes[key].val) {
-                    myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
+                    myBestTimes[key] = { val: sec, str: r.time, date: r.date };
                 }
             }
         });
@@ -342,8 +312,217 @@ const QualifiersReport = ({ onBack }) => {
   );
 };
 
-// --- PLACEHOLDERS FOR OTHER REPORTS ---
-const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack} className="text-blue-600 font-bold mb-4">&larr; Back</button><div className="text-center text-slate-400 py-12">Big Movers Report Coming Soon...</div></div>;
-const CloseCallsReport = ({ onBack }) => <div className="p-8"><button onClick={onBack} className="text-blue-600 font-bold mb-4">&larr; Back</button><div className="text-center text-slate-400 py-12">Close Calls Report Coming Soon...</div></div>;
-const FlawHeatmapReport = ({ onBack }) => <div className="p-8"><button onClick={onBack} className="text-blue-600 font-bold mb-4">&larr; Back</button><div className="text-center text-slate-400 py-12">Heatmap Report Coming Soon...</div></div>;
-const GroupProgressionReport = ({ onBack }) => <div className="p-8"><button onClick={onBack} className="text-blue-600 font-bold mb-4">&larr; Back</button><div className="text-center text-slate-400 py-12">Group Progression Report Coming Soon...</div></div>;
+// --- 2. RELAY GENERATOR (New Feature) ---
+const RelayGenerator = ({ onBack }) => {
+    const [ageGroup, setAgeGroup] = useState('11-12');
+    const [gender, setGender] = useState('M');
+    const [relayType, setRelayType] = useState('200 Free');
+    const [relays, setRelays] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [progress, setProgress] = useState("");
+
+    // Re-using the helpers from Qualifiers to ensure consistency
+    const timeToSeconds = (t) => {
+        if (!t) return 9999;
+        const clean = t.replace(/[A-Z]/g, '').trim();
+        const parts = clean.split(':');
+        return parts.length === 2 ? parseInt(parts[0])*60 + parseFloat(parts[1]) : parseFloat(parts[0]) || 9999;
+    };
+    
+    const secondsToTime = (val) => {
+        if (!val || val >= 9999) return "-";
+        const mins = Math.floor(val / 60);
+        const secs = (val % 60).toFixed(2);
+        return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
+    };
+
+    const parseEvent = (evt) => {
+        const clean = evt.toLowerCase().replace(/\(.*?\)/g, ''); 
+        const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
+        if (match) {
+            let stroke = match[2];
+            if (stroke.includes('free')) stroke = 'free';
+            else if (stroke.includes('back')) stroke = 'back';
+            else if (stroke.includes('breast')) stroke = 'breast';
+            else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
+            else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
+            else return { dist: '', stroke: '' };
+            return { dist: match[1], stroke: stroke.trim() };
+        }
+        return { dist: '', stroke: '' };
+    };
+
+    const generate = async () => {
+        setLoading(true);
+        setProgressMsg("Fetching swimmer times...");
+
+        const { data: swimmers } = await supabase.from('swimmers').select('*');
+        
+        // Fetch ALL results (Safe Batching) - Reusing logic to be safe
+        let allResults = [];
+        let page = 0;
+        let keepFetching = true;
+        while (keepFetching) {
+            setProgressMsg(`Scanning results batch ${page + 1}...`);
+            const { data: batch } = await supabase.from('results').select('swimmer_id, event, time').order('id').range(page*2000, (page+1)*2000-1);
+            if (!batch || batch.length === 0) keepFetching = false;
+            else {
+                allResults = [...allResults, ...batch];
+                page++;
+                if (allResults.length > 100000) keepFetching = false; 
+            }
+        }
+
+        // 1. Filter Candidates
+        const [minAge, maxAge] = ageGroup === '10&U' ? [0, 10] : ageGroup === '15&O' ? [15, 99] : ageGroup.split('-').map(Number);
+        const candidates = swimmers.filter(s => {
+            const age = s.age || 0;
+            const g = (s.gender || 'M').trim().toUpperCase();
+            return age >= minAge && age <= maxAge && g === gender;
+        });
+
+        // 2. Get Best Times
+        const isMedley = relayType.includes('Medley');
+        const dist = relayType.startsWith('400') ? '100' : '50';
+        const requiredStrokes = isMedley ? ['back', 'breast', 'fly', 'free'] : ['free'];
+
+        const candidateTimes = candidates.map(s => {
+            const myResults = allResults.filter(r => r.swimmer_id == s.id);
+            const times = { id: s.id, name: s.name };
+            requiredStrokes.forEach(stk => {
+                const matches = myResults.map(r => {
+                    const p = parseEvent(r.event);
+                    return (p.dist === dist && p.stroke === stk) ? timeToSeconds(r.time) : 9999;
+                });
+                times[stk] = matches.length > 0 ? Math.min(...matches) : 9999;
+            });
+            return times;
+        });
+
+        // 3. Build Relays
+        const builtRelays = [];
+        let pool = [...candidateTimes];
+
+        for (let i = 0; i < 3; i++) {
+            let team = [];
+            if (!isMedley) {
+                pool.sort((a,b) => a.free - b.free);
+                if (pool.length >= 4) {
+                    team = pool.slice(0, 4).map(s => ({ ...s, stroke: 'Free', split: s.free }));
+                    pool = pool.slice(4);
+                }
+            } else {
+                // Simple Medley Logic: Best Available for each slot
+                const strokes = ['back', 'breast', 'fly', 'free'];
+                strokes.forEach(stk => {
+                    let best = null;
+                    let bestTime = 9999;
+                    pool.forEach(s => {
+                        if (!team.find(t => t.id === s.id) && s[stk] < bestTime) {
+                            bestTime = s[stk];
+                            best = s;
+                        }
+                    });
+                    if (best) {
+                        team.push({ ...best, stroke: stk.charAt(0).toUpperCase() + stk.slice(1), split: bestTime });
+                    }
+                });
+                
+                // If we found 4 distinct swimmers, remove them from pool
+                if (team.length === 4) {
+                    const ids = team.map(t => t.id);
+                    pool = pool.filter(s => !ids.includes(s.id));
+                } else {
+                    team = []; // Incomplete relay
+                }
+            }
+
+            if (team.length === 4) {
+                builtRelays.push({
+                    label: ['A', 'B', 'C'][i] + ' Relay',
+                    swimmers: team,
+                    total: team.reduce((sum, t) => sum + t.split, 0)
+                });
+            }
+        }
+        setRelays(builtRelays);
+        setLoading(false);
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in">
+             <div className="bg-white p-4 rounded-xl border shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                     <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline"><ArrowRight className="rotate-180" size={16}/> Back</button>
+                     <h3 className="font-bold text-slate-800 text-lg">Relay Generator</h3>
+                </div>
+                
+                <div className="flex flex-wrap gap-4 items-end">
+                    <div className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Age Group</label>
+                        <select value={ageGroup} onChange={e=>setAgeGroup(e.target.value)} className="font-bold bg-slate-50 border rounded p-2 text-sm">
+                            <option value="10&U">10 & Under</option>
+                            <option value="11-12">11 - 12</option>
+                            <option value="13-14">13 - 14</option>
+                            <option value="15&O">15 & Over</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Gender</label>
+                        <select value={gender} onChange={e=>setGender(e.target.value)} className="font-bold bg-slate-50 border rounded p-2 text-sm">
+                            <option value="M">Boys</option>
+                            <option value="F">Girls</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Event</label>
+                        <select value={relayType} onChange={e=>setRelayType(e.target.value)} className="font-bold bg-slate-50 border rounded p-2 text-sm">
+                            <option value="200 Free">200 Free Relay</option>
+                            <option value="400 Free">400 Free Relay</option>
+                            <option value="200 Medley">200 Medley Relay</option>
+                            <option value="400 Medley">400 Medley Relay</option>
+                        </select>
+                    </div>
+                    <button onClick={generate} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 disabled:opacity-50">
+                        {loading ? "Building..." : "Build Relays"}
+                    </button>
+                </div>
+            </div>
+            
+            {loading && <div className="text-center py-8 text-slate-400 animate-pulse">{progressMsg}</div>}
+            
+            {!loading && relays.length > 0 && (
+                <div className="grid gap-4">
+                    {relays.map((r, i) => (
+                        <div key={i} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                            <div className="bg-slate-50 p-3 border-b flex justify-between items-center">
+                                <h4 className="font-bold text-slate-800">{r.label}</h4>
+                                <span className="font-mono font-bold text-blue-600 text-lg">{secondsToTime(r.total)}</span>
+                            </div>
+                            <div className="divide-y">
+                                {r.swimmers.map((s, idx) => (
+                                    <div key={idx} className="p-3 flex justify-between items-center text-sm">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-slate-400 w-4 font-mono">{idx+1}</span>
+                                            <div>
+                                                <div className="font-bold text-slate-700">{s.name}</div>
+                                                <div className="text-xs text-slate-400">{s.stroke} Leg</div>
+                                            </div>
+                                        </div>
+                                        <span className="font-mono text-slate-600">{secondsToTime(s.split)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+  };
+
+// --- PLACEHOLDERS FOR OTHER REPORTS (Will Implement Next) ---
+const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Big Movers Coming Soon</h3></div>;
+const CloseCallsReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Close Calls Coming Soon</h3></div>;
+const FlawHeatmapReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Heatmap Coming Soon</h3></div>;
+const GroupProgressionReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Group Progression Coming Soon</h3></div>;
