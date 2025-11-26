@@ -12,6 +12,8 @@ import AllPhotos from './AllPhotos' // NEW IMPORT
 import Reports from './Reports'
 import { FileText } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
+import AIChat from './AIChat';
+import { MessageSquare } from 'lucide-react'; // Import icon
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -32,6 +34,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'clipboard-list': ClipboardList, 'key': Key, 'upload-cloud': UploadCloud, 'cpu': Cpu, 
     'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut,
     'file-text': FileText,
+    'message-square': MessageSquare,
     'image': ImageIcon, 'camera': Camera
   };
   const LucideIcon = icons[name] || Waves;
@@ -180,6 +183,11 @@ export default function App() {
 {view === 'reports' && (
   <Reports onBack={() => navigateTo('dashboard')} />
 )}
+        {/* Inside <main> */}
+{view === 'ai-chat' && (
+  <AIChat onBack={() => navigateTo('dashboard')} />
+)}
+        
         
       </main>
     </div>
@@ -305,6 +313,18 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
                 <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="file-text" size={20}/></div>
                 <div className="font-bold text-purple-900">Team Reports</div>
           </div>
+           {/* Add this to the grid inside Dashboard */}
+          <div onClick={() => navigateTo('ai-chat')} className="bg-purple-600 p-6 rounded-2xl shadow-lg shadow-purple-200 text-white relative overflow-hidden cursor-pointer hover:bg-purple-700 transition-colors group">
+                <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                <p className="text-purple-100 text-sm font-medium">AI Assistant</p>
+                <Icon name="message-square" size={20} className="text-purple-200"/>
+         </div>
+               <h3 className="text-2xl font-bold">Ask Data</h3>
+             <p className="text-xs text-purple-200 mt-1">Chat with your database</p>
+        </div>
+          <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-purple-500 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500"></div>
+        </div>
          </div>
       </div>
     </div>
