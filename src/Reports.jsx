@@ -5,19 +5,17 @@ import { Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, Bug } from
 
 export default function Reports({ onBack }) {
   const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState("");
   const [standardNames, setStandardNames] = useState([]);
   const [selectedStandard, setSelectedStandard] = useState("");
   const [qualifiers, setQualifiers] = useState([]);
   const [debugLog, setDebugLog] = useState(null);
 
-  // --- HELPERS ---
   const timeToSeconds = (timeStr) => {
     if (!timeStr) return 999999;
     if (['DQ', 'NS', 'DFS', 'SCR', 'DNF'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-    
     const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
     if (!cleanStr) return 999999;
-
     const parts = cleanStr.split(':');
     let val = 0;
     if (parts.length === 2) {
@@ -30,17 +28,12 @@ export default function Reports({ onBack }) {
 
   const parseEvent = (evt) => {
     if (!evt) return { dist: '', stroke: '' };
-    
-    // FIX: Use non-greedy regex (.*?) to remove parentheses groups individually
-    // This preserves "50 Free" which sits between "(11-12)" and "(Prelim)"
+    // Non-greedy remove of parens
     const clean = evt.replace(/\(.*?\)/g, '').trim().toLowerCase(); 
-
-    // Regex finds the first number (Distance) and captures the rest (Stroke)
     const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(.*)/);
     
     if (match) {
         let stroke = match[2];
-        // Clean up stroke name
         if (stroke.includes('free')) stroke = 'free';
         else if (stroke.includes('back')) stroke = 'back';
         else if (stroke.includes('breast')) stroke = 'breast';
@@ -49,11 +42,9 @@ export default function Reports({ onBack }) {
         
         return { dist: match[1], stroke: stroke.trim() };
     }
-    
     return { dist: '', stroke: clean };
   };
 
-  // --- 1. FETCH STANDARD NAMES ---
   useEffect(() => {
     const fetchStandardsList = async () => {
       const { data } = await supabase.from('time_standards').select('name');
@@ -67,7 +58,6 @@ export default function Reports({ onBack }) {
     fetchStandardsList();
   }, []);
 
-  // --- 2. CALCULATE QUALIFIERS ---
   useEffect(() => {
     const runReport = async () => {
       if (!selectedStandard) return;
@@ -75,32 +65,49 @@ export default function Reports({ onBack }) {
       setQualifiers([]);
       setDebugLog(null);
 
-      // A. Fetch Data (Limit 10k)
+      // 1. Fetch Data
       const { data: swimmers } = await supabase.from('swimmers').select('*');
-      const { data: results } = await supabase.from('results').select('*').range(0, 9999);
       const { data: cuts } = await supabase.from('time_standards').select('*').eq('name', selectedStandard);
 
-      if (!swimmers || !results || !cuts) {
+      // Fetch ALL results
+      let allResults = [];
+      let page = 0;
+      const pageSize = 2000;
+      let keepFetching = true;
+      while (keepFetching) {
+          setProgressMsg(`Fetching results ${page * pageSize}...`);
+          const { data: batch, error } = await supabase
+            .from('results')
+            .select('swimmer_id, event, time, date')
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          
+          if (error || !batch || batch.length === 0) {
+              keepFetching = false;
+          } else {
+              allResults = [...allResults, ...batch];
+              page++;
+              if (allResults.length > 50000) keepFetching = false;
+          }
+      }
+
+      if (!swimmers || !cuts) {
           setLoading(false);
           return;
       }
-      
-      // B. Process Each Swimmer
+
+      setProgressMsg("Analyzing data...");
       const qualifiedList = [];
-      let debugData = null; // Capture first valid swimmer for debug
+      let debugData = null;
 
       swimmers.forEach((swimmer) => {
-        const myResults = results.filter(r => r.swimmer_id == swimmer.id);
+        const myResults = allResults.filter(r => r.swimmer_id == swimmer.id);
         const myBestTimes = {}; 
         
-        // 1. Normalize my results
         myResults.forEach(r => {
             const { dist, stroke } = parseEvent(r.event);
-            if (!dist || !stroke) return; // Skip if parsing failed
-
-            const key = `${dist} ${stroke}`; // e.g. "50 free"
+            if (!dist || !stroke) return;
+            const key = `${dist} ${stroke}`; 
             const sec = timeToSeconds(r.time);
-            
             if (sec > 0 && sec < 999999) {
                 if (!myBestTimes[key] || sec < myBestTimes[key].val) {
                     myBestTimes[key] = { val: sec, str: r.time, date: r.date, original: r.event };
@@ -108,36 +115,46 @@ export default function Reports({ onBack }) {
             }
         });
 
-        // 2. Filter cuts for this swimmer
-        const swimmerAge = swimmer.age || 0; // Default to 0 if unknown, so they match "0-18" ranges
+        const swimmerAge = swimmer.age || 0; 
         const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
 
+        // DEEP DEBUG: Capture mismatch reasons for the first swimmer
+        const debugReasons = [];
+        
         const myRelevantCuts = cuts.filter(c => {
             const cutGender = c.gender.trim().toUpperCase();
-            // Open cuts (0-99) match everyone. Junior cuts (0-18) match age <= 18.
+            const genderMatch = cutGender === swimmerGender;
+            
+            // Loose Age Match: 
+            // If standard is Open (0-99) or Junior (0-18), adapt logic
             const ageMatch = swimmerAge >= c.age_min && swimmerAge <= c.age_max;
-            return cutGender === swimmerGender && ageMatch;
+            
+            // Debugging Sample (Only for first few checks of first swimmer)
+            if (!debugData && debugReasons.length < 5) {
+                if (!genderMatch) debugReasons.push(`Gender Mismatch: Swim(${swimmerGender}) vs Cut(${cutGender})`);
+                else if (!ageMatch) debugReasons.push(`Age Mismatch: Swim(${swimmerAge}) vs Cut(${c.age_min}-${c.age_max})`);
+            }
+
+            return genderMatch && ageMatch;
         });
 
-        // Debug Logger: Capture info for specific swimmer if needed (e.g. Baker)
-        if (!debugData && myResults.length > 0 && swimmer.name.includes("Baker")) {
+        if (!debugData && myResults.length > 0) {
              debugData = {
                 name: swimmer.name,
-                age: swimmerAge,
+                standardSelected: selectedStandard,
                 gender: swimmerGender,
-                bestTimes: myBestTimes,
-                cutsFound: myRelevantCuts.length,
-                sampleCut: myRelevantCuts[0]
+                age: swimmerAge,
+                totalCutsInDB: cuts.length,
+                cutsMatchingProfile: myRelevantCuts.length,
+                rejections: debugReasons,
+                bestTimes: myBestTimes
             };
         }
 
-        // 3. Match
         const myQualifyingEvents = [];
-
         myRelevantCuts.forEach(cut => {
             const { dist, stroke } = parseEvent(cut.event);
             const key = `${dist} ${stroke}`;
-            
             const myBest = myBestTimes[key];
 
             if (myBest && myBest.val <= cut.time_seconds) {
@@ -202,7 +219,7 @@ export default function Reports({ onBack }) {
       {loading && (
         <div className="h-64 flex flex-col items-center justify-center text-slate-400 animate-pulse">
             <Loader2 size={40} className="animate-spin mb-4 text-blue-500"/>
-            <p>Scanning results...</p>
+            <p>{progressMsg || "Processing..."}</p>
         </div>
       )}
 
@@ -256,20 +273,27 @@ export default function Reports({ onBack }) {
                 </div>
             )}
 
-            {/* DEBUG PANEL - Remove when fixed */}
+            {/* DEEP DEBUG PANEL */}
             {debugLog && (
                 <div className="p-4 bg-slate-900 text-slate-400 rounded-xl font-mono text-xs mt-8">
-                    <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Debug: {debugLog.name}</h4>
-                    <p>Cuts Found: {debugLog.cutsFound}</p>
-                    <div className="grid grid-cols-2 gap-4 mt-2">
-                        <div>
-                            <strong className="text-slate-500">Best Times Parsed:</strong>
-                            <pre>{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
+                    <h4 className="text-white font-bold mb-2 flex items-center gap-2"><Bug size={14}/> Deep Debug: {debugLog.name}</h4>
+                    <p>Selected Standard: {debugLog.standardSelected}</p>
+                    <p>Swimmer Info: {debugLog.gender}, Age {debugLog.age}</p>
+                    <p>Total Cuts in DB for this Standard: {debugLog.totalCutsInDB}</p>
+                    <p>Cuts Matching Profile (Age/Gender): {debugLog.cutsMatchingProfile}</p>
+                    
+                    {debugLog.rejections.length > 0 && (
+                        <div className="mt-2 text-red-400">
+                            <strong>Why were cuts rejected?</strong>
+                            <ul className="list-disc pl-4">
+                                {debugLog.rejections.map((r, i) => <li key={i}>{r}</li>)}
+                            </ul>
                         </div>
-                         <div>
-                            <strong className="text-slate-500">Sample Cut:</strong>
-                            <pre>{JSON.stringify(debugLog.sampleCut, null, 2)}</pre>
-                        </div>
+                    )}
+
+                    <div className="mt-2">
+                        <strong className="text-slate-500">My Best Times:</strong>
+                        <pre>{JSON.stringify(debugLog.bestTimes, null, 2)}</pre>
                     </div>
                 </div>
             )}
