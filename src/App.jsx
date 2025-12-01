@@ -75,7 +75,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('swimmers')
       .select('*')
-      .eq('coach_id', session.user.id)
+     // .eq('coach_id', session.user.id)
     
     if (error) console.error('Error fetching roster:', error)
     else setSwimmers(data || [])
