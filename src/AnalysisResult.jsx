@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Play, ChevronLeft, Pause, PenTool, Scan, RotateCcw, CheckCircle2,
   AlertCircle, Sparkles, Target, MessageSquare, Clock, User, Share2,
-  Download, Trash2, Edit3, X, Check
+  Download, Trash2, Edit3, X, Check, Eye, EyeOff, SkipBack, SkipForward
 } from 'lucide-react';
 
 export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerName, stroke, videoType }) {
@@ -12,82 +12,25 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [telestratorActive, setTelestratorActive] = useState(false);
-  const [color, setColor] = useState('#ef4444');
-  const strokesRef = useRef(data?.drawings || []);
+  
+  // Annotation display state
+  const [showAllAnnotations, setShowAllAnnotations] = useState(false);
+  const [selectedAnnotation, setSelectedAnnotation] = useState(null);
+  
+  // Load saved annotations from data
+  const [annotations, setAnnotations] = useState([]);
+  
+  // Panel state
   const [activePanel, setActivePanel] = useState('overview');
 
-  // Load saved drawings if present
+  // Load annotations when data changes
   useEffect(() => {
-    if (data?.drawings) {
-      strokesRef.current = data.drawings;
+    if (data?.annotations && Array.isArray(data.annotations)) {
+      setAnnotations(data.annotations);
     }
   }, [data]);
 
-  const getPos = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  };
-
-  const startDrawing = (e) => {
-    if (!telestratorActive) return;
-    setIsDrawing(true);
-    const pos = getPos(e);
-    strokesRef.current.push({ points: [pos], color, timestamp: Date.now(), opacity: 1 });
-  };
-
-  const draw = (e) => {
-    if (!isDrawing || !telestratorActive) return;
-    const pos = getPos(e);
-    const currentStroke = strokesRef.current[strokesRef.current.length - 1];
-    if (currentStroke) currentStroke.points.push(pos);
-  };
-
-  const stopDrawing = () => setIsDrawing(false);
-
-  useEffect(() => {
-    const animate = () => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const now = Date.now();
-        strokesRef.current = strokesRef.current.filter(s => s.opacity > 0);
-        strokesRef.current.forEach(stroke => {
-          if (now - stroke.timestamp > 2000) stroke.opacity -= 0.02;
-          ctx.beginPath();
-          ctx.strokeStyle = stroke.color;
-          ctx.lineWidth = 4;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.globalAlpha = Math.max(0, stroke.opacity);
-          if (stroke.points.length > 0) {
-            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-            stroke.points.forEach(p => ctx.lineTo(p.x, p.y));
-          }
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-        });
-      }
-      requestAnimationFrame(animate);
-    };
-    const id = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  useEffect(() => {
-    if(canvasRef.current && videoRef.current) {
-      canvasRef.current.width = videoRef.current.clientWidth;
-      canvasRef.current.height = videoRef.current.clientHeight;
-    }
-  }, [videoUrl]);
-
+  // Video event handlers
   const handleTimeUpdate = () => {
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
@@ -118,15 +61,165 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
     }
   };
 
+  const skip = (seconds) => {
+    if (videoRef.current) {
+      const newTime = Math.max(0, Math.min(duration, currentTime + seconds));
+      seekTo(newTime);
+    }
+  };
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatTimeDetailed = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
+
+  // Get visible annotations based on current time
+  const getVisibleAnnotations = () => {
+    if (showAllAnnotations) return annotations;
+    
+    return annotations.filter(ann => {
+      const timeDiff = currentTime - ann.timestamp;
+      const annDuration = ann.duration || 3; // Default 3 seconds if not specified
+      return timeDiff >= 0 && timeDiff <= annDuration;
+    });
+  };
+
+  // Canvas rendering for annotations
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw visible annotations
+      const visible = getVisibleAnnotations();
+      visible.forEach(ann => {
+        const startX = ann.startX * canvas.width;
+        const startY = ann.startY * canvas.height;
+        const endX = ann.endX * canvas.width;
+        const endY = ann.endY * canvas.height;
+        
+        // Calculate opacity based on time (fade out effect)
+        let opacity = 1;
+        if (!showAllAnnotations) {
+          const timeDiff = currentTime - ann.timestamp;
+          const annDuration = ann.duration || 3;
+          const fadeStart = annDuration - 0.5; // Start fading 0.5s before end
+          if (timeDiff > fadeStart) {
+            opacity = Math.max(0, 1 - (timeDiff - fadeStart) / 0.5);
+          }
+        }
+        
+        // Highlight selected annotation
+        const isSelected = selectedAnnotation === ann.id;
+        
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        
+        // Draw line shadow for better visibility
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = (ann.thickness || 3) + 4;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        
+        // Draw main line
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = isSelected ? '#ffffff' : (ann.color || '#ef4444');
+        ctx.lineWidth = (ann.thickness || 3) + (isSelected ? 2 : 0);
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        
+        // Draw endpoints
+        [{ x: startX, y: startY }, { x: endX, y: endY }].forEach(point => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, (ann.thickness || 3) + 2, 0, Math.PI * 2);
+          ctx.fillStyle = ann.color || '#ef4444';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        });
+        
+        // Draw label if exists
+        if (ann.label) {
+          const midX = (startX + endX) / 2;
+          const midY = (startY + endY) / 2;
+          
+          ctx.font = 'bold 14px system-ui';
+          const textMetrics = ctx.measureText(ann.label);
+          const padding = 6;
+          const bgWidth = textMetrics.width + padding * 2;
+          const bgHeight = 20;
+          
+          // Label background
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.beginPath();
+          ctx.roundRect(midX - bgWidth/2, midY - bgHeight/2 - 15, bgWidth, bgHeight, 4);
+          ctx.fill();
+          
+          // Label text
+          ctx.fillStyle = ann.color || '#ef4444';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(ann.label, midX, midY - 15);
+        }
+        
+        ctx.restore();
+      });
+      
+      requestAnimationFrame(render);
+    };
+    
+    const animationId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animationId);
+  }, [annotations, currentTime, showAllAnnotations, selectedAnnotation]);
+
+  // Resize canvas to match video
+  useEffect(() => {
+    const resizeCanvas = () => {
+      if (canvasRef.current && videoRef.current) {
+        canvasRef.current.width = videoRef.current.clientWidth;
+        canvasRef.current.height = videoRef.current.clientHeight;
+      }
+    };
+    
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Also resize when video loads
+    if (videoRef.current) {
+      videoRef.current.addEventListener('loadeddata', resizeCanvas);
+    }
+    
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, [videoUrl]);
+
+  // Get display title - prefer passed prop, then data.title, then fallback
+  const displayTitle = title || data?.title || 'Video Analysis';
+  const displayStroke = stroke || data?.stroke;
+  const displayVideoType = videoType || data?.videoType;
+
   // Filter improvements by status
   const acceptedImprovements = data?.improvements?.filter(i => i.status === 'accepted') || [];
-  const pendingImprovements = data?.improvements?.filter(i => i.status === 'pending') || [];
+  const pendingImprovements = data?.improvements?.filter(i => i.status === 'pending' || !i.status) || [];
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
@@ -137,36 +230,37 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
             <ChevronLeft size={24} />
           </button>
           <div>
-            <h2 className="text-lg font-bold">{title || 'Video Analysis'}</h2>
+            <h2 className="text-lg font-bold">{displayTitle}</h2>
             <p className="text-xs text-slate-400">
               {swimmerName && `${swimmerName} • `}
-              {stroke && `${stroke} • `}
-              {videoType && videoType.replace('-', ' ')}
+              {displayStroke && `${displayStroke} • `}
+              {displayVideoType && displayVideoType.replace('-', ' ')}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <div className={`flex items-center gap-2 px-2 py-1 rounded-lg bg-black/50 border border-white/10 ${telestratorActive ? 'ring-2 ring-blue-500' : ''}`}>
-            <button 
-              onClick={() => setTelestratorActive(!telestratorActive)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 ${telestratorActive ? 'bg-blue-500 text-white' : 'text-slate-300'}`}
+        
+        <div className="flex items-center gap-2">
+          {/* Show all annotations toggle */}
+          {annotations.length > 0 && (
+            <button
+              onClick={() => setShowAllAnnotations(!showAllAnnotations)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                showAllAnnotations 
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500' 
+                  : 'bg-slate-700 text-slate-400 border border-slate-600 hover:text-white'
+              }`}
+              title={showAllAnnotations ? 'Show annotations at their timestamps' : 'Show all annotations'}
             >
-              <PenTool size={14} /> Draw
+              {showAllAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+              {showAllAnnotations ? 'All Lines' : 'Timed'}
             </button>
-            {telestratorActive && (
-              <div className="flex gap-1 pl-2 border-l border-white/20">
-                {['#ef4444', '#eab308', '#22c55e', '#3b82f6'].map(c => (
-                  <button key={c} onClick={() => setColor(c)} className={`w-4 h-4 rounded-full border ${color===c ? 'border-white' : 'border-transparent'}`} style={{background: c}} />
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Video Section */}
-        <div className="flex-1 p-6 flex flex-col gap-6 overflow-y-auto">
+        <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
           <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl aspect-video border border-slate-700">
             <video 
               ref={videoRef}
@@ -178,33 +272,17 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
             />
             <canvas 
               ref={canvasRef}
-              className={`absolute inset-0 w-full h-full z-20 ${telestratorActive ? 'cursor-crosshair' : 'pointer-events-none'}`}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
+              className="absolute inset-0 w-full h-full pointer-events-none"
             />
-            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex items-center gap-4">
-              <button onClick={togglePlay}>
-                {isPlaying ? <Pause className="fill-white" /> : <Play className="fill-white" />}
-              </button>
-              <div className="text-xs font-mono">{formatTime(currentTime)} / {formatTime(duration)}</div>
-              
-              {/* Progress Bar */}
-              <div 
-                className="flex-1 h-1 bg-slate-700 rounded-full cursor-pointer"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const percent = (e.clientX - rect.left) / rect.width;
-                  seekTo(percent * duration);
-                }}
-              >
-                <div 
-                  className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${(currentTime / duration) * 100}%` }}
-                />
+            
+            {/* Play/Pause Overlay */}
+            {!isPlaying && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
+                  <Play size={32} className="text-white ml-1" />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Score Badge */}
             {data?.overallScore && (
@@ -219,23 +297,103 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
                 </div>
               </div>
             )}
+
+            {/* Annotations count badge */}
+            {annotations.length > 0 && (
+              <div className="absolute bottom-16 right-4 bg-purple-500/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold">
+                {annotations.length} line{annotations.length !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+          
+          {/* Video Controls */}
+          <div className="bg-slate-800 rounded-xl p-4">
+            {/* Progress Bar with Annotation Markers */}
+            <div 
+              className="h-3 bg-slate-700 rounded-full mb-4 cursor-pointer relative group"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const percent = (e.clientX - rect.left) / rect.width;
+                seekTo(percent * duration);
+              }}
+            >
+              {/* Progress fill */}
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
+                style={{ width: `${(currentTime / duration) * 100}%` }}
+              />
+              
+              {/* Annotation Markers */}
+              {annotations.map(ann => (
+                <div
+                  key={ann.id}
+                  className={`absolute top-1/2 -translate-y-1/2 w-2 h-4 rounded-sm cursor-pointer hover:scale-150 transition-transform`}
+                  style={{ 
+                    left: `${(ann.timestamp / duration) * 100}%`,
+                    backgroundColor: ann.color || '#a855f7'
+                  }}
+                  title={ann.label || `Line at ${formatTime(ann.timestamp)}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(ann.timestamp);
+                    setSelectedAnnotation(ann.id);
+                    setActivePanel('annotations');
+                  }}
+                />
+              ))}
+              
+              {/* Key Moments Markers */}
+              {data?.keyMoments?.map((moment, i) => (
+                <div
+                  key={i}
+                  className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-yellow-400 rounded-full cursor-pointer hover:scale-150 transition-transform"
+                  style={{ left: `${(moment.timestamp / duration) * 100}%` }}
+                  title={moment.description}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(moment.timestamp);
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Controls Row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button onClick={() => skip(-5)} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400">
+                  <SkipBack size={20} />
+                </button>
+                <button onClick={togglePlay} className="p-3 bg-white text-slate-900 rounded-full hover:bg-slate-200">
+                  {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
+                </button>
+                <button onClick={() => skip(5)} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400">
+                  <SkipForward size={20} />
+                </button>
+                
+                <div className="text-sm font-mono text-slate-400 ml-2">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Metrics Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { l: 'Stroke Rate', v: data?.metrics?.strokeRate || data?.strokeRate },
-              { l: 'Dist. Per Stroke', v: data?.metrics?.distancePerStroke || data?.dps },
-              { l: 'Body Position', v: data?.metrics?.bodyPosition ? `${data.metrics.bodyPosition}/10` : null },
-              { l: 'Timing', v: data?.metrics?.timing ? `${data.metrics.timing}/10` : null },
-              { l: 'Efficiency', v: data?.metrics?.efficiency ? `${data.metrics.efficiency}/10` : null }
-            ].filter(m => m.v).map((m, i) => (
-              <div key={i} className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                <div className="text-slate-400 text-xs font-bold uppercase mb-1">{m.l}</div>
-                <div className="text-xl font-bold">{m.v || 'N/A'}</div>
-              </div>
-            ))}
-          </div>
+          {data?.metrics && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { l: 'Stroke Rate', v: data?.metrics?.strokeRate || data?.strokeRate },
+                { l: 'Dist. Per Stroke', v: data?.metrics?.distancePerStroke || data?.dps },
+                { l: 'Body Position', v: data?.metrics?.bodyPosition ? `${data.metrics.bodyPosition}/10` : null },
+                { l: 'Timing', v: data?.metrics?.timing ? `${data.metrics.timing}/10` : null },
+                { l: 'Efficiency', v: data?.metrics?.efficiency ? `${data.metrics.efficiency}/10` : null }
+              ].filter(m => m.v).map((m, i) => (
+                <div key={i} className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                  <div className="text-slate-400 text-xs font-bold uppercase mb-1">{m.l}</div>
+                  <div className="text-lg font-bold">{m.v || 'N/A'}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right Panel */}
@@ -245,12 +403,13 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
             {[
               { id: 'overview', label: 'Overview' },
               { id: 'feedback', label: 'Feedback' },
-              { id: 'coach', label: 'Coach Notes' }
+              { id: 'annotations', label: `Lines${annotations.length > 0 ? ` (${annotations.length})` : ''}` },
+              { id: 'coach', label: 'Notes' }
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActivePanel(tab.id)}
-                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                className={`flex-1 px-3 py-3 text-xs font-medium transition-colors ${
                   activePanel === tab.id 
                     ? 'text-white bg-slate-700/50 border-b-2 border-blue-500' 
                     : 'text-slate-400 hover:text-white'
@@ -334,8 +493,8 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
                     <div className="space-y-2">
                       {acceptedImprovements.map((flaw, i) => (
                         <div key={i} 
-                          onClick={() => { if(videoRef.current && flaw.timestamp) { videoRef.current.currentTime = flaw.timestamp; videoRef.current.pause(); setIsPlaying(false); }}}
-                          className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl cursor-pointer transition-colors"
+                          onClick={() => { if(flaw.timestamp) seekTo(flaw.timestamp); }}
+                          className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl cursor-pointer transition-colors hover:bg-emerald-500/20"
                         >
                           <div className="flex justify-between items-start mb-1">
                             <span className="font-bold text-sm text-emerald-400">{flaw.title}</span>
@@ -362,7 +521,7 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
                   <div className="space-y-2">
                     {(data?.flaws || pendingImprovements)?.map((flaw, i) => (
                       <div key={i} 
-                        onClick={() => { if(videoRef.current && flaw.timestamp) { videoRef.current.currentTime = flaw.timestamp; videoRef.current.pause(); setIsPlaying(false); }}}
+                        onClick={() => { if(flaw.timestamp) seekTo(flaw.timestamp); }}
                         className="p-3 bg-slate-700/50 border border-slate-600 rounded-xl hover:border-blue-500 cursor-pointer transition-colors"
                       >
                         <div className="flex justify-between items-start mb-1">
@@ -386,6 +545,67 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Annotations Panel */}
+            {activePanel === 'annotations' && (
+              <div className="space-y-4">
+                {annotations.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <PenTool size={32} className="mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No line annotations</p>
+                    <p className="text-xs mt-1">This analysis has no drawn lines</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                      <h4 className="text-xs font-bold text-purple-400 uppercase mb-2 flex items-center gap-2">
+                        <PenTool size={14} /> Coach Annotations
+                      </h4>
+                      <p className="text-sm text-slate-400">
+                        {annotations.length} line{annotations.length !== 1 ? 's' : ''} drawn on this video. 
+                        Click any annotation to jump to that moment.
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {annotations
+                        .sort((a, b) => a.timestamp - b.timestamp)
+                        .map(ann => (
+                          <div 
+                            key={ann.id}
+                            onClick={() => {
+                              seekTo(ann.timestamp);
+                              setSelectedAnnotation(ann.id);
+                            }}
+                            className={`bg-slate-700/50 rounded-lg p-3 border cursor-pointer transition-all ${
+                              selectedAnnotation === ann.id 
+                                ? 'border-purple-500 bg-purple-500/10' 
+                                : 'border-slate-600 hover:border-slate-500'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div 
+                                  className="w-4 h-4 rounded-full border-2 border-white/50"
+                                  style={{ backgroundColor: ann.color || '#ef4444' }}
+                                />
+                                <div>
+                                  <div className="text-sm font-medium text-white">
+                                    {ann.label || 'Untitled Line'}
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    @ {formatTimeDetailed(ann.timestamp)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
