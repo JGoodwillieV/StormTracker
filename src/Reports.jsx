@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
-  TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database
+  TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
+  ChevronDown, Search, User
 } from 'lucide-react';
 
 // --- SHARED HELPERS (Available to all components) ---
@@ -52,6 +53,15 @@ const parseEvent = (evt) => {
       return { dist, stroke: stroke.trim() };
   }
   return { dist: '', stroke: '' };
+};
+
+// Stroke order for sorting
+const STROKE_ORDER = {
+  'free': 1, 'freestyle': 1,
+  'back': 2, 'backstroke': 2,
+  'breast': 3, 'breaststroke': 3,
+  'fly': 4, 'butterfly': 4,
+  'im': 5, 'individual medley': 5
 };
 
 
@@ -108,12 +118,486 @@ export default function Reports({ onBack }) {
                 <h3 className="font-bold text-lg text-slate-800">Big Movers</h3>
                 <p className="text-slate-500 text-sm mt-1">Leaderboard of total time dropped this season.</p>
             </div>
+
+            {/* 4. CLOSE CALLS - NEW */}
+            <div onClick={() => setCurrentReport('closecalls')} className="bg-white p-6 rounded-2xl border hover:border-orange-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Target size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Close Calls</h3>
+                <p className="text-slate-500 text-sm mt-1">Swimmers within striking distance of a time standard.</p>
+            </div>
         </div>
     </div>
   );
 }
 
 // --- SUB-COMPONENTS ---
+
+// 4. CLOSE CALLS REPORT
+const CloseCallsReport = ({ onBack }) => {
+  // Filter State
+  const [ageGroup, setAgeGroup] = useState('all');
+  const [gender, setGender] = useState('all');
+  const [selectedStandard, setSelectedStandard] = useState('');
+  const [withinSeconds, setWithinSeconds] = useState(3);
+  
+  // Data State
+  const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [standardNames, setStandardNames] = useState([]);
+  const [results, setResults] = useState([]);
+  const [hasGenerated, setHasGenerated] = useState(false);
+
+  // Fetch available standards on mount
+  useEffect(() => {
+    const fetchStandards = async () => {
+      const { data } = await supabase.from('time_standards').select('name');
+      if (data) {
+        const unique = [...new Set(data.map(d => d.name))].sort();
+        setStandardNames(unique);
+        // Default to first motivational standard if available
+        const motivational = ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA'];
+        const defaultStd = unique.find(s => motivational.includes(s)) || unique[0];
+        if (defaultStd) setSelectedStandard(defaultStd);
+      }
+    };
+    fetchStandards();
+  }, []);
+
+  const generateReport = async () => {
+    if (!selectedStandard) return alert('Please select a time standard.');
+    
+    setLoading(true);
+    setResults([]);
+    setHasGenerated(true);
+
+    try {
+      // 1. Fetch Swimmers
+      setProgressMsg('Loading swimmers...');
+      const { data: swimmers } = await supabase.from('swimmers').select('*');
+
+      // 2. Fetch Standards for selected cut
+      setProgressMsg('Loading time standards...');
+      const { data: standards } = await supabase
+        .from('time_standards')
+        .select('*')
+        .eq('name', selectedStandard);
+
+      // 3. Fetch ALL results (paginated)
+      let allResults = [];
+      let page = 0;
+      let keepFetching = true;
+      
+      while (keepFetching) {
+        setProgressMsg(`Fetching results ${page * 1000 + 1} - ${(page + 1) * 1000}...`);
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .order('id', { ascending: true })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error || !batch || batch.length === 0) keepFetching = false;
+        else {
+          allResults = [...allResults, ...batch];
+          page++;
+          if (allResults.length > 200000) keepFetching = false;
+        }
+      }
+
+      if (!swimmers || !standards) {
+        setLoading(false);
+        return;
+      }
+
+      setProgressMsg('Analyzing close calls...');
+
+      // 4. Filter swimmers by age group and gender
+      const filteredSwimmers = swimmers.filter(s => {
+        // Gender filter
+        if (gender !== 'all') {
+          const swimmerGender = (s.gender || 'M').trim().toUpperCase();
+          if (swimmerGender !== gender) return false;
+        }
+        
+        // Age group filter
+        if (ageGroup !== 'all') {
+          const swimmerAge = parseInt(s.age) || 0;
+          if (ageGroup === '10U' && swimmerAge > 10) return false;
+          if (ageGroup === '11-12' && (swimmerAge < 11 || swimmerAge > 12)) return false;
+          if (ageGroup === '13-14' && (swimmerAge < 13 || swimmerAge > 14)) return false;
+          if (ageGroup === '15-18' && (swimmerAge < 15 || swimmerAge > 18)) return false;
+          if (ageGroup === '15O' && swimmerAge < 15) return false;
+        }
+        
+        return true;
+      });
+
+      // 5. Process each swimmer
+      const closeCalls = [];
+
+      filteredSwimmers.forEach(swimmer => {
+        const swimmerAge = parseInt(swimmer.age) || 0;
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+
+        // Get swimmer's results
+        const myResults = allResults.filter(r => r.swimmer_id === swimmer.id);
+        
+        // Build best times map
+        const bestTimes = {};
+        myResults.forEach(r => {
+          const { dist, stroke } = parseEvent(r.event);
+          if (!dist || !stroke) return;
+          const key = `${dist} ${stroke}`;
+          const sec = timeToSeconds(r.time);
+          if (sec > 0 && sec < 999999) {
+            if (!bestTimes[key] || sec < bestTimes[key].val) {
+              bestTimes[key] = { val: sec, str: r.time, date: r.date };
+            }
+          }
+        });
+
+        // Get relevant standards for this swimmer
+        const relevantStandards = standards.filter(std => {
+          const stdGender = std.gender.trim().toUpperCase();
+          const genderMatch = stdGender === swimmerGender;
+          const ageMatch = (std.age_max === 99) || (swimmerAge >= std.age_min && swimmerAge <= std.age_max);
+          return genderMatch && ageMatch;
+        });
+
+        // Check each standard
+        relevantStandards.forEach(std => {
+          const { dist, stroke } = parseEvent(std.event);
+          const key = `${dist} ${stroke}`;
+          const myBest = bestTimes[key];
+
+          if (myBest) {
+            const diff = myBest.val - std.time_seconds;
+            
+            // Only include if SLOWER than the cut (positive diff) and within threshold
+            if (diff > 0 && diff <= withinSeconds) {
+              closeCalls.push({
+                swimmerId: swimmer.id,
+                swimmerName: swimmer.name,
+                swimmerAge: swimmerAge,
+                swimmerGender: swimmerGender,
+                swimmerGroup: swimmer.group_name,
+                event: std.event,
+                eventKey: key,
+                bestTime: myBest.str,
+                bestTimeSeconds: myBest.val,
+                bestTimeDate: myBest.date,
+                cutTime: std.time_string || secondsToTime(std.time_seconds),
+                cutTimeSeconds: std.time_seconds,
+                diff: diff,
+                diffStr: diff.toFixed(2)
+              });
+            }
+          }
+        });
+      });
+
+      // Sort by diff (closest first), then by event
+      closeCalls.sort((a, b) => {
+        if (a.diff !== b.diff) return a.diff - b.diff;
+        
+        // Secondary sort by stroke order and distance
+        const aEvent = parseEvent(a.event);
+        const bEvent = parseEvent(b.event);
+        const aStrokeOrder = STROKE_ORDER[aEvent.stroke] || 99;
+        const bStrokeOrder = STROKE_ORDER[bEvent.stroke] || 99;
+        
+        if (aStrokeOrder !== bStrokeOrder) return aStrokeOrder - bStrokeOrder;
+        return parseInt(aEvent.dist) - parseInt(bEvent.dist);
+      });
+
+      setResults(closeCalls);
+
+    } catch (error) {
+      console.error(error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setLoading(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Group results by swimmer for summary view
+  const groupedBySwimmer = useMemo(() => {
+    const groups = {};
+    results.forEach(r => {
+      if (!groups[r.swimmerId]) {
+        groups[r.swimmerId] = {
+          swimmer: {
+            id: r.swimmerId,
+            name: r.swimmerName,
+            age: r.swimmerAge,
+            gender: r.swimmerGender,
+            group: r.swimmerGroup
+          },
+          events: []
+        };
+      }
+      groups[r.swimmerId].events.push(r);
+    });
+    
+    // Sort groups by closest call
+    return Object.values(groups).sort((a, b) => {
+      const aMin = Math.min(...a.events.map(e => e.diff));
+      const bMin = Math.min(...b.events.map(e => e.diff));
+      return aMin - bMin;
+    });
+  }, [results]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const uniqueSwimmers = new Set(results.map(r => r.swimmerId)).size;
+    const within1 = results.filter(r => r.diff <= 1).length;
+    const within2 = results.filter(r => r.diff <= 2).length;
+    const closestCall = results[0];
+    return { uniqueSwimmers, within1, within2, closestCall, totalEvents: results.length };
+  }, [results]);
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline">
+          <ArrowRight className="rotate-180" size={16}/> Back to Reports
+        </button>
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <Target className="text-orange-500" size={24} /> Close Calls Report
+        </h2>
+      </div>
+
+      {/* Filters Panel */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Filter size={18} className="text-slate-400" /> Report Filters
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Age Group */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Age Group</label>
+            <select 
+              value={ageGroup} 
+              onChange={e => setAgeGroup(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Ages</option>
+              <option value="10U">10 & Under</option>
+              <option value="11-12">11-12</option>
+              <option value="13-14">13-14</option>
+              <option value="15-18">15-18</option>
+              <option value="15O">15 & Over</option>
+            </select>
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Gender</label>
+            <select 
+              value={gender} 
+              onChange={e => setGender(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All</option>
+              <option value="M">Boys</option>
+              <option value="F">Girls</option>
+            </select>
+          </div>
+
+          {/* Time Standard */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Time Standard</label>
+            <select 
+              value={selectedStandard} 
+              onChange={e => setSelectedStandard(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Select Standard...</option>
+              {standardNames.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Within Seconds */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Within</label>
+            <select 
+              value={withinSeconds} 
+              onChange={e => setWithinSeconds(parseFloat(e.target.value))}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value={0.5}>0.5 seconds</option>
+              <option value={1}>1 second</option>
+              <option value={2}>2 seconds</option>
+              <option value={3}>3 seconds</option>
+              <option value={5}>5 seconds</option>
+              <option value={10}>10 seconds</option>
+            </select>
+          </div>
+
+          {/* Generate Button */}
+          <div className="flex items-end">
+            <button 
+              onClick={generateReport}
+              disabled={loading || !selectedStandard}
+              className="w-full p-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Zap size={16} />
+                  Generate Report
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {progressMsg && (
+          <div className="mt-4 text-sm text-slate-500 flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            {progressMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      {hasGenerated && !loading && (
+        <>
+          {/* Stats Summary */}
+          {results.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="text-2xl font-bold text-slate-800">{stats.uniqueSwimmers}</div>
+                <div className="text-xs text-slate-500 uppercase tracking-wider">Swimmers</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="text-2xl font-bold text-slate-800">{stats.totalEvents}</div>
+                <div className="text-xs text-slate-500 uppercase tracking-wider">Close Calls</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm bg-emerald-50">
+                <div className="text-2xl font-bold text-emerald-600">{stats.within1}</div>
+                <div className="text-xs text-emerald-600 uppercase tracking-wider">Within 1 sec</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-yellow-200 shadow-sm bg-yellow-50">
+                <div className="text-2xl font-bold text-yellow-600">{stats.within2}</div>
+                <div className="text-xs text-yellow-600 uppercase tracking-wider">Within 2 sec</div>
+              </div>
+            </div>
+          )}
+
+          {/* Results List */}
+          {results.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <Target size={48} className="mx-auto text-slate-300 mb-4" />
+              <h3 className="font-bold text-slate-700 text-lg mb-2">No Close Calls Found</h3>
+              <p className="text-slate-500 text-sm">
+                No swimmers are within {withinSeconds} second{withinSeconds !== 1 ? 's' : ''} of a {selectedStandard} cut with the selected filters.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {groupedBySwimmer.map(group => (
+                <div key={group.swimmer.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  {/* Swimmer Header */}
+                  <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                        {group.swimmer.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800">{group.swimmer.name}</h4>
+                        <p className="text-xs text-slate-500">
+                          {group.swimmer.age} yrs • {group.swimmer.gender === 'M' ? 'Male' : 'Female'} • {group.swimmer.group || 'Unassigned'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-orange-500">{group.events.length}</div>
+                      <div className="text-[10px] text-slate-400 uppercase">Close Call{group.events.length !== 1 ? 's' : ''}</div>
+                    </div>
+                  </div>
+
+                  {/* Events Table */}
+                  <div className="divide-y divide-slate-100">
+                    {group.events
+                      .sort((a, b) => a.diff - b.diff)
+                      .map((evt, idx) => (
+                        <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                          <div className="flex-1">
+                            <div className="font-medium text-slate-800">{evt.event}</div>
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Best: {evt.bestTimeDate ? new Date(evt.bestTimeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : 'N/A'}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-6">
+                            {/* Best Time */}
+                            <div className="text-right">
+                              <div className="text-xs text-slate-400 uppercase">Best</div>
+                              <div className="font-mono font-bold text-slate-700">{evt.bestTime}</div>
+                            </div>
+
+                            {/* Arrow */}
+                            <div className="text-slate-300">→</div>
+
+                            {/* Cut Time */}
+                            <div className="text-right">
+                              <div className="text-xs text-slate-400 uppercase">{selectedStandard}</div>
+                              <div className="font-mono font-bold text-blue-600">{evt.cutTime}</div>
+                            </div>
+
+                            {/* Diff Badge */}
+                            <div className={`
+                              min-w-[80px] px-3 py-1.5 rounded-full text-center font-bold text-sm
+                              ${evt.diff <= 0.5 
+                                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                                : evt.diff <= 1 
+                                  ? 'bg-green-100 text-green-700 border border-green-200'
+                                  : evt.diff <= 2 
+                                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                                    : evt.diff <= 3
+                                      ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }
+                            `}>
+                              -{evt.diffStr}s
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Initial State */}
+      {!hasGenerated && !loading && (
+        <div className="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-2xl border border-orange-200 p-12 text-center">
+          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Target size={32} className="text-orange-500" />
+          </div>
+          <h3 className="font-bold text-slate-800 text-xl mb-2">Find Your Close Calls</h3>
+          <p className="text-slate-600 max-w-md mx-auto">
+            Select filters above to find swimmers who are within striking distance of achieving a time standard. 
+            Great for identifying who needs just a little more work to hit their next cut!
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 // 1. QUALIFIERS REPORT
 const QualifiersReport = ({ onBack }) => {
@@ -528,6 +1012,5 @@ const RelayGenerator = ({ onBack }) => {
 
 // --- PLACEHOLDERS FOR OTHER REPORTS (Will Implement Next) ---
 const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Big Movers Coming Soon</h3></div>;
-const CloseCallsReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Close Calls Coming Soon</h3></div>;
 const FlawHeatmapReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Heatmap Coming Soon</h3></div>;
 const GroupProgressionReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Group Progression Coming Soon</h3></div>;
