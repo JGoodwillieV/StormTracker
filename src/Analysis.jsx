@@ -197,7 +197,7 @@ Be specific and actionable. Reference specific timestamps when possible. Focus o
       setProgressMessage('AI is analyzing technique...');
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -751,17 +751,19 @@ const EditorStep = ({
     setIsSaving(true);
     
     try {
+      // Include all metadata in json_data since the table may not have all columns
       const analysisData = {
         swimmer_id: selectedSwimmerId,
         video_url: videoUrl,
-        title: videoTitle,
-        video_type: videoType,
-        stroke: stroke,
         json_data: {
           ...aiAnalysis,
+          title: videoTitle,
+          videoType: videoType,
+          stroke: stroke,
           coachNotes,
           coachFeedback,
-          drawings: strokesRef.current
+          drawings: strokesRef.current,
+          savedAt: new Date().toISOString()
         }
       };
 
