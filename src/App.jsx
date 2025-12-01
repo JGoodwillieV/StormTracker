@@ -75,7 +75,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('swimmers')
       .select('*')
-     // .eq('coach_id', session.user.id)
+      .eq('coach_id', session.user.id)
     
     if (error) console.error('Error fetching roster:', error)
     else setSwimmers(data || [])
@@ -173,6 +173,10 @@ export default function App() {
           <AnalysisResult 
             data={currentAnalysis.json_data} 
             videoUrl={currentAnalysis.video_url}
+            title={currentAnalysis.json_data?.title}
+            swimmerName={swimmers.find(s => s.id === currentAnalysis.swimmer_id)?.name}
+            stroke={currentAnalysis.json_data?.stroke}
+            videoType={currentAnalysis.json_data?.videoType}
             onBack={() => {
                 if (selectedSwimmer) setView('profile'); 
                 else setView('dashboard');
