@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
-  ChevronDown, Search, User
+  ChevronDown, Search, User, X
 } from 'lucide-react';
 
 // --- SHARED HELPERS (Available to all components) ---
@@ -75,6 +75,7 @@ export default function Reports({ onBack }) {
       case 'relays': return <RelayGenerator onBack={() => setCurrentReport(null)} />;
       case 'movers': return <BigMoversReport onBack={() => setCurrentReport(null)} />;
       case 'closecalls': return <CloseCallsReport onBack={() => setCurrentReport(null)} />;
+      case 'funnel': return <TeamFunnelReport onBack={() => setCurrentReport(null)} />;
       case 'heatmap': return <FlawHeatmapReport onBack={() => setCurrentReport(null)} />;
       case 'groups': return <GroupProgressionReport onBack={() => setCurrentReport(null)} />;
       default: return null;
@@ -119,11 +120,18 @@ export default function Reports({ onBack }) {
                 <p className="text-slate-500 text-sm mt-1">Leaderboard of total time dropped this season.</p>
             </div>
 
-            {/* 4. CLOSE CALLS - NEW */}
+            {/* 4. CLOSE CALLS */}
             <div onClick={() => setCurrentReport('closecalls')} className="bg-white p-6 rounded-2xl border hover:border-orange-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
                 <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Target size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Close Calls</h3>
                 <p className="text-slate-500 text-sm mt-1">Swimmers within striking distance of a time standard.</p>
+            </div>
+
+            {/* 5. TEAM FUNNEL - NEW */}
+            <div onClick={() => setCurrentReport('funnel')} className="bg-white p-6 rounded-2xl border hover:border-cyan-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Activity size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Team Funnel</h3>
+                <p className="text-slate-500 text-sm mt-1">Visualize team progression through time standards.</p>
             </div>
         </div>
     </div>
@@ -1014,3 +1022,494 @@ const RelayGenerator = ({ onBack }) => {
 const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Big Movers Coming Soon</h3></div>;
 const FlawHeatmapReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Heatmap Coming Soon</h3></div>;
 const GroupProgressionReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Group Progression Coming Soon</h3></div>;
+
+// 5. TEAM FUNNEL REPORT
+const TeamFunnelReport = ({ onBack }) => {
+  const [loading, setLoading] = useState(true);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [funnelData, setFunnelData] = useState([]);
+  const [swimmersByLevel, setSwimmersByLevel] = useState({});
+  const [selectedLevel, setSelectedLevel] = useState(null);
+  const [viewMode, setViewMode] = useState('all'); // 'all', 'boys', 'girls'
+  const [ageGroup, setAgeGroup] = useState('all');
+
+  // Standard hierarchy (from highest to lowest)
+  const STANDARD_HIERARCHY = [
+    { key: 'AAAA', label: 'AAAA', color: 'from-rose-500 to-rose-600', bg: 'bg-rose-500', text: 'text-rose-600', light: 'bg-rose-50' },
+    { key: 'AAA', label: 'AAA', color: 'from-purple-500 to-purple-600', bg: 'bg-purple-500', text: 'text-purple-600', light: 'bg-purple-50' },
+    { key: 'AA', label: 'AA', color: 'from-blue-500 to-blue-600', bg: 'bg-blue-500', text: 'text-blue-600', light: 'bg-blue-50' },
+    { key: 'A', label: 'A', color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-500', text: 'text-yellow-600', light: 'bg-yellow-50' },
+    { key: 'BB', label: 'BB', color: 'from-slate-400 to-slate-500', bg: 'bg-slate-400', text: 'text-slate-600', light: 'bg-slate-100' },
+    { key: 'B', label: 'B', color: 'from-amber-600 to-amber-700', bg: 'bg-amber-600', text: 'text-amber-700', light: 'bg-amber-50' },
+  ];
+
+  useEffect(() => {
+    generateFunnel();
+  }, [viewMode, ageGroup]);
+
+  const generateFunnel = async () => {
+    setLoading(true);
+    setProgressMsg('Loading swimmers...');
+
+    try {
+      // 1. Fetch swimmers
+      const { data: swimmers } = await supabase.from('swimmers').select('*');
+
+      // 2. Fetch all motivational standards
+      setProgressMsg('Loading time standards...');
+      const { data: standards } = await supabase
+        .from('time_standards')
+        .select('*')
+        .in('name', ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA']);
+
+      // 3. Fetch all results (paginated)
+      let allResults = [];
+      let page = 0;
+      let keepFetching = true;
+
+      while (keepFetching) {
+        setProgressMsg(`Fetching results ${page * 1000 + 1} - ${(page + 1) * 1000}...`);
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time')
+          .order('id', { ascending: true })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+
+        if (error || !batch || batch.length === 0) keepFetching = false;
+        else {
+          allResults = [...allResults, ...batch];
+          page++;
+          if (allResults.length > 200000) keepFetching = false;
+        }
+      }
+
+      if (!swimmers || !standards) {
+        setLoading(false);
+        return;
+      }
+
+      setProgressMsg('Analyzing team progression...');
+
+      // 4. Filter swimmers by gender and age
+      const filteredSwimmers = swimmers.filter(s => {
+        if (viewMode === 'boys' && (s.gender || 'M').toUpperCase() !== 'M') return false;
+        if (viewMode === 'girls' && (s.gender || 'M').toUpperCase() !== 'F') return false;
+        
+        const swimmerAge = parseInt(s.age) || 0;
+        if (ageGroup === '10U' && swimmerAge > 10) return false;
+        if (ageGroup === '11-12' && (swimmerAge < 11 || swimmerAge > 12)) return false;
+        if (ageGroup === '13-14' && (swimmerAge < 13 || swimmerAge > 14)) return false;
+        if (ageGroup === '15O' && swimmerAge < 15) return false;
+        
+        return true;
+      });
+
+      // 5. Determine highest standard achieved for each swimmer
+      const swimmerLevels = {};
+      const levelSwimmers = {
+        'AAAA': [], 'AAA': [], 'AA': [], 'A': [], 'BB': [], 'B': [], 'None': []
+      };
+
+      filteredSwimmers.forEach(swimmer => {
+        const swimmerAge = parseInt(swimmer.age) || 0;
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+
+        // Get swimmer's results
+        const myResults = allResults.filter(r => r.swimmer_id === swimmer.id);
+
+        // Build best times map
+        const bestTimes = {};
+        myResults.forEach(r => {
+          const { dist, stroke } = parseEvent(r.event);
+          if (!dist || !stroke) return;
+          const key = `${dist} ${stroke}`;
+          const sec = timeToSeconds(r.time);
+          if (sec > 0 && sec < 999999) {
+            if (!bestTimes[key] || sec < bestTimes[key]) {
+              bestTimes[key] = sec;
+            }
+          }
+        });
+
+        // Get relevant standards for this swimmer
+        const relevantStandards = standards.filter(std => {
+          const stdGender = std.gender.trim().toUpperCase();
+          const genderMatch = stdGender === swimmerGender;
+          const ageMatch = (std.age_max === 99) || (swimmerAge >= std.age_min && swimmerAge <= std.age_max);
+          return genderMatch && ageMatch;
+        });
+
+        // Find highest achieved standard
+        let highestLevel = 'None';
+        let achievedEvents = [];
+
+        // Check from highest to lowest
+        for (const levelDef of STANDARD_HIERARCHY) {
+          const levelStandards = relevantStandards.filter(s => s.name === levelDef.key);
+          
+          for (const std of levelStandards) {
+            const { dist, stroke } = parseEvent(std.event);
+            const key = `${dist} ${stroke}`;
+            const myBest = bestTimes[key];
+
+            if (myBest && myBest <= std.time_seconds) {
+              if (highestLevel === 'None' || STANDARD_HIERARCHY.findIndex(h => h.key === levelDef.key) < STANDARD_HIERARCHY.findIndex(h => h.key === highestLevel)) {
+                highestLevel = levelDef.key;
+              }
+              achievedEvents.push({
+                event: std.event,
+                time: secondsToTime(myBest),
+                standard: levelDef.key
+              });
+            }
+          }
+        }
+
+        swimmerLevels[swimmer.id] = {
+          ...swimmer,
+          highestLevel,
+          achievedEvents: achievedEvents.filter(e => e.standard === highestLevel)
+        };
+
+        levelSwimmers[highestLevel].push(swimmerLevels[swimmer.id]);
+      });
+
+      // 6. Build funnel data
+      const totalSwimmers = filteredSwimmers.length;
+      const funnel = STANDARD_HIERARCHY.map(level => {
+        const count = levelSwimmers[level.key].length;
+        // Cumulative: swimmers at this level OR higher
+        const cumulativeCount = STANDARD_HIERARCHY
+          .slice(0, STANDARD_HIERARCHY.findIndex(h => h.key === level.key) + 1)
+          .reduce((sum, l) => sum + levelSwimmers[l.key].length, 0);
+        
+        return {
+          ...level,
+          count,
+          cumulativeCount,
+          percentage: totalSwimmers > 0 ? ((count / totalSwimmers) * 100).toFixed(1) : 0,
+          cumulativePercentage: totalSwimmers > 0 ? ((cumulativeCount / totalSwimmers) * 100).toFixed(1) : 0
+        };
+      });
+
+      // Add "No Standard" level
+      funnel.push({
+        key: 'None',
+        label: 'No Standard',
+        color: 'from-slate-200 to-slate-300',
+        bg: 'bg-slate-300',
+        text: 'text-slate-500',
+        light: 'bg-slate-50',
+        count: levelSwimmers['None'].length,
+        cumulativeCount: totalSwimmers,
+        percentage: totalSwimmers > 0 ? ((levelSwimmers['None'].length / totalSwimmers) * 100).toFixed(1) : 0,
+        cumulativePercentage: '100.0'
+      });
+
+      setFunnelData(funnel);
+      setSwimmersByLevel(levelSwimmers);
+
+    } catch (error) {
+      console.error(error);
+      alert('Error generating funnel: ' + error.message);
+    } finally {
+      setLoading(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Calculate max count for scaling
+  const maxCount = Math.max(...funnelData.map(d => d.count), 1);
+  const totalSwimmers = funnelData.reduce((sum, d) => sum + d.count, 0);
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline">
+          <ArrowRight className="rotate-180" size={16}/> Back to Reports
+        </button>
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <Activity className="text-cyan-500" size={24} /> Team Funnel
+        </h2>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-600">View:</span>
+          <div className="flex bg-slate-100 rounded-lg p-1">
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'boys', label: 'Boys' },
+              { key: 'girls', label: 'Girls' }
+            ].map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => setViewMode(opt.key)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  viewMode === opt.key 
+                    ? 'bg-white text-slate-800 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-600">Age:</span>
+          <select
+            value={ageGroup}
+            onChange={e => setAgeGroup(e.target.value)}
+            className="bg-slate-100 border-0 rounded-lg px-3 py-1.5 text-sm font-medium focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Ages</option>
+            <option value="10U">10 & Under</option>
+            <option value="11-12">11-12</option>
+            <option value="13-14">13-14</option>
+            <option value="15O">15 & Over</option>
+          </select>
+        </div>
+
+        <div className="ml-auto text-sm text-slate-500">
+          <span className="font-bold text-slate-800">{totalSwimmers}</span> swimmers total
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="h-96 flex flex-col items-center justify-center text-slate-400">
+          <Loader2 size={40} className="animate-spin mb-4 text-cyan-500" />
+          <p>{progressMsg || 'Processing...'}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Funnel Visualization */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <h3 className="font-bold text-slate-800 mb-6 text-lg">Standards Progression</h3>
+            
+            <div className="space-y-3">
+              {funnelData.map((level, idx) => {
+                const widthPercentage = level.count > 0 ? Math.max(20, (level.count / maxCount) * 100) : 5;
+                const isSelected = selectedLevel === level.key;
+                
+                return (
+                  <div 
+                    key={level.key}
+                    onClick={() => setSelectedLevel(isSelected ? null : level.key)}
+                    className={`relative cursor-pointer transition-all duration-300 ${isSelected ? 'scale-[1.02]' : 'hover:scale-[1.01]'}`}
+                  >
+                    {/* Funnel Bar */}
+                    <div className="flex items-center gap-4">
+                      {/* Label */}
+                      <div className={`w-24 text-right font-bold ${level.text}`}>
+                        {level.label}
+                      </div>
+                      
+                      {/* Bar Container */}
+                      <div className="flex-1 relative">
+                        <div 
+                          className={`
+                            h-12 rounded-lg bg-gradient-to-r ${level.color} 
+                            flex items-center justify-between px-4 
+                            transition-all duration-500 ease-out
+                            ${isSelected ? 'ring-2 ring-offset-2 ring-slate-400' : ''}
+                          `}
+                          style={{ 
+                            width: `${widthPercentage}%`,
+                            marginLeft: `${(100 - widthPercentage) / 2}%`
+                          }}
+                        >
+                          <span className="text-white font-bold text-lg">
+                            {level.count}
+                          </span>
+                          <span className="text-white/80 text-sm">
+                            {level.percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Connector Line (for funnel effect) */}
+                    {idx < funnelData.length - 1 && (
+                      <div className="flex justify-center py-1">
+                        <div className="w-0.5 h-2 bg-slate-200"></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div className="mt-8 pt-6 border-t border-slate-100">
+              <div className="flex flex-wrap gap-4 justify-center text-xs">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-rose-500"></div>
+                  <span className="text-slate-600">AAAA - Elite</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-purple-500"></div>
+                  <span className="text-slate-600">AAA - Diamond</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-blue-500"></div>
+                  <span className="text-slate-600">AA - Platinum</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-yellow-500"></div>
+                  <span className="text-slate-600">A - Gold</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-slate-400"></div>
+                  <span className="text-slate-600">BB - Silver</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-amber-600"></div>
+                  <span className="text-slate-600">B - Bronze</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Side Panel - Stats or Swimmer List */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            {selectedLevel ? (
+              <>
+                {/* Selected Level Header */}
+                <div className={`p-4 ${funnelData.find(f => f.key === selectedLevel)?.light || 'bg-slate-50'} border-b`}>
+                  <div className="flex items-center justify-between">
+                    <h4 className={`font-bold text-lg ${funnelData.find(f => f.key === selectedLevel)?.text}`}>
+                      {selectedLevel === 'None' ? 'No Standard Yet' : `${selectedLevel} Swimmers`}
+                    </h4>
+                    <button 
+                      onClick={() => setSelectedLevel(null)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {swimmersByLevel[selectedLevel]?.length || 0} swimmer{swimmersByLevel[selectedLevel]?.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+
+                {/* Swimmer List */}
+                <div className="flex-1 overflow-y-auto max-h-[500px]">
+                  {swimmersByLevel[selectedLevel]?.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400">
+                      <Users size={32} className="mx-auto mb-2 opacity-50" />
+                      <p>No swimmers at this level</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {swimmersByLevel[selectedLevel]?.map(swimmer => (
+                        <div key={swimmer.id} className="p-3 hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full ${funnelData.find(f => f.key === selectedLevel)?.bg || 'bg-slate-300'} flex items-center justify-center text-white text-xs font-bold`}>
+                              {swimmer.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-slate-800 truncate">{swimmer.name}</div>
+                              <div className="text-xs text-slate-400">
+                                {swimmer.age} yrs • {swimmer.group_name || 'Unassigned'}
+                              </div>
+                            </div>
+                          </div>
+                          {swimmer.achievedEvents?.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {swimmer.achievedEvents.slice(0, 3).map((evt, i) => (
+                                <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                  {evt.event}
+                                </span>
+                              ))}
+                              {swimmer.achievedEvents.length > 3 && (
+                                <span className="text-[10px] text-slate-400">
+                                  +{swimmer.achievedEvents.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Stats Overview */}
+                <div className="p-4 border-b border-slate-100">
+                  <h4 className="font-bold text-slate-800">Quick Stats</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Click a level to see swimmers</p>
+                </div>
+
+                <div className="p-4 space-y-4 flex-1">
+                  {/* Conversion Rates */}
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-400 uppercase mb-3">Conversion Rates</h5>
+                    <div className="space-y-2">
+                      {STANDARD_HIERARCHY.slice(0, -1).map((level, idx) => {
+                        const currentCount = funnelData.find(f => f.key === level.key)?.count || 0;
+                        const nextLevel = STANDARD_HIERARCHY[idx + 1];
+                        const nextCount = funnelData.find(f => f.key === nextLevel.key)?.count || 0;
+                        const conversionRate = nextCount > 0 ? ((currentCount / nextCount) * 100).toFixed(0) : 0;
+                        
+                        return (
+                          <div key={level.key} className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">{nextLevel.label} → {level.label}</span>
+                            <span className={`font-bold ${level.text}`}>{conversionRate}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Top Level Breakdown */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h5 className="text-xs font-bold text-slate-400 uppercase mb-3">Distribution</h5>
+                    <div className="space-y-2">
+                      {funnelData.filter(f => f.count > 0).map(level => (
+                        <div key={level.key} className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${level.bg}`}></div>
+                          <span className="text-sm text-slate-600 flex-1">{level.label}</span>
+                          <span className="text-sm font-bold text-slate-800">{level.count}</span>
+                          <span className="text-xs text-slate-400">({level.percentage}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Insight Box */}
+                  {funnelData.length > 0 && (
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4">
+                        <h5 className="text-xs font-bold text-cyan-700 uppercase mb-2 flex items-center gap-1">
+                          <Zap size={12} /> Insight
+                        </h5>
+                        <p className="text-sm text-cyan-800">
+                          {(() => {
+                            const withStandards = funnelData.filter(f => f.key !== 'None').reduce((sum, f) => sum + f.count, 0);
+                            const percentage = totalSwimmers > 0 ? ((withStandards / totalSwimmers) * 100).toFixed(0) : 0;
+                            const topLevel = funnelData.find(f => f.count > 0 && f.key !== 'None');
+                            
+                            if (percentage >= 80) return `Great progress! ${percentage}% of swimmers have achieved at least one time standard.`;
+                            if (percentage >= 50) return `Solid foundation! ${percentage}% have standards. Focus on converting BB swimmers to A.`;
+                            if (topLevel) return `${topLevel.count} swimmer${topLevel.count !== 1 ? 's have' : ' has'} reached ${topLevel.label} level. Keep pushing!`;
+                            return 'Time to start chasing those standards!';
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
