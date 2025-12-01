@@ -574,11 +574,24 @@ const EditorStep = ({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   
-  // Drawing state
+  // Drawing state - redesigned for straight lines
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawingColor, setDrawingColor] = useState('#ef4444');
+  const [lineThickness, setLineThickness] = useState(3);
   const [isDrawing, setIsDrawing] = useState(false);
-  const strokesRef = useRef([]);
+  const [lineStart, setLineStart] = useState(null);
+  const [linePreview, setLinePreview] = useState(null);
+  
+  // Saved annotations (lines with timestamps)
+  const [annotations, setAnnotations] = useState([]);
+  const [selectedAnnotation, setSelectedAnnotation] = useState(null);
+  const [annotationLabel, setAnnotationLabel] = useState('');
+  const [showAnnotationModal, setShowAnnotationModal] = useState(false);
+  const [pendingLine, setPendingLine] = useState(null);
+  
+  // Display settings
+  const [annotationDuration, setAnnotationDuration] = useState(3); // seconds to show each annotation
+  const [showAllAnnotations, setShowAllAnnotations] = useState(false);
   
   // Coach annotations
   const [coachNotes, setCoachNotes] = useState('');
@@ -587,7 +600,7 @@ const EditorStep = ({
   const [isRecording, setIsRecording] = useState(false);
   
   // UI state
-  const [activePanel, setActivePanel] = useState('ai'); // ai, coach, drills
+  const [activePanel, setActivePanel] = useState('ai'); // ai, coach, drills, annotations
   const [isSaving, setIsSaving] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
@@ -632,76 +645,259 @@ const EditorStep = ({
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 100);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  };
+
+  const formatTimeShort = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Drawing functions
-  const getPos = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+  // Get canvas coordinates
+  const getCanvasPos = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
     return {
       x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
+      y: (clientY - rect.top) * scaleY,
+      // Also store as percentage for responsive playback
+      xPercent: (clientX - rect.left) / rect.width,
+      yPercent: (clientY - rect.top) / rect.height
     };
   };
 
-  const startDrawing = (e) => {
+  // Drawing handlers for straight lines
+  const handleMouseDown = (e) => {
     if (!isDrawingMode) return;
     e.preventDefault();
-    setIsDrawing(true);
-    const pos = getPos(e);
-    strokesRef.current.push({ 
-      points: [pos], 
-      color: drawingColor, 
-      timestamp: Date.now(),
-      videoTime: currentTime 
+    
+    // Pause video when starting to draw
+    if (videoRef.current && isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+    
+    const pos = getCanvasPos(e);
+    if (pos) {
+      setIsDrawing(true);
+      setLineStart(pos);
+      setLinePreview(null);
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing || !lineStart) return;
+    e.preventDefault();
+    
+    const pos = getCanvasPos(e);
+    if (pos) {
+      setLinePreview(pos);
+    }
+  };
+
+  const handleMouseUp = (e) => {
+    if (!isDrawing || !lineStart) {
+      setIsDrawing(false);
+      return;
+    }
+    
+    const endPos = getCanvasPos(e);
+    if (endPos) {
+      // Calculate line length to avoid accidental clicks
+      const dx = endPos.x - lineStart.x;
+      const dy = endPos.y - lineStart.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length > 20) { // Minimum line length
+        // Store the pending line and show label modal
+        setPendingLine({
+          id: `line-${Date.now()}`,
+          startX: lineStart.xPercent,
+          startY: lineStart.yPercent,
+          endX: endPos.xPercent,
+          endY: endPos.yPercent,
+          color: drawingColor,
+          thickness: lineThickness,
+          timestamp: currentTime,
+          duration: annotationDuration,
+          label: ''
+        });
+        setAnnotationLabel('');
+        setShowAnnotationModal(true);
+      }
+    }
+    
+    setIsDrawing(false);
+    setLineStart(null);
+    setLinePreview(null);
+  };
+
+  // Save annotation with optional label
+  const saveAnnotation = (withLabel = true) => {
+    if (pendingLine) {
+      const newAnnotation = {
+        ...pendingLine,
+        label: withLabel ? annotationLabel : ''
+      };
+      setAnnotations(prev => [...prev, newAnnotation]);
+      setPendingLine(null);
+      setShowAnnotationModal(false);
+      setAnnotationLabel('');
+    }
+  };
+
+  const cancelAnnotation = () => {
+    setPendingLine(null);
+    setShowAnnotationModal(false);
+    setAnnotationLabel('');
+  };
+
+  const deleteAnnotation = (id) => {
+    setAnnotations(prev => prev.filter(a => a.id !== id));
+    if (selectedAnnotation === id) {
+      setSelectedAnnotation(null);
+    }
+  };
+
+  // Get visible annotations based on current time
+  const getVisibleAnnotations = () => {
+    if (showAllAnnotations) return annotations;
+    
+    return annotations.filter(ann => {
+      const timeDiff = currentTime - ann.timestamp;
+      return timeDiff >= 0 && timeDiff <= ann.duration;
     });
   };
 
-  const draw = (e) => {
-    if (!isDrawing || !isDrawingMode) return;
-    e.preventDefault();
-    const pos = getPos(e);
-    const currentStroke = strokesRef.current[strokesRef.current.length - 1];
-    if (currentStroke) currentStroke.points.push(pos);
-  };
-
-  const stopDrawing = () => setIsDrawing(false);
-
-  const clearDrawings = () => {
-    strokesRef.current = [];
-  };
-
-  // Canvas animation loop
+  // Canvas rendering
   useEffect(() => {
-    const animate = () => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw visible annotations
+      const visible = getVisibleAnnotations();
+      visible.forEach(ann => {
+        const startX = ann.startX * canvas.width;
+        const startY = ann.startY * canvas.height;
+        const endX = ann.endX * canvas.width;
+        const endY = ann.endY * canvas.height;
         
-        strokesRef.current.forEach(stroke => {
-          ctx.beginPath();
-          ctx.strokeStyle = stroke.color;
-          ctx.lineWidth = 4;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          
-          if (stroke.points.length > 0) {
-            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-            stroke.points.forEach(p => ctx.lineTo(p.x, p.y));
+        // Calculate opacity based on time (fade out effect)
+        let opacity = 1;
+        if (!showAllAnnotations) {
+          const timeDiff = currentTime - ann.timestamp;
+          const fadeStart = ann.duration - 0.5; // Start fading 0.5s before end
+          if (timeDiff > fadeStart) {
+            opacity = Math.max(0, 1 - (timeDiff - fadeStart) / 0.5);
           }
+        }
+        
+        // Highlight selected annotation
+        const isSelected = selectedAnnotation === ann.id;
+        
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        
+        // Draw line shadow for better visibility
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = ann.thickness + 4;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        
+        // Draw main line
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = isSelected ? '#ffffff' : ann.color;
+        ctx.lineWidth = ann.thickness + (isSelected ? 2 : 0);
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        
+        // Draw endpoints
+        [{ x: startX, y: startY }, { x: endX, y: endY }].forEach(point => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, ann.thickness + 2, 0, Math.PI * 2);
+          ctx.fillStyle = ann.color;
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+          ctx.lineWidth = 2;
           ctx.stroke();
         });
+        
+        // Draw label if exists
+        if (ann.label) {
+          const midX = (startX + endX) / 2;
+          const midY = (startY + endY) / 2;
+          
+          ctx.font = 'bold 14px system-ui';
+          const textMetrics = ctx.measureText(ann.label);
+          const padding = 6;
+          const bgWidth = textMetrics.width + padding * 2;
+          const bgHeight = 20;
+          
+          // Label background
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.beginPath();
+          ctx.roundRect(midX - bgWidth/2, midY - bgHeight/2 - 15, bgWidth, bgHeight, 4);
+          ctx.fill();
+          
+          // Label text
+          ctx.fillStyle = ann.color;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(ann.label, midX, midY - 15);
+        }
+        
+        ctx.restore();
+      });
+      
+      // Draw preview line while drawing
+      if (isDrawing && lineStart && linePreview) {
+        ctx.beginPath();
+        ctx.moveTo(lineStart.x, lineStart.y);
+        ctx.lineTo(linePreview.x, linePreview.y);
+        ctx.strokeStyle = drawingColor;
+        ctx.lineWidth = lineThickness;
+        ctx.lineCap = 'round';
+        ctx.setLineDash([10, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw endpoints
+        [lineStart, linePreview].forEach(point => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, lineThickness + 2, 0, Math.PI * 2);
+          ctx.fillStyle = drawingColor;
+          ctx.globalAlpha = 0.5;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        });
       }
-      requestAnimationFrame(animate);
+      
+      requestAnimationFrame(render);
     };
-    const id = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(id);
-  }, []);
+    
+    const animationId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animationId);
+  }, [annotations, currentTime, isDrawing, lineStart, linePreview, drawingColor, lineThickness, showAllAnnotations, selectedAnnotation]);
 
   // Resize canvas to match video
   useEffect(() => {
@@ -713,7 +909,15 @@ const EditorStep = ({
     };
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
-    return () => window.removeEventListener('resize', resizeCanvas);
+    
+    // Also resize when video loads
+    if (videoRef.current) {
+      videoRef.current.addEventListener('loadeddata', resizeCanvas);
+    }
+    
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
   }, [videoUrl]);
 
   // Handle AI feedback status
@@ -762,7 +966,7 @@ const EditorStep = ({
           stroke: stroke,
           coachNotes,
           coachFeedback,
-          drawings: strokesRef.current,
+          annotations, // Save line annotations
           savedAt: new Date().toISOString()
         }
       };
@@ -820,30 +1024,63 @@ const EditorStep = ({
         
         <div className="flex items-center gap-3">
           {/* Drawing Tools */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isDrawingMode ? 'bg-blue-500/20 border border-blue-500' : 'bg-slate-700'}`}>
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${isDrawingMode ? 'bg-blue-500/20 border border-blue-500' : 'bg-slate-700 border border-slate-600'}`}>
             <button
               onClick={() => setIsDrawingMode(!isDrawingMode)}
-              className={`p-1.5 rounded ${isDrawingMode ? 'text-blue-400' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded flex items-center gap-1.5 ${isDrawingMode ? 'text-blue-400' : 'text-slate-400 hover:text-white'}`}
+              title="Draw straight lines on video"
             >
               <PenTool size={18} />
+              <span className="text-xs font-medium hidden md:inline">
+                {isDrawingMode ? 'Drawing' : 'Draw'}
+              </span>
             </button>
+            
             {isDrawingMode && (
               <>
-                <div className="w-px h-4 bg-slate-600" />
-                {['#ef4444', '#eab308', '#22c55e', '#3b82f6', '#ffffff'].map(c => (
+                <div className="w-px h-5 bg-slate-600" />
+                
+                {/* Colors */}
+                {['#ef4444', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ffffff'].map(c => (
                   <button
                     key={c}
                     onClick={() => setDrawingColor(c)}
-                    className={`w-5 h-5 rounded-full border-2 ${drawingColor === c ? 'border-white' : 'border-transparent'}`}
+                    className={`w-5 h-5 rounded-full border-2 transition-transform ${drawingColor === c ? 'border-white scale-110' : 'border-transparent hover:scale-110'}`}
                     style={{ background: c }}
                   />
                 ))}
-                <button onClick={clearDrawings} className="p-1 text-slate-400 hover:text-white">
-                  <RotateCcw size={14} />
-                </button>
+                
+                <div className="w-px h-5 bg-slate-600" />
+                
+                {/* Line thickness */}
+                <select
+                  value={lineThickness}
+                  onChange={e => setLineThickness(Number(e.target.value))}
+                  className="bg-slate-600 text-white text-xs rounded px-1.5 py-1 border-0"
+                >
+                  <option value={2}>Thin</option>
+                  <option value={3}>Medium</option>
+                  <option value={5}>Thick</option>
+                </select>
               </>
             )}
           </div>
+
+          {/* Show all annotations toggle */}
+          {annotations.length > 0 && (
+            <button
+              onClick={() => setShowAllAnnotations(!showAllAnnotations)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                showAllAnnotations 
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500' 
+                  : 'bg-slate-700 text-slate-400 border border-slate-600 hover:text-white'
+              }`}
+              title={showAllAnnotations ? 'Show annotations at their timestamps' : 'Show all annotations'}
+            >
+              {showAllAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+              {showAllAnnotations ? 'All Visible' : 'Timed'}
+            </button>
+          )}
 
           {/* Save Button */}
           <button
@@ -852,7 +1089,7 @@ const EditorStep = ({
             className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg disabled:opacity-50"
           >
             {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {isSaving ? 'Saving...' : 'Save Analysis'}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -869,22 +1106,30 @@ const EditorStep = ({
               className="w-full h-full object-contain"
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
-              onClick={togglePlay}
+              onClick={() => !isDrawingMode && togglePlay()}
             />
             <canvas
               ref={canvasRef}
               className={`absolute inset-0 w-full h-full ${isDrawingMode ? 'cursor-crosshair' : 'pointer-events-none'}`}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onTouchStart={startDrawing}
-              onTouchMove={draw}
-              onTouchEnd={stopDrawing}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={() => { setIsDrawing(false); setLinePreview(null); }}
+              onTouchStart={handleMouseDown}
+              onTouchMove={handleMouseMove}
+              onTouchEnd={handleMouseUp}
             />
             
+            {/* Drawing Mode Indicator */}
+            {isDrawingMode && (
+              <div className="absolute top-4 left-4 bg-blue-500/90 backdrop-blur px-3 py-1.5 rounded-full flex items-center gap-2 text-sm font-medium">
+                <PenTool size={14} />
+                Click and drag to draw a line
+              </div>
+            )}
+            
             {/* Play/Pause Overlay */}
-            {!isPlaying && (
+            {!isPlaying && !isDrawingMode && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
                 <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                   <Play size={32} className="text-white ml-1" />
@@ -905,25 +1150,54 @@ const EditorStep = ({
                 </div>
               </div>
             )}
+            
+            {/* Annotations count badge */}
+            {annotations.length > 0 && (
+              <div className="absolute bottom-20 right-4 bg-purple-500/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold">
+                {annotations.length} annotation{annotations.length !== 1 ? 's' : ''}
+              </div>
+            )}
           </div>
 
           {/* Video Controls */}
           <div className="bg-slate-800 rounded-xl p-4">
-            {/* Progress Bar */}
+            {/* Progress Bar with Annotation Markers */}
             <div 
-              className="h-2 bg-slate-700 rounded-full mb-4 cursor-pointer relative group"
+              className="h-3 bg-slate-700 rounded-full mb-4 cursor-pointer relative group"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const percent = (e.clientX - rect.left) / rect.width;
                 seekTo(percent * duration);
               }}
             >
+              {/* Progress fill */}
               <div 
                 className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full relative"
                 style={{ width: `${(currentTime / duration) * 100}%` }}
               >
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
+              
+              {/* Annotation Markers */}
+              {annotations.map(ann => (
+                <div
+                  key={ann.id}
+                  className={`absolute top-1/2 -translate-y-1/2 w-2 h-4 rounded-sm cursor-pointer hover:scale-150 transition-transform ${
+                    selectedAnnotation === ann.id ? 'bg-white' : 'bg-purple-400'
+                  }`}
+                  style={{ 
+                    left: `${(ann.timestamp / duration) * 100}%`,
+                    backgroundColor: ann.color 
+                  }}
+                  title={ann.label || `Annotation at ${formatTimeShort(ann.timestamp)}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(ann.timestamp);
+                    setSelectedAnnotation(ann.id);
+                    setActivePanel('annotations');
+                  }}
+                />
+              ))}
               
               {/* Key Moments Markers */}
               {aiAnalysis?.keyMoments?.map((moment, i) => (
@@ -954,7 +1228,7 @@ const EditorStep = ({
                 </button>
                 
                 <div className="text-sm font-mono text-slate-400 ml-2">
-                  {formatTime(currentTime)} / {formatTime(duration)}
+                  {formatTimeShort(currentTime)} / {formatTimeShort(duration)}
                 </div>
               </div>
 
@@ -976,7 +1250,8 @@ const EditorStep = ({
           <div className="flex border-b border-slate-700 shrink-0">
             {[
               { id: 'ai', label: 'AI Analysis', icon: Sparkles },
-              { id: 'coach', label: 'Coach Notes', icon: MessageSquare },
+              { id: 'coach', label: 'Notes', icon: MessageSquare },
+              { id: 'annotations', label: `Lines${annotations.length > 0 ? ` (${annotations.length})` : ''}`, icon: PenTool },
               { id: 'drills', label: 'Drills', icon: Target }
             ].map(tab => {
               const Icon = tab.icon;
@@ -984,13 +1259,13 @@ const EditorStep = ({
                 <button
                   key={tab.id}
                   onClick={() => setActivePanel(tab.id)}
-                  className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  className={`flex-1 px-3 py-3 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                     activePanel === tab.id 
                       ? 'text-white bg-slate-700/50 border-b-2 border-blue-500' 
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Icon size={16} />
+                  <Icon size={14} />
                   {tab.label}
                 </button>
               );
@@ -1045,7 +1320,7 @@ const EditorStep = ({
                               onClick={() => seekTo(s.timestamp)}
                               className="text-xs text-emerald-400 mt-2 hover:underline"
                             >
-                              Jump to {formatTime(s.timestamp)}
+                              Jump to {formatTimeShort(s.timestamp)}
                             </button>
                           )}
                         </div>
@@ -1095,7 +1370,7 @@ const EditorStep = ({
                                   onClick={() => seekTo(imp.timestamp)}
                                   className="text-xs text-slate-500 mt-2 hover:text-white"
                                 >
-                                  @ {formatTime(imp.timestamp)}
+                                  @ {formatTimeShort(imp.timestamp)}
                                 </button>
                               )}
                             </div>
@@ -1162,7 +1437,7 @@ const EditorStep = ({
                       value={newFeedbackText}
                       onChange={e => setNewFeedbackText(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && addCoachFeedback()}
-                      placeholder={`Add note at ${formatTime(currentTime)}...`}
+                      placeholder={`Add note at ${formatTimeShort(currentTime)}...`}
                       className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-blue-500"
                     />
                     <button
@@ -1194,7 +1469,7 @@ const EditorStep = ({
                                   onClick={() => seekTo(feedback.timestamp)}
                                   className="text-xs font-mono text-blue-400 hover:underline mb-1"
                                 >
-                                  {formatTime(feedback.timestamp)}
+                                  {formatTimeShort(feedback.timestamp)}
                                 </button>
                                 <p className="text-sm text-white">{feedback.text}</p>
                               </div>
@@ -1210,13 +1485,98 @@ const EditorStep = ({
                     )}
                   </div>
                 </div>
+              </div>
+            )}
 
-                {/* Voice Recording Placeholder */}
-                <div className="bg-slate-700/30 border border-dashed border-slate-600 rounded-xl p-6 text-center">
-                  <Mic size={24} className="mx-auto text-slate-500 mb-2" />
-                  <p className="text-sm text-slate-400">Voice recording coming soon</p>
-                  <p className="text-xs text-slate-500 mt-1">Record audio commentary over the video</p>
+            {/* Annotations Panel */}
+            {activePanel === 'annotations' && (
+              <div className="space-y-4">
+                {/* Instructions */}
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                  <h4 className="text-xs font-bold text-purple-400 uppercase mb-2 flex items-center gap-2">
+                    <PenTool size={14} /> Drawing Lines
+                  </h4>
+                  <p className="text-sm text-slate-400">
+                    Enable drawing mode above, then click and drag on the video to draw straight lines. 
+                    Each line is saved at the current timestamp and will appear when the video plays that moment.
+                  </p>
                 </div>
+
+                {/* Annotation Duration Setting */}
+                <div className="flex items-center justify-between bg-slate-700/50 rounded-lg p-3">
+                  <span className="text-sm text-slate-300">Line display duration</span>
+                  <select
+                    value={annotationDuration}
+                    onChange={e => setAnnotationDuration(Number(e.target.value))}
+                    className="bg-slate-600 text-white text-sm rounded px-2 py-1 border-0"
+                  >
+                    <option value={1}>1 second</option>
+                    <option value={2}>2 seconds</option>
+                    <option value={3}>3 seconds</option>
+                    <option value={5}>5 seconds</option>
+                    <option value={10}>10 seconds</option>
+                  </select>
+                </div>
+
+                {/* Annotations List */}
+                {annotations.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <PenTool size={32} className="mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No annotations yet</p>
+                    <p className="text-xs mt-1">Enable drawing mode to add lines</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {annotations
+                      .sort((a, b) => a.timestamp - b.timestamp)
+                      .map(ann => (
+                        <div 
+                          key={ann.id}
+                          onClick={() => {
+                            seekTo(ann.timestamp);
+                            setSelectedAnnotation(ann.id);
+                          }}
+                          className={`bg-slate-700/50 rounded-lg p-3 border cursor-pointer transition-all group ${
+                            selectedAnnotation === ann.id 
+                              ? 'border-purple-500 bg-purple-500/10' 
+                              : 'border-slate-600 hover:border-slate-500'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className="w-4 h-4 rounded-full border-2 border-white/50"
+                                style={{ backgroundColor: ann.color }}
+                              />
+                              <div>
+                                <div className="text-sm font-medium text-white">
+                                  {ann.label || 'Untitled Line'}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    seekTo(ann.timestamp);
+                                  }}
+                                  className="text-xs text-slate-400 hover:text-blue-400"
+                                >
+                                  @ {formatTime(ann.timestamp)}
+                                </button>
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteAnnotation(ann.id);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1251,6 +1611,54 @@ const EditorStep = ({
           </div>
         </div>
       </div>
+
+      {/* Annotation Label Modal */}
+      {showAnnotationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-slate-700 shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <PenTool size={20} className="text-purple-400" />
+              Add Line Label
+            </h3>
+            
+            <div className="mb-4">
+              <p className="text-sm text-slate-400 mb-3">
+                Annotation at <span className="text-blue-400 font-mono">{formatTime(pendingLine?.timestamp || 0)}</span>
+              </p>
+              <input
+                type="text"
+                value={annotationLabel}
+                onChange={e => setAnnotationLabel(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveAnnotation(true)}
+                placeholder="e.g., 'Elbow drop', 'Head position'..."
+                autoFocus
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-purple-500 focus:ring-0"
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={cancelAnnotation}
+                className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-300 font-medium rounded-xl hover:bg-slate-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveAnnotation(false)}
+                className="flex-1 px-4 py-2.5 bg-slate-600 text-white font-medium rounded-xl hover:bg-slate-500"
+              >
+                Skip Label
+              </button>
+              <button
+                onClick={() => saveAnnotation(true)}
+                className="flex-1 px-4 py-2.5 bg-purple-500 text-white font-bold rounded-xl hover:bg-purple-600"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
