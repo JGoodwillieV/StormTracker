@@ -175,30 +175,66 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
     fetchData();
   }, [swimmerId, age, gender]);
 
+  // Stroke order for sorting (freestyle first, then back, breast, fly, IM)
+  const STROKE_ORDER = {
+    'freestyle': 1,
+    'free': 1,
+    'backstroke': 2,
+    'back': 2,
+    'breaststroke': 3,
+    'breast': 3,
+    'butterfly': 4,
+    'fly': 4,
+    'im': 5,
+    'individual medley': 5
+  };
+
+  // Helper to extract stroke and distance from event name
+  const parseEventForSort = (eventName) => {
+    const parts = eventName.toLowerCase().split(' ');
+    const distance = parseInt(parts[0]) || 0;
+    const stroke = parts.slice(1).join(' ');
+    const strokeOrder = STROKE_ORDER[stroke] || 99;
+    return { distance, strokeOrder };
+  };
+
   // Sorting logic
   const sortedData = useMemo(() => {
     const sorted = [...eventData];
     sorted.sort((a, b) => {
-      let aVal, bVal;
-      
-      if (sortConfig.key === 'event') {
-        aVal = a.displayEvent;
-        bVal = b.displayEvent;
+      // Default sort: by stroke order, then by distance
+      if (sortConfig.key === 'event' || sortConfig.key === null) {
+        const aEvent = parseEventForSort(a.event);
+        const bEvent = parseEventForSort(b.event);
+        
+        // First sort by stroke order
+        if (aEvent.strokeOrder !== bEvent.strokeOrder) {
+          const diff = aEvent.strokeOrder - bEvent.strokeOrder;
+          return sortConfig.direction === 'desc' ? -diff : diff;
+        }
+        // Then by distance (lowest to highest)
+        const distDiff = aEvent.distance - bEvent.distance;
+        return sortConfig.direction === 'desc' ? -distDiff : distDiff;
       } else if (sortConfig.key === 'pb') {
-        aVal = a.pbSeconds;
-        bVal = b.pbSeconds;
+        const aVal = a.pbSeconds;
+        const bVal = b.pbSeconds;
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
       } else if (sortConfig.key === 'nextCut') {
-        aVal = a.nextCutDiff ?? 999;
-        bVal = b.nextCutDiff ?? 999;
+        const aVal = a.nextCutDiff ?? 999;
+        const bVal = b.nextCutDiff ?? 999;
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
       } else {
         // Sort by standard column
-        aVal = a.standards[sortConfig.key]?.achieved ? 0 : 1;
-        bVal = b.standards[sortConfig.key]?.achieved ? 0 : 1;
+        const aVal = a.standards[sortConfig.key]?.achieved ? 0 : 1;
+        const bVal = b.standards[sortConfig.key]?.achieved ? 0 : 1;
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
       }
-
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
     });
     return sorted;
   }, [eventData, sortConfig]);
