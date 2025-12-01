@@ -7,6 +7,7 @@ import Analysis from './Analysis'
 import AnalysisResult from './AnalysisResult' 
 import TrophyCase from './TrophyCase'
 import VersatilityChart from './VersatilityChart'
+import MotivationalTimesChart from './MotivationalTimesChart'
 import PhotoGallery from './PhotoGallery'
 import AllPhotos from './AllPhotos' // NEW IMPORT
 import Reports from './Reports'
@@ -870,72 +871,78 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis 
 
             {/* --- TAB 1: OVERVIEW --- */}
             {activeTab === 'overview' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Performance Trend</h3>
-                                    <p className="text-slate-500 text-xs">Fastest time per meet</p>
+                <div className="space-y-8">
+                    {/* Performance Trend Chart */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800">Performance Trend</h3>
+                                <p className="text-slate-500 text-xs">Fastest time per meet</p>
+                            </div>
+                            <select 
+                                value={selectedEvent} 
+                                onChange={(e) => setSelectedEvent(e.target.value)} 
+                                className="bg-slate-50 border border-slate-200 py-2 px-3 rounded-lg text-sm font-medium max-w-[150px]"
+                            >
+                                {uniqueEvents.length === 0 && <option>No Data</option>}
+                                {uniqueEvents.map(ev => <option key={ev} value={ev}>{ev}</option>)}
+                            </select>
+                        </div>
+                        <div className="h-64 w-full">
+                            {chartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
+                                        <YAxis 
+                                            domain={['auto', 'auto']} 
+                                            axisLine={false} 
+                                            tickLine={false} 
+                                            tick={{fill: '#94a3b8', fontSize: 12}} 
+                                            tickFormatter={secondsToTime} 
+                                            width={50}
+                                        />
+                                        <Tooltip 
+                                            contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
+                                            formatter={(value) => [secondsToTime(value), "Time"]}
+                                            labelStyle={{color: '#64748b', marginBottom: '0.25rem'}}
+                                        />
+                                        <Line 
+                                            type="monotone" 
+                                            dataKey="seconds" 
+                                            stroke="#3b82f6" 
+                                            strokeWidth={3} 
+                                            connectNulls={true} 
+                                            dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-slate-50 rounded-lg">
+                                    Select an event to see progress.
                                 </div>
-                                <select 
-                                    value={selectedEvent} 
-                                    onChange={(e) => setSelectedEvent(e.target.value)} 
-                                    className="bg-slate-50 border border-slate-200 py-2 px-3 rounded-lg text-sm font-medium max-w-[150px]"
-                                >
-                                    {uniqueEvents.length === 0 && <option>No Data</option>}
-                                    {uniqueEvents.map(ev => <option key={ev} value={ev}>{ev}</option>)}
-                                </select>
-                            </div>
-                            <div className="h-64 w-full">
-                                {chartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                                            <YAxis 
-                                                domain={['auto', 'auto']} 
-                                                axisLine={false} 
-                                                tickLine={false} 
-                                                tick={{fill: '#94a3b8', fontSize: 12}} 
-                                                tickFormatter={secondsToTime} 
-                                                width={50}
-                                            />
-                                            <Tooltip 
-                                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
-                                                formatter={(value) => [secondsToTime(value), "Time"]}
-                                                labelStyle={{color: '#64748b', marginBottom: '0.25rem'}}
-                                            />
-                                            <Line 
-                                                type="monotone" 
-                                                dataKey="seconds" 
-                                                stroke="#3b82f6" 
-                                                strokeWidth={3} 
-                                                connectNulls={true} 
-                                                dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} 
-                                            />
-                                        </LineChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-slate-50 rounded-lg">
-                                        Select an event to see progress.
-                                    </div>
-                                )}
-                            </div>
-                            
-                            {bestTimeOverall && (
-                                <Standards 
-                                    eventName={selectedEvent}
-                                    bestTime={bestTimeOverall}
-                                    gender={swimmer.gender || 'M'} 
-                                    age={swimmer.age}
-                                />
                             )}
                         </div>
-                    </div>
-                    
-                    <div className="space-y-6">
                         
+                        {bestTimeOverall && (
+                            <Standards 
+                                eventName={selectedEvent}
+                                bestTime={bestTimeOverall}
+                                gender={swimmer.gender || 'M'} 
+                                age={swimmer.age}
+                            />
+                        )}
+                    </div>
+
+                    {/* NEW: Motivational Times Progress Chart */}
+                    <MotivationalTimesChart 
+                        swimmerId={swimmer.id}
+                        age={swimmer.age}
+                        gender={swimmer.gender || 'M'}
+                    />
+
+                    {/* Grid with Trophy Case, Versatility Chart, Coach's Notes */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         {/* TROPHY CASE (Badges) */}
                         <TrophyCase 
                             swimmerId={swimmer.id}
