@@ -13,6 +13,7 @@ import AllPhotos from './AllPhotos' // NEW IMPORT
 import Reports from './Reports'
 import TestSetTracker from './TestSetTracker'
 import { RecentTestSets, TestSetsList, SwimmerPracticeTab } from './TestSetDisplay'
+import ParentDashboard from './ParentDashboard'
 import { FileText, Timer } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
 import AIChat from './AIChat';
@@ -24,7 +25,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User
 } from 'lucide-react'
 
 // --- Icon Helper ---
@@ -38,7 +39,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut,
     'file-text': FileText,
     'message-square': MessageSquare,
-    'image': ImageIcon, 'camera': Camera
+    'image': ImageIcon, 'camera': Camera, 'user': User
   };
   const LucideIcon = icons[name] || Waves;
   return <LucideIcon size={size} className={className} />;
@@ -52,8 +53,66 @@ export default function App() {
   const [currentAnalysis, setCurrentAnalysis] = useState(null) 
   const [loading, setLoading] = useState(true)
   
+  // User role state
+  const [userRole, setUserRole] = useState(null) // 'coach' or 'parent'
+  const [roleLoading, setRoleLoading] = useState(true)
+  
   // Dashboard Stats
   const [stats, setStats] = useState({ photos: 0, analyses: 0 });
+
+  // Fetch user role when session changes
+  useEffect(() => {
+    if (session?.user) {
+      fetchUserRole();
+    } else {
+      setUserRole(null);
+      setRoleLoading(false);
+    }
+  }, [session]);
+
+  const fetchUserRole = async () => {
+    try {
+      setRoleLoading(true);
+      
+      // Try to get user profile
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('role, first_login')
+        .eq('id', session.user.id)
+        .single();
+
+      if (error) {
+        // If no profile exists, create one as coach (for existing users)
+        if (error.code === 'PGRST116') {
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert({ 
+              id: session.user.id, 
+              role: 'coach',
+              display_name: session.user.email,
+              first_login: false
+            });
+          
+          if (!insertError) {
+            setUserRole('coach');
+          } else {
+            console.error('Error creating profile:', insertError);
+            setUserRole('coach'); // Default to coach
+          }
+        } else {
+          console.error('Error fetching role:', error);
+          setUserRole('coach'); // Default to coach
+        }
+      } else {
+        setUserRole(profile.role);
+      }
+    } catch (err) {
+      console.error('Role fetch error:', err);
+      setUserRole('coach'); // Default to coach
+    } finally {
+      setRoleLoading(false);
+    }
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -67,11 +126,13 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (session) {
+    if (session && userRole === 'coach') {
         fetchRoster();
         fetchStats();
+    } else if (session && userRole === 'parent') {
+        fetchParentSwimmers();
     }
-  }, [session])
+  }, [session, userRole])
 
   const fetchRoster = async () => {
     const { data, error } = await supabase
@@ -100,6 +161,44 @@ export default function App() {
       });
   }
 
+  // Fetch swimmers for parent users
+  const fetchParentSwimmers = async () => {
+    try {
+      // Get parent record
+      const { data: parentData } = await supabase
+        .from('parents')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .single();
+
+      if (parentData) {
+        // Get linked swimmers
+        const { data: swimmerLinks } = await supabase
+          .from('swimmer_parents')
+          .select(`
+            swimmer_id,
+            swimmers (*)
+          `)
+          .eq('parent_id', parentData.id);
+
+        if (swimmerLinks) {
+          const swimmerList = swimmerLinks
+            .map(link => link.swimmers)
+            .filter(Boolean);
+          setSwimmers(swimmerList);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching parent swimmers:', error);
+    }
+  }
+
+  // Handle parent selecting a swimmer
+  const handleParentSelectSwimmer = (swimmer) => {
+    setSelectedSwimmer(swimmer);
+    setView('profile');
+  }
+
   const navigateTo = (v) => {
     setView(v)
     if(v !== 'roster' && v !== 'view-analysis') setSelectedSwimmer(null)
@@ -115,8 +214,82 @@ export default function App() {
     setView('view-analysis');
   }
 
-  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>
+  if (loading || roleLoading) return <div className="h-screen flex items-center justify-center">Loading...</div>
   if (!session) return <Login />
+
+  // Parent view - different layout
+  if (userRole === 'parent') {
+    return (
+      <div className="flex min-h-screen bg-[#f8fafc]">
+        {view !== 'view-analysis' && (
+          <ParentSidebar activeTab={view} setActiveTab={navigateTo} onLogout={handleLogout} />
+        )}
+        {view !== 'view-analysis' && (
+          <ParentMobileNav activeTab={view} setActiveTab={navigateTo} />
+        )}
+        
+        <main className={`flex-1 h-screen overflow-hidden ${view !== 'view-analysis' ? 'md:ml-64' : ''}`}>
+          {view === 'dashboard' && (
+            <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
+              <header className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-slate-800">My Dashboard</h2>
+                <button onClick={handleLogout} className="md:hidden text-slate-400 p-2">
+                  <Icon name="log-out" size={20} />
+                </button>
+              </header>
+              <ParentDashboard 
+                user={session.user}
+                onSelectSwimmer={handleParentSelectSwimmer}
+              />
+            </div>
+          )}
+
+          {view === 'my-swimmers' && (
+            <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
+              <header className="flex items-center gap-4 mb-6">
+                <button onClick={() => navigateTo('dashboard')} className="p-2 hover:bg-slate-100 rounded-full">
+                  <ChevronLeft size={24} />
+                </button>
+                <h2 className="text-2xl font-bold text-slate-800">My Swimmers</h2>
+              </header>
+              <ParentDashboard 
+                user={session.user}
+                onSelectSwimmer={handleParentSelectSwimmer}
+              />
+            </div>
+          )}
+          
+          {view === 'profile' && selectedSwimmer && (
+            <SwimmerProfile 
+              swimmer={selectedSwimmer} 
+              swimmers={swimmers}
+              onBack={() => setView('dashboard')}
+              navigateTo={navigateTo}
+              onViewAnalysis={handleViewAnalysis}
+              isParentView={true}
+            />
+          )}
+
+          {view === 'view-analysis' && currentAnalysis && (
+            <AnalysisResult 
+              data={currentAnalysis.json_data} 
+              videoUrl={currentAnalysis.video_url}
+              title={currentAnalysis.json_data?.title}
+              swimmerName={swimmers.find(s => s.id === currentAnalysis.swimmer_id)?.name}
+              stroke={currentAnalysis.json_data?.stroke}
+              videoType={currentAnalysis.json_data?.videoType}
+              onBack={() => {
+                if (selectedSwimmer) setView('profile'); 
+                else setView('dashboard');
+              }} 
+            />
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // Coach view - existing layout
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc]">
@@ -274,6 +447,64 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
        <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm flex items-center gap-2 px-4">
          <Icon name="log-out" size={16} /> Sign Out
        </button>
+    </aside>
+  );
+};
+
+// Parent Navigation Components
+const ParentMobileNav = ({ activeTab, setActiveTab }) => {
+  const items = [
+    { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
+    { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
+  ];
+
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 z-50 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      {items.map(item => (
+        <button 
+          key={item.id} 
+          onClick={() => setActiveTab(item.id)}
+          className={`flex flex-col items-center gap-1 min-w-[60px] ${activeTab === item.id ? 'text-blue-600' : 'text-slate-400'}`}
+        >
+          <div className={`p-1 rounded-xl transition-colors ${activeTab === item.id ? 'bg-blue-50' : ''}`}>
+            <Icon name={item.icon} size={24} />
+          </div>
+          <span className="text-[10px] font-bold">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const ParentSidebar = ({ activeTab, setActiveTab, onLogout }) => {
+  const items = [
+    { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+    { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
+  ];
+
+  return (
+    <aside className="w-64 bg-[#0f172a] flex-col p-6 fixed h-full z-10 hidden md:flex">
+       <div className="flex items-center gap-3 mb-10 px-2">
+           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+               <Icon name="waves" className="text-white" size={20} />
+           </div>
+           <h1 className="text-white font-bold text-xl">StormTracker</h1>
+       </div>
+       <nav className="space-y-2 flex-1">
+           {items.map(item => (
+               <div key={item.id} onClick={() => setActiveTab(item.id)} 
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                   <Icon name={item.icon} size={20} />
+                   <span className="font-medium">{item.label}</span>
+               </div>
+           ))}
+       </nav>
+       <div className="border-t border-slate-700 pt-4 mt-4">
+         <p className="text-slate-500 text-xs px-4 mb-2">Parent Account</p>
+         <button onClick={onLogout} className="text-slate-400 hover:text-white text-sm flex items-center gap-2 px-4">
+           <Icon name="log-out" size={16} /> Sign Out
+         </button>
+       </div>
     </aside>
   );
 };
@@ -694,7 +925,7 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
         </div>
     );
 };
-const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis }) => {
+const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis, isParentView = false }) => {
     const [activeTab, setActiveTab] = useState('overview');
     const [results, setResults] = useState([]);
     const [analyses, setAnalyses] = useState([]);
