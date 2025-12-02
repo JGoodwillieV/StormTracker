@@ -5,7 +5,7 @@ import {
   ChevronLeft, Play, Pause, RotateCcw, Save, Clock, Users,
   Plus, Minus, Check, X, Undo2, SkipForward, Vibrate, Volume2,
   VolumeX, GripVertical, Timer, TrendingUp, TrendingDown, Minus as MinusIcon,
-  AlertCircle, CheckCircle2, Trash2, Settings, ChevronDown, Zap
+  AlertCircle, CheckCircle2, Trash2, Settings, ChevronDown, Zap, Move
 } from 'lucide-react';
 
 // Stroke options
@@ -44,6 +44,10 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   const [targetInterval, setTargetInterval] = useState(90); // seconds
   const [useInterval, setUseInterval] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Drag and drop state
+  const [draggedSwimmer, setDraggedSwimmer] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
   
   // Timing state
   const [isRunning, setIsRunning] = useState(false);
@@ -221,10 +225,15 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   // Save results to database
   const handleSave = async () => {
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       // Create test set record
       const { data: testSet, error: testSetError } = await supabase
         .from('test_sets')
         .insert([{
+          coach_id: user.id,
           name: setName,
           group_name: selectedGroup,
           reps,
@@ -300,6 +309,61 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   // Clear all swimmers
   const clearSwimmers = () => {
     setSelectedSwimmers([]);
+  };
+
+  // Drag and drop handlers for reordering selected swimmers
+  const handleDragStart = (e, swimmer, index) => {
+    setDraggedSwimmer({ swimmer, index });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    if (!draggedSwimmer) return;
+
+    const { index: dragIndex } = draggedSwimmer;
+    if (dragIndex === dropIndex) {
+      setDraggedSwimmer(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    setSelectedSwimmers(prev => {
+      const newList = [...prev];
+      const [removed] = newList.splice(dragIndex, 1);
+      newList.splice(dropIndex, 0, removed);
+      return newList;
+    });
+
+    setDraggedSwimmer(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedSwimmer(null);
+    setDragOverIndex(null);
+  };
+
+  // Move swimmer up/down (for touch devices)
+  const moveSwimmer = (index, direction) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= selectedSwimmers.length) return;
+    
+    setSelectedSwimmers(prev => {
+      const newList = [...prev];
+      [newList[index], newList[newIndex]] = [newList[newIndex], newList[index]];
+      return newList;
+    });
   };
 
   // ==========================================
@@ -384,6 +448,61 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* Reorder Selected Swimmers */}
+              {selectedSwimmers.length > 1 && (
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Move size={16} className="text-indigo-500" />
+                      <span className="text-sm font-medium text-slate-600">Arrange Order</span>
+                    </div>
+                    <span className="text-xs text-slate-400">Drag to reorder or use arrows</span>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {selectedSwimmers.map((swimmer, index) => (
+                      <div
+                        key={swimmer.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, swimmer, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
+                        className={`flex items-center gap-2 p-2 rounded-lg transition-all cursor-move ${
+                          dragOverIndex === index 
+                            ? 'bg-indigo-100 border-2 border-indigo-400 border-dashed' 
+                            : draggedSwimmer?.swimmer.id === swimmer.id
+                              ? 'opacity-50 bg-slate-100'
+                              : 'bg-slate-50 hover:bg-slate-100'
+                        }`}
+                      >
+                        <GripVertical size={16} className="text-slate-400 shrink-0" />
+                        <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
+                          {index + 1}
+                        </span>
+                        <span className="font-medium text-slate-700 flex-1 truncate">{swimmer.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => moveSwimmer(index, -1)}
+                            disabled={index === 0}
+                            className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                          >
+                            <ChevronDown size={16} className="rotate-180" />
+                          </button>
+                          <button
+                            onClick={() => moveSwimmer(index, 1)}
+                            disabled={index === selectedSwimmers.length - 1}
+                            className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                          >
+                            <ChevronDown size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
