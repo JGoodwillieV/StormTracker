@@ -40,7 +40,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   const [reps, setReps] = useState(10);
   const [distance, setDistance] = useState(100);
   const [stroke, setStroke] = useState('Freestyle');
-  const [setType, setType] = useState('Swim');
+  const [setType, setSetType] = useState('Swim');
   const [targetInterval, setTargetInterval] = useState(90); // seconds
   const [useInterval, setUseInterval] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -451,7 +451,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Type</label>
                 <select
                   value={setType}
-                  onChange={(e) => setType(e.target.value)}
+                  onChange={(e) => setSetType(e.target.value)}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
                 >
                   {TYPES.map(t => (
