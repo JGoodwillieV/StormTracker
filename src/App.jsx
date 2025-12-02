@@ -11,7 +11,9 @@ import MotivationalTimesChart from './MotivationalTimesChart'
 import PhotoGallery from './PhotoGallery'
 import AllPhotos from './AllPhotos' // NEW IMPORT
 import Reports from './Reports'
-import { FileText } from 'lucide-react' // Ensure FileText is imported
+import TestSetTracker from './TestSetTracker'
+import { RecentTestSets, TestSetsList, SwimmerPracticeTab } from './TestSetDisplay'
+import { FileText, Timer } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
 import AIChat from './AIChat';
 import { MessageSquare } from 'lucide-react'; // Import icon
@@ -75,7 +77,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('swimmers')
       .select('*')
-      // .eq('coach_id', session.user.id)
+      .eq('coach_id', session.user.id)
     
     if (error) console.error('Error fetching roster:', error)
     else setSwimmers(data || [])
@@ -188,6 +190,25 @@ export default function App() {
 {view === 'reports' && (
   <Reports onBack={() => navigateTo('dashboard')} />
 )}
+
+        {/* TEST SET TRACKER */}
+        {view === 'test-set' && (
+          <TestSetTracker 
+            onBack={() => navigateTo('dashboard')}
+            swimmers={swimmers}
+            groups={[...new Set(swimmers.map(s => s.group_name).filter(Boolean))]}
+          />
+        )}
+
+        {/* TEST SETS LIST */}
+        {view === 'test-sets-list' && (
+          <TestSetsList 
+            onBack={() => navigateTo('dashboard')}
+            onStartNew={() => navigateTo('test-set')}
+            swimmers={swimmers}
+          />
+        )}
+
         {/* Inside <main> */}
 {view === 'ai-chat' && (
   <AIChat onBack={() => navigateTo('dashboard')} />
@@ -303,12 +324,24 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
         </div>
       </div>
       
+      {/* Test Sets Section */}
+      <div className="mt-8">
+        <RecentTestSets 
+          onViewAll={() => navigateTo('test-sets-list')}
+          onStartNew={() => navigateTo('test-set')}
+        />
+      </div>
+      
       <div className="mt-8">
          <h3 className="font-bold text-slate-800 text-lg mb-4">Quick Actions</h3>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div onClick={() => navigateTo('test-set')} className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:from-indigo-600 hover:to-purple-700 transition-colors text-white shadow-lg shadow-indigo-200">
+                <div className="w-10 h-10 bg-white/20 text-white rounded-full flex items-center justify-center"><Timer size={20}/></div>
+                <div className="font-bold">New Test Set</div>
+            </div>
             <div onClick={() => navigateTo('analysis')} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-blue-100 transition-colors">
                 <div className="w-10 h-10 bg-white text-blue-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="video" size={20}/></div>
-                <div className="font-bold text-blue-900">New AI Analysis</div>
+                <div className="font-bold text-blue-900">AI Analysis</div>
             </div>
             <div onClick={() => navigateTo('roster')} className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-emerald-100 transition-colors">
                 <div className="w-10 h-10 bg-white text-emerald-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="users" size={20}/></div>
@@ -318,18 +351,19 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
                 <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="file-text" size={20}/></div>
                 <div className="font-bold text-purple-900">Team Reports</div>
           </div>
-           {/* Add this to the grid inside Dashboard */}
-          <div onClick={() => navigateTo('ai-chat')} className="bg-purple-600 p-6 rounded-2xl shadow-lg shadow-purple-200 text-white relative overflow-hidden cursor-pointer hover:bg-purple-700 transition-colors group">
-                <div className="relative z-10">
-                <div className="flex items-center justify-between mb-2">
+         </div>
+         
+         {/* AI Chat Card */}
+         <div onClick={() => navigateTo('ai-chat')} className="mt-4 bg-purple-600 p-6 rounded-2xl shadow-lg shadow-purple-200 text-white relative overflow-hidden cursor-pointer hover:bg-purple-700 transition-colors group">
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-2">
                 <p className="text-purple-100 text-sm font-medium">AI Assistant</p>
                 <Icon name="message-square" size={20} className="text-purple-200"/>
-         </div>
-               <h3 className="text-2xl font-bold">Ask Data</h3>
-             <p className="text-xs text-purple-200 mt-1">Chat with your database</p>
-        </div>
-          <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-purple-500 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500"></div>
-        </div>
+              </div>
+              <h3 className="text-2xl font-bold">Ask Data</h3>
+              <p className="text-xs text-purple-200 mt-1">Chat with your database</p>
+            </div>
+            <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-purple-500 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500"></div>
          </div>
       </div>
     </div>
@@ -868,6 +902,7 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis 
                 <div className="flex gap-3 overflow-x-auto pb-2 md:pb-0">
                     <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>Overview</button>
                     <button onClick={() => setActiveTab('results')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'results' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><Icon name="trophy" size={14} /> Meet Results</button>
+                    <button onClick={() => setActiveTab('practice')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'practice' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}`}><Timer size={14} /> Practice</button>
                     <button onClick={() => setActiveTab('analysis')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'analysis' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><Icon name="video" size={14} /> Video Analysis</button>
                     <button onClick={() => setActiveTab('photos')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'photos' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}><ImageIcon size={14} /> Photos</button>
                 </div>
@@ -1060,7 +1095,14 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis 
                 </div>
             )}
 
-            {/* --- TAB 3: ANALYSIS --- */}
+            {/* --- TAB 3: PRACTICE --- */}
+            {activeTab === 'practice' && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <SwimmerPracticeTab swimmerId={swimmer.id} swimmerName={swimmer.name} />
+                </div>
+            )}
+
+            {/* --- TAB 4: ANALYSIS --- */}
             {activeTab === 'analysis' && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
                     <div className="p-6 border-b border-slate-100">
