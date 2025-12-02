@@ -307,9 +307,9 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   // ==========================================
   if (step === 'setup') {
     return (
-      <div className="min-h-full bg-slate-50 pb-8">
+      <div className="h-full flex flex-col bg-slate-50">
         {/* Header */}
-        <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="bg-white border-b border-slate-200 shrink-0">
           <div className="px-4 py-4 flex items-center gap-4">
             <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-500">
               <ChevronLeft size={24} />
@@ -321,216 +321,219 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
           </div>
         </div>
 
-        <div className="p-4 space-y-6 max-w-2xl mx-auto">
-          {/* Group Selection */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Users size={18} className="text-blue-500" />
-              Select Group
-            </h3>
-            <select
-              value={selectedGroup}
-              onChange={(e) => {
-                setSelectedGroup(e.target.value);
-                setSelectedSwimmers([]);
-              }}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-medium focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Choose a group...</option>
-              {uniqueGroups.map(g => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 space-y-4 max-w-2xl mx-auto pb-8">
+            {/* Group Selection */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+              <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Users size={18} className="text-blue-500" />
+                Select Group
+              </h3>
+              <select
+                value={selectedGroup}
+                onChange={(e) => {
+                  setSelectedGroup(e.target.value);
+                  setSelectedSwimmers([]);
+                }}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-medium focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Choose a group...</option>
+                {uniqueGroups.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
 
-            {/* Swimmer Selection */}
-            {selectedGroup && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-slate-600">
-                    {selectedSwimmers.length} of {groupSwimmers.length} swimmers selected
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={selectAllSwimmers}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      Select All
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      onClick={clearSwimmers}
-                      className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-                  {groupSwimmers.map(swimmer => {
-                    const isSelected = selectedSwimmers.find(s => s.id === swimmer.id);
-                    return (
+              {/* Swimmer Selection */}
+              {selectedGroup && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-slate-600">
+                      {selectedSwimmers.length} of {groupSwimmers.length} swimmers selected
+                    </span>
+                    <div className="flex gap-2">
                       <button
-                        key={swimmer.id}
-                        onClick={() => toggleSwimmer(swimmer)}
-                        className={`p-3 rounded-xl text-left transition-all ${
-                          isSelected
-                            ? 'bg-blue-500 text-white shadow-md'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
+                        onClick={selectAllSwimmers}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700"
                       >
-                        <div className="font-medium text-sm truncate">{swimmer.name}</div>
+                        Select All
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Set Configuration */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Settings size={18} className="text-blue-500" />
-              Set Configuration
-            </h3>
-
-            {/* Reps x Distance */}
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Reps</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setReps(Math.max(1, reps - 1))}
-                    className="w-10 h-10 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center justify-center text-slate-600"
-                  >
-                    <Minus size={18} />
-                  </button>
-                  <input
-                    type="number"
-                    value={reps}
-                    onChange={(e) => setReps(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 text-center text-2xl font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl p-2"
-                  />
-                  <button
-                    onClick={() => setReps(reps + 1)}
-                    className="w-10 h-10 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center justify-center text-slate-600"
-                  >
-                    <Plus size={18} />
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Distance</label>
-                <select
-                  value={distance}
-                  onChange={(e) => setDistance(parseInt(e.target.value))}
-                  className="w-full h-[52px] text-xl font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 focus:ring-2 focus:ring-blue-500"
-                >
-                  {DISTANCES.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Stroke and Type */}
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Stroke</label>
-                <select
-                  value={stroke}
-                  onChange={(e) => setStroke(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
-                >
-                  {STROKES.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Type</label>
-                <select
-                  value={setType}
-                  onChange={(e) => setSetType(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
-                >
-                  {TYPES.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Set Name */}
-            <div className="mb-4">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Set Name</label>
-              <input
-                type="text"
-                value={setName}
-                onChange={(e) => setSetName(e.target.value)}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Interval Option */}
-            <div className="bg-slate-50 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Timer size={18} className="text-slate-500" />
-                  <span className="font-medium text-slate-700">Target Interval</span>
-                </div>
-                <button
-                  onClick={() => setUseInterval(!useInterval)}
-                  className={`w-12 h-7 rounded-full transition-colors ${
-                    useInterval ? 'bg-blue-500' : 'bg-slate-300'
-                  }`}
-                >
-                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
-                    useInterval ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
-                </button>
-              </div>
-              {useInterval && (
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    value={targetInterval}
-                    onChange={(e) => setTargetInterval(Math.max(10, parseInt(e.target.value) || 60))}
-                    className="w-24 p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-slate-800"
-                  />
-                  <span className="text-slate-500">seconds per rep</span>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        onClick={clearSwimmers}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                    {groupSwimmers.map(swimmer => {
+                      const isSelected = selectedSwimmers.find(s => s.id === swimmer.id);
+                      return (
+                        <button
+                          key={swimmer.id}
+                          onClick={() => toggleSwimmer(swimmer)}
+                          className={`p-3 rounded-xl text-left transition-all ${
+                            isSelected
+                              ? 'bg-blue-500 text-white shadow-md'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          <div className="font-medium text-sm truncate">{swimmer.name}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Sound Toggle */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {soundEnabled ? <Volume2 size={20} className="text-blue-500" /> : <VolumeX size={20} className="text-slate-400" />}
-              <span className="font-medium text-slate-700">Sound & Vibration Alerts</span>
+            {/* Set Configuration */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+              <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Settings size={18} className="text-blue-500" />
+                Set Configuration
+              </h3>
+
+              {/* Reps x Distance - Fixed layout */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Reps</label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setReps(Math.max(1, reps - 1))}
+                      className="w-9 h-11 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center justify-center text-slate-600 shrink-0"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <input
+                      type="number"
+                      value={reps}
+                      onChange={(e) => setReps(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full min-w-0 text-center text-xl font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl py-2 px-1"
+                    />
+                    <button
+                      onClick={() => setReps(reps + 1)}
+                      className="w-9 h-11 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center justify-center text-slate-600 shrink-0"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Distance</label>
+                  <select
+                    value={distance}
+                    onChange={(e) => setDistance(parseInt(e.target.value))}
+                    className="w-full h-11 text-xl font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-2 focus:ring-2 focus:ring-blue-500"
+                  >
+                    {DISTANCES.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Stroke and Type */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Stroke</label>
+                  <select
+                    value={stroke}
+                    onChange={(e) => setStroke(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+                  >
+                    {STROKES.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Type</label>
+                  <select
+                    value={setType}
+                    onChange={(e) => setSetType(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+                  >
+                    {TYPES.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Set Name */}
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Set Name</label>
+                <input
+                  type="text"
+                  value={setName}
+                  onChange={(e) => setSetName(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Interval Option */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Timer size={18} className="text-slate-500" />
+                    <span className="font-medium text-slate-700">Target Interval</span>
+                  </div>
+                  <button
+                    onClick={() => setUseInterval(!useInterval)}
+                    className={`w-12 h-7 rounded-full transition-colors ${
+                      useInterval ? 'bg-blue-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
+                      useInterval ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+                {useInterval && (
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      value={targetInterval}
+                      onChange={(e) => setTargetInterval(Math.max(10, parseInt(e.target.value) || 60))}
+                      className="w-24 p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-slate-800"
+                    />
+                    <span className="text-slate-500">seconds per rep</span>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Sound Toggle */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {soundEnabled ? <Volume2 size={20} className="text-blue-500" /> : <VolumeX size={20} className="text-slate-400" />}
+                <span className="font-medium text-slate-700">Sound & Vibration Alerts</span>
+              </div>
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`w-12 h-7 rounded-full transition-colors ${
+                  soundEnabled ? 'bg-blue-500' : 'bg-slate-300'
+                }`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
+                  soundEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+
+            {/* Start Button */}
             <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className={`w-12 h-7 rounded-full transition-colors ${
-                soundEnabled ? 'bg-blue-500' : 'bg-slate-300'
-              }`}
+              onClick={() => setStep('timing')}
+              disabled={selectedSwimmers.length === 0}
+              className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold rounded-2xl text-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
             >
-              <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
-                soundEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`} />
+              <Play size={24} />
+              Start Test Set
             </button>
           </div>
-
-          {/* Start Button */}
-          <button
-            onClick={() => setStep('timing')}
-            disabled={selectedSwimmers.length === 0}
-            className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold rounded-2xl text-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
-          >
-            <Play size={24} />
-            Start Test Set
-          </button>
         </div>
 
         {/* Audio element for beeps */}
