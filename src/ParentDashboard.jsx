@@ -127,18 +127,24 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
       setLoading(true);
 
       // Get parent info
-      const { data: parentData } = await supabase
+      const { data: parentData, error: parentError } = await supabase
         .from('parents')
         .select('*')
         .eq('user_id', user.id)
         .single();
 
+      console.log('Parent data:', parentData, 'Error:', parentError);
+
       if (parentData) {
         setParentName(parentData.account_name);
+      } else {
+        console.error('No parent record found for user:', user.id);
+        setLoading(false);
+        return;
       }
 
       // Get parent's swimmers
-      const { data: swimmerLinks } = await supabase
+      const { data: swimmerLinks, error: swimmerError } = await supabase
         .from('swimmer_parents')
         .select(`
           swimmer_id,
@@ -149,12 +155,15 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             date_of_birth
           )
         `)
-        .eq('parent_id', parentData?.id);
+        .eq('parent_id', parentData.id);
+
+      console.log('Swimmer links:', swimmerLinks, 'Error:', swimmerError);
 
       if (swimmerLinks) {
         const swimmerList = swimmerLinks
           .map(link => link.swimmers)
           .filter(Boolean);
+        console.log('Swimmer list:', swimmerList);
         setSwimmers(swimmerList);
 
         // Load stats for each swimmer
@@ -162,9 +171,9 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
         const activities = [];
 
         for (const swimmer of swimmerList) {
-          // Get swim times for this swimmer
+          // Get results for this swimmer (changed from swim_times to results)
           const { data: times } = await supabase
-            .from('swim_times')
+            .from('results')
             .select('*')
             .eq('swimmer_id', swimmer.id)
             .order('date', { ascending: false })
