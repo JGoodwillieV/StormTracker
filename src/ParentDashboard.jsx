@@ -1,10 +1,13 @@
 // src/ParentDashboard.jsx
+// Updated Parent Dashboard with Daily Brief integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
+import DailyBrief from './DailyBrief';
 import {
   User, Clock, Trophy, TrendingUp, Camera, Calendar,
   ChevronRight, Star, Award, Zap, Target, Medal,
-  Waves, Timer, ArrowUpRight, ArrowDownRight, Minus
+  Waves, Timer, ArrowUpRight, ArrowDownRight, Minus,
+  Megaphone, Bell, ChevronDown, Filter
 } from 'lucide-react';
 
 // Helper function to format time from seconds to MM:SS.ms
@@ -33,7 +36,7 @@ const calculateAge = (dob) => {
 
 // Swimmer Card Component
 function SwimmerCard({ swimmer, stats, onClick }) {
-  const age = calculateAge(swimmer.date_of_birth);
+  const age = calculateAge(swimmer.date_of_birth) || swimmer.age;
   
   return (
     <button
@@ -110,6 +113,45 @@ function ActivityItem({ activity }) {
   );
 }
 
+// Tab selector for dashboard sections
+function DashboardTabs({ activeTab, onChange, unreadCount }) {
+  const tabs = [
+    { id: 'updates', label: 'Updates', icon: Megaphone, badge: unreadCount },
+    { id: 'swimmers', label: 'My Swimmers', icon: User, badge: 0 },
+    { id: 'activity', label: 'Activity', icon: Clock, badge: 0 }
+  ];
+
+  return (
+    <div className="flex gap-1 p-1 bg-slate-100 rounded-2xl">
+      {tabs.map(tab => {
+        const Icon = tab.icon;
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onChange(tab.id)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-medium text-sm transition-all ${
+              isActive 
+                ? 'bg-white text-slate-800 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Icon size={16} />
+            <span className="hidden sm:inline">{tab.label}</span>
+            {tab.badge > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                isActive ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // Main Parent Dashboard Component
 export default function ParentDashboard({ user, onSelectSwimmer }) {
   const [swimmers, setSwimmers] = useState([]);
@@ -117,10 +159,35 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [parentName, setParentName] = useState('');
+  const [activeTab, setActiveTab] = useState('updates');
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     loadParentData();
+    loadUnreadCount();
   }, [user]);
+
+  const loadUnreadCount = async () => {
+    try {
+      // Get total announcements
+      const { data: announcements } = await supabase
+        .from('announcements')
+        .select('id')
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
+
+      // Get user's read announcements
+      const { data: reads } = await supabase
+        .from('announcement_reads')
+        .select('announcement_id')
+        .eq('user_id', user.id);
+
+      const readIds = new Set((reads || []).map(r => r.announcement_id));
+      const unread = (announcements || []).filter(a => !readIds.has(a.id));
+      setUnreadCount(unread.length);
+    } catch (error) {
+      console.error('Error loading unread count:', error);
+    }
+  };
 
   const loadParentData = async () => {
     try {
@@ -132,8 +199,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
         .select('*')
         .eq('user_id', user.id)
         .single();
-
-      console.log('Parent data:', parentData, 'Error:', parentError);
 
       if (parentData) {
         setParentName(parentData.account_name);
@@ -152,19 +217,18 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             id,
             name,
             group_name,
+            group_id,
             age,
-            gender
+            gender,
+            date_of_birth
           )
         `)
         .eq('parent_id', parentData.id);
-
-      console.log('Swimmer links:', swimmerLinks, 'Error:', swimmerError);
 
       if (swimmerLinks) {
         const swimmerList = swimmerLinks
           .map(link => link.swimmers)
           .filter(Boolean);
-        console.log('Swimmer list:', swimmerList);
         setSwimmers(swimmerList);
 
         // Load stats for each swimmer
@@ -172,7 +236,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
         const activities = [];
 
         for (const swimmer of swimmerList) {
-          // Get results for this swimmer (changed from swim_times to results)
           const { data: times } = await supabase
             .from('results')
             .select('*')
@@ -181,7 +244,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             .limit(20);
 
           if (times && times.length > 0) {
-            // Check for recent PBs (within last 30 days)
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
             
@@ -189,7 +251,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
               t.is_best_time && new Date(t.date) >= thirtyDaysAgo
             );
 
-            // Count time standards achieved
             const standardsCount = times.filter(t => t.time_standard).length;
 
             stats[swimmer.id] = {
@@ -198,7 +259,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
               standardsCount
             };
 
-            // Add recent activities
             times.slice(0, 3).forEach(time => {
               activities.push({
                 type: time.is_best_time ? 'pb' : 'meet',
@@ -220,8 +280,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
         }
 
         setSwimmerStats(stats);
-        
-        // Sort activities by date and take most recent
         activities.sort((a, b) => b.date - a.date);
         setRecentActivity(activities.slice(0, 5));
       }
@@ -240,27 +298,57 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
     );
   }
 
+  // Get swimmer group IDs for targeting
+  const swimmerGroupIds = swimmers.map(s => s.group_id).filter(Boolean);
+
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white">
-        <h1 className="text-2xl font-bold mb-1">
-          Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
-        </h1>
-        <p className="text-blue-100">
-          {swimmers.length === 1 
-            ? `Tracking ${swimmers[0].name}'s swimming journey`
-            : `Tracking ${swimmers.length} swimmers`
-          }
-        </p>
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
+        {/* Decorative elements */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+        
+        <div className="relative">
+          <h1 className="text-2xl font-bold mb-1">
+            Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
+          </h1>
+          <p className="text-blue-100">
+            {swimmers.length === 1 
+              ? `Tracking ${swimmers[0].name}'s swimming journey`
+              : `Tracking ${swimmers.length} swimmers`
+            }
+          </p>
+          
+          {/* Quick action buttons */}
+          <div className="flex gap-2 mt-4">
+            <button 
+              onClick={() => setActiveTab('updates')}
+              className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Bell size={14} />
+              {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* My Swimmers */}
-      <div>
-        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <User size={20} className="text-blue-500" />
-          My Swimmers
-        </h2>
+      {/* Tab Navigation */}
+      <DashboardTabs 
+        activeTab={activeTab} 
+        onChange={setActiveTab}
+        unreadCount={unreadCount}
+      />
+
+      {/* Tab Content */}
+      {activeTab === 'updates' && (
+        <DailyBrief 
+          userId={user.id} 
+          swimmerGroups={swimmerGroupIds}
+        />
+      )}
+
+      {activeTab === 'swimmers' && (
         <div className="space-y-3">
           {swimmers.map(swimmer => (
             <SwimmerCard
@@ -278,26 +366,32 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Recent Activity */}
-      {recentActivity.length > 0 && (
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Clock size={20} className="text-blue-500" />
-            Recent Activity
-          </h2>
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
-            {recentActivity.map((activity, index) => (
-              <ActivityItem key={index} activity={activity} />
-            ))}
-          </div>
+      {activeTab === 'activity' && (
+        <div className="space-y-4">
+          {recentActivity.length > 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
+              {recentActivity.map((activity, index) => (
+                <ActivityItem key={index} activity={activity} />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-slate-50 rounded-2xl p-8 text-center">
+              <Clock size={48} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-slate-500">No recent activity</p>
+              <p className="text-sm text-slate-400 mt-1">Swim times and achievements will appear here</p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Quick Links */}
+      {/* Quick Links - Always visible at bottom */}
       <div className="grid grid-cols-2 gap-3">
-        <button className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all">
+        <button 
+          onClick={() => onSelectSwimmer && swimmers[0] && onSelectSwimmer(swimmers[0])}
+          className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all"
+        >
           <Camera size={24} className="text-blue-500 mb-2" />
           <p className="font-semibold text-slate-800">Upload Video</p>
           <p className="text-xs text-slate-500">Share race footage</p>
@@ -307,17 +401,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
           <p className="font-semibold text-slate-800">Time Standards</p>
           <p className="text-xs text-slate-500">View progress</p>
         </button>
-      </div>
-
-      {/* Upcoming (Placeholder) */}
-      <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200">
-        <h3 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
-          <Calendar size={18} className="text-slate-500" />
-          Coming Soon
-        </h3>
-        <p className="text-sm text-slate-500">
-          Upcoming meets, coach announcements, and more features will appear here!
-        </p>
       </div>
     </div>
   );
