@@ -14,6 +14,7 @@ import Reports from './Reports'
 import TestSetTracker from './TestSetTracker'
 import { RecentTestSets, TestSetsList, SwimmerPracticeTab } from './TestSetDisplay'
 import ParentDashboard from './ParentDashboard'
+import InstallPrompt from './InstallPrompt'
 import { FileText, Timer } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
 import AIChat from './AIChat';
@@ -285,6 +286,9 @@ export default function App() {
             />
           )}
         </main>
+        
+        {/* PWA Install Prompt */}
+        <InstallPrompt />
       </div>
     );
   }
@@ -389,6 +393,9 @@ export default function App() {
         
         
       </main>
+      
+      {/* PWA Install Prompt */}
+      <InstallPrompt />
     </div>
   )
 }
