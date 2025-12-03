@@ -116,7 +116,6 @@ function ActivityItem({ activity }) {
 
 // Calendar Placeholder Component
 function CalendarPlaceholder() {
-  // Sample upcoming events for visual appeal
   const upcomingEvents = [
     { type: 'meet', title: 'Nutcracker Classic', date: 'Dec 4-7', location: 'Jeff Rouse Swim Center' },
     { type: 'practice', title: 'Taper Schedule Begins', date: 'Dec 4', location: '' },
@@ -198,7 +197,6 @@ function CalendarPlaceholder() {
 
 // Resources Placeholder Component
 function ResourcesPlaceholder() {
-  // Sample resources for visual appeal
   const sampleResources = [
     { type: 'link', title: 'Team Website', description: 'Official Hanover Aquatics site', icon: ExternalLink },
     { type: 'doc', title: 'Parent Handbook', description: 'Team policies & information', icon: FileText },
@@ -309,7 +307,7 @@ function DashboardTabs({ activeTab, onChange, unreadCount }) {
 }
 
 // Main Parent Dashboard Component
-export default function ParentDashboard({ user, onSelectSwimmer }) {
+export default function ParentDashboard({ user, onSelectSwimmer, simpleView = false }) {
   const [swimmers, setSwimmers] = useState([]);
   const [swimmerStats, setSwimmerStats] = useState({});
   const [recentActivity, setRecentActivity] = useState([]);
@@ -325,13 +323,11 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
 
   const loadUnreadCount = async () => {
     try {
-      // Get total announcements
       const { data: announcements } = await supabase
         .from('announcements')
         .select('id')
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
 
-      // Get user's read announcements
       const { data: reads } = await supabase
         .from('announcement_reads')
         .select('announcement_id')
@@ -348,29 +344,22 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
   const loadParentData = async () => {
     try {
       setLoading(true);
-      
-      console.log('Loading parent data for user:', user.id);
 
-      // Get parent info
-      const { data: parentData, error: parentError } = await supabase
+      const { data: parentData } = await supabase
         .from('parents')
         .select('*')
         .eq('user_id', user.id)
         .single();
 
-      console.log('Parent query result:', { parentData, parentError });
-
-      if (parentError || !parentData) {
-        console.error('No parent record found for user:', user.id);
-        console.log('Make sure there is a row in the "parents" table with user_id =', user.id);
+      if (!parentData) {
         setLoading(false);
         return;
       }
-      
+
       setParentName(parentData.account_name);
 
       // Get parent's swimmers
-      const { data: swimmerLinks, error: swimmerError } = await supabase
+      const { data: swimmerLinks } = await supabase
         .from('swimmer_parents')
         .select(`
           swimmer_id,
@@ -378,23 +367,11 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             id,
             name,
             group_name,
-            group_id,
             age,
-            gender,
-            date_of_birth
+            gender
           )
         `)
         .eq('parent_id', parentData.id);
-
-      console.log('Swimmer links query result:', { swimmerLinks, swimmerError, parentId: parentData.id });
-
-      if (swimmerError) {
-        console.error('Error fetching swimmer links:', swimmerError);
-      }
-
-      if (!swimmerLinks || swimmerLinks.length === 0) {
-        console.log('No swimmers linked to this parent. Make sure there are rows in "swimmer_parents" table with parent_id =', parentData.id);
-      }
 
       if (swimmerLinks) {
         const swimmerList = swimmerLinks
@@ -402,7 +379,7 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
           .filter(Boolean);
         setSwimmers(swimmerList);
 
-        // Load stats for each swimmer
+        // Load stats logic
         const stats = {};
         const activities = [];
 
@@ -442,11 +419,7 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
               });
             });
           } else {
-            stats[swimmer.id] = {
-              totalSwims: 0,
-              recentPB: false,
-              standardsCount: 0
-            };
+            stats[swimmer.id] = { totalSwims: 0, recentPB: false, standardsCount: 0 };
           }
         }
 
@@ -469,14 +442,56 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
     );
   }
 
-  // Get swimmer group IDs for targeting
   const swimmerGroupIds = swimmers.map(s => s.group_id).filter(Boolean);
 
+  // ============================================
+  // SIMPLE VIEW - Just swimmers and activity
+  // Used when navigating to "My Swimmers" tab
+  // ============================================
+  if (simpleView) {
+    return (
+      <div className="space-y-6">
+        {/* Swimmers List */}
+        <div className="space-y-3">
+          {swimmers.map(swimmer => (
+            <SwimmerCard
+              key={swimmer.id}
+              swimmer={swimmer}
+              stats={swimmerStats[swimmer.id]}
+              onClick={() => onSelectSwimmer(swimmer)}
+            />
+          ))}
+          {swimmers.length === 0 && (
+            <div className="bg-slate-50 rounded-2xl p-8 text-center">
+              <User size={48} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-slate-500">No swimmers linked to your account yet.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Recent Activity */}
+        {recentActivity.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="font-bold text-slate-700 text-lg">Recent Activity</h3>
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
+              {recentActivity.map((activity, index) => (
+                <ActivityItem key={index} activity={activity} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ============================================
+  // FULL DASHBOARD VIEW - With tabs
+  // Used for the "Home" view
+  // ============================================
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
-        {/* Decorative elements */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
         
@@ -490,8 +505,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
               : `Tracking ${swimmers.length} swimmers`
             }
           </p>
-          
-          {/* Quick action buttons */}
           <div className="flex gap-2 mt-4">
             <button 
               onClick={() => setActiveTab('updates')}
