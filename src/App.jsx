@@ -19,6 +19,8 @@ import { FileText, Timer } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
 import AIChat from './AIChat';
 import { MessageSquare } from 'lucide-react'; // Import icon
+import AnnouncementsManager from './AnnouncementComposer';
+import { Megaphone } from 'lucide-react';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -40,6 +42,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'sparkles': Sparkles, 'scan': Scan, 'pen-tool': PenTool, 'share-2': Share2, 'download': Download, 'log-out': LogOut,
     'file-text': FileText,
     'message-square': MessageSquare,
+    'megaphone': Megaphone,
     'image': ImageIcon, 'camera': Camera, 'user': User
   };
   const LucideIcon = icons[name] || Waves;
@@ -367,6 +370,10 @@ export default function App() {
 {view === 'reports' && (
   <Reports onBack={() => navigateTo('dashboard')} />
 )}
+        {/* ANNOUNCEMENTS MANAGER */}
+{view === 'announcements' && (
+  <AnnouncementsManager onBack={() => navigateTo('dashboard')} />
+)}
 
         {/* TEST SET TRACKER */}
         {view === 'test-set' && (
@@ -430,6 +437,7 @@ const MobileNav = ({ activeTab, setActiveTab }) => {
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+    { id: 'announcements', icon: 'megaphone', label: 'Announcements' },
     { id: 'analysis', icon: 'video', label: 'AI Analysis' },
     { id: 'roster', icon: 'users', label: 'Roster' },
   ];
