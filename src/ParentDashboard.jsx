@@ -7,7 +7,8 @@ import {
   User, Clock, Trophy, TrendingUp, Camera, Calendar,
   ChevronRight, Star, Award, Zap, Target, Medal,
   Waves, Timer, ArrowUpRight, ArrowDownRight, Minus,
-  Megaphone, Bell, ChevronDown, Filter
+  Megaphone, Bell, ChevronDown, Filter, FolderOpen,
+  FileText, Link, MapPin, Users, ExternalLink
 } from 'lucide-react';
 
 // Helper function to format time from seconds to MM:SS.ms
@@ -113,12 +114,167 @@ function ActivityItem({ activity }) {
   );
 }
 
+// Calendar Placeholder Component
+function CalendarPlaceholder() {
+  // Sample upcoming events for visual appeal
+  const upcomingEvents = [
+    { type: 'meet', title: 'Nutcracker Classic', date: 'Dec 4-7', location: 'Jeff Rouse Swim Center' },
+    { type: 'practice', title: 'Taper Schedule Begins', date: 'Dec 4', location: '' },
+    { type: 'social', title: 'Holiday Party (HS)', date: 'Dec 27', location: 'Timberlake House' },
+    { type: 'meet', title: 'Duck Bowl', date: 'Jan 17-18', location: 'Jeff Rouse Swim Center' },
+  ];
+
+  const getEventIcon = (type) => {
+    switch (type) {
+      case 'meet': return <Trophy size={16} className="text-blue-500" />;
+      case 'practice': return <Waves size={16} className="text-amber-500" />;
+      case 'social': return <Users size={16} className="text-purple-500" />;
+      default: return <Calendar size={16} className="text-slate-400" />;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Coming Soon Banner */}
+      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
+        <div className="flex items-center gap-3 mb-2">
+          <Calendar size={24} />
+          <h3 className="font-bold text-lg">Team Calendar</h3>
+        </div>
+        <p className="text-indigo-100 text-sm">
+          Full calendar coming soon! You'll see meets, practice schedules for your swimmer's group, office hours, and team events all in one place.
+        </p>
+      </div>
+
+      {/* Preview of upcoming events */}
+      <div>
+        <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Coming Up</h4>
+        <div className="space-y-2">
+          {upcomingEvents.map((event, index) => (
+            <div 
+              key={index}
+              className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-4"
+            >
+              <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center">
+                {getEventIcon(event.type)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-slate-800">{event.title}</h4>
+                <p className="text-sm text-slate-500">
+                  {event.date}
+                  {event.location && ` • ${event.location}`}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* What's Coming */}
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <h4 className="font-semibold text-slate-700 mb-2">What to expect:</h4>
+        <ul className="space-y-2 text-sm text-slate-600">
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+            Meet schedules with warmup times & locations
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+            Practice times filtered to your swimmer's group
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+            Office hours & coach availability
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
+            Team social events & parties
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// Resources Placeholder Component
+function ResourcesPlaceholder() {
+  // Sample resources for visual appeal
+  const sampleResources = [
+    { type: 'link', title: 'Team Website', description: 'Official Hanover Aquatics site', icon: ExternalLink },
+    { type: 'doc', title: 'Parent Handbook', description: 'Team policies & information', icon: FileText },
+    { type: 'link', title: 'Spirit Wear Store', description: 'Order team gear', icon: ExternalLink },
+    { type: 'doc', title: 'Meet Day Guide', description: 'What to expect at meets', icon: FileText },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Coming Soon Banner */}
+      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-5 text-white">
+        <div className="flex items-center gap-3 mb-2">
+          <FolderOpen size={24} />
+          <h3 className="font-bold text-lg">Team Resources</h3>
+        </div>
+        <p className="text-emerald-100 text-sm">
+          Resource library coming soon! Quick access to important links, documents, and information that doesn't change often.
+        </p>
+      </div>
+
+      {/* Preview resources */}
+      <div>
+        <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Links</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {sampleResources.map((resource, index) => {
+            const Icon = resource.icon;
+            return (
+              <div 
+                key={index}
+                className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3 opacity-60"
+              >
+                <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center">
+                  <Icon size={18} className="text-slate-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-slate-800">{resource.title}</h4>
+                  <p className="text-xs text-slate-500">{resource.description}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* What's Coming */}
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <h4 className="font-semibold text-slate-700 mb-2">What to expect:</h4>
+        <ul className="space-y-2 text-sm text-slate-600">
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+            Important links (website, spirit wear, forms)
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+            Team documents & handbooks
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+            Pool locations & directions
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
+            Contact information for coaches & staff
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // Tab selector for dashboard sections
 function DashboardTabs({ activeTab, onChange, unreadCount }) {
   const tabs = [
     { id: 'updates', label: 'Updates', icon: Megaphone, badge: unreadCount },
-    { id: 'swimmers', label: 'My Swimmers', icon: User, badge: 0 },
-    { id: 'activity', label: 'Activity', icon: Clock, badge: 0 }
+    { id: 'calendar', label: 'Calendar', icon: Calendar, badge: 0 },
+    { id: 'resources', label: 'Resources', icon: FolderOpen, badge: 0 }
   ];
 
   return (
@@ -153,7 +309,7 @@ function DashboardTabs({ activeTab, onChange, unreadCount }) {
 }
 
 // Main Parent Dashboard Component
-export default function ParentDashboard({ user, onSelectSwimmer, simpleView = false }) {
+export default function ParentDashboard({ user, onSelectSwimmer }) {
   const [swimmers, setSwimmers] = useState([]);
   const [swimmerStats, setSwimmerStats] = useState({});
   const [recentActivity, setRecentActivity] = useState([]);
@@ -169,11 +325,13 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
 
   const loadUnreadCount = async () => {
     try {
+      // Get total announcements
       const { data: announcements } = await supabase
         .from('announcements')
         .select('id')
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
 
+      // Get user's read announcements
       const { data: reads } = await supabase
         .from('announcement_reads')
         .select('announcement_id')
@@ -190,23 +348,29 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const loadParentData = async () => {
     try {
       setLoading(true);
+      
+      console.log('Loading parent data for user:', user.id);
 
-      const { data: parentData } = await supabase
+      // Get parent info
+      const { data: parentData, error: parentError } = await supabase
         .from('parents')
         .select('*')
         .eq('user_id', user.id)
         .single();
 
-      if (!parentData) {
+      console.log('Parent query result:', { parentData, parentError });
+
+      if (parentError || !parentData) {
+        console.error('No parent record found for user:', user.id);
+        console.log('Make sure there is a row in the "parents" table with user_id =', user.id);
         setLoading(false);
         return;
       }
-
+      
       setParentName(parentData.account_name);
 
       // Get parent's swimmers
-      // Note: Removed date_of_birth here to match your schema fix
-      const { data: swimmerLinks } = await supabase
+      const { data: swimmerLinks, error: swimmerError } = await supabase
         .from('swimmer_parents')
         .select(`
           swimmer_id,
@@ -214,11 +378,23 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
             id,
             name,
             group_name,
+            group_id,
             age,
-            gender
+            gender,
+            date_of_birth
           )
         `)
         .eq('parent_id', parentData.id);
+
+      console.log('Swimmer links query result:', { swimmerLinks, swimmerError, parentId: parentData.id });
+
+      if (swimmerError) {
+        console.error('Error fetching swimmer links:', swimmerError);
+      }
+
+      if (!swimmerLinks || swimmerLinks.length === 0) {
+        console.log('No swimmers linked to this parent. Make sure there are rows in "swimmer_parents" table with parent_id =', parentData.id);
+      }
 
       if (swimmerLinks) {
         const swimmerList = swimmerLinks
@@ -226,7 +402,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
           .filter(Boolean);
         setSwimmers(swimmerList);
 
-        // Load stats logic (unchanged)
+        // Load stats for each swimmer
         const stats = {};
         const activities = [];
 
@@ -266,7 +442,11 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
               });
             });
           } else {
-            stats[swimmer.id] = { totalSwims: 0, recentPB: false, standardsCount: 0 };
+            stats[swimmer.id] = {
+              totalSwims: 0,
+              recentPB: false,
+              standardsCount: 0
+            };
           }
         }
 
@@ -289,117 +469,62 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
     );
   }
 
+  // Get swimmer group IDs for targeting
   const swimmerGroupIds = swimmers.map(s => s.group_id).filter(Boolean);
 
   return (
     <div className="space-y-6">
-      
-      {/* 1. Welcome Header (Only shown in standard dashboard view) */}
-      {!simpleView && (
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+      {/* Welcome Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
+        {/* Decorative elements */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+        
+        <div className="relative">
+          <h1 className="text-2xl font-bold mb-1">
+            Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
+          </h1>
+          <p className="text-blue-100">
+            {swimmers.length === 1 
+              ? `Tracking ${swimmers[0].name}'s swimming journey`
+              : `Tracking ${swimmers.length} swimmers`
+            }
+          </p>
           
-          <div className="relative">
-            <h1 className="text-2xl font-bold mb-1">
-              Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
-            </h1>
-            <p className="text-blue-100">
-              {swimmers.length === 1 
-                ? `Tracking ${swimmers[0].name}'s swimming journey`
-                : `Tracking ${swimmers.length} swimmers`
-              }
-            </p>
-            <div className="flex gap-2 mt-4">
-              <button 
-                onClick={() => setActiveTab('updates')}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
-              >
-                <Bell size={14} />
-                {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
-              </button>
-            </div>
+          {/* Quick action buttons */}
+          <div className="flex gap-2 mt-4">
+            <button 
+              onClick={() => setActiveTab('updates')}
+              className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Bell size={14} />
+              {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* 2. Tabs (Hidden in simpleView) */}
-      {!simpleView && (
-        <DashboardTabs 
-          activeTab={activeTab} 
-          onChange={setActiveTab}
-          unreadCount={unreadCount}
-        />
-      )}
+      {/* Tab Navigation */}
+      <DashboardTabs 
+        activeTab={activeTab} 
+        onChange={setActiveTab}
+        unreadCount={unreadCount}
+      />
 
-      {/* 3. Daily Brief (Hidden in simpleView) */}
-      {!simpleView && activeTab === 'updates' && (
+      {/* Tab Content */}
+      {activeTab === 'updates' && (
         <DailyBrief 
           userId={user.id} 
           swimmerGroups={swimmerGroupIds}
         />
       )}
 
-      {/* 4. Swimmers List (Shown if tab is active OR if in simpleView) */}
-      {(simpleView || activeTab === 'swimmers') && (
-        <div className="space-y-3">
-          {/* Optional header for simple view to separate sections */}
-          {simpleView && <h3 className="font-bold text-slate-700 text-lg">Swimmers</h3>}
-          
-          {swimmers.map(swimmer => (
-            <SwimmerCard
-              key={swimmer.id}
-              swimmer={swimmer}
-              stats={swimmerStats[swimmer.id]}
-              onClick={() => onSelectSwimmer(swimmer)}
-            />
-          ))}
-          {swimmers.length === 0 && (
-            <div className="bg-slate-50 rounded-2xl p-8 text-center">
-              <User size={48} className="mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500">No swimmers linked to your account yet.</p>
-            </div>
-          )}
-        </div>
+      {activeTab === 'calendar' && (
+        <CalendarPlaceholder />
       )}
 
-      {/* 5. Activity Feed (Shown if tab is active OR if in simpleView) */}
-      {(simpleView || activeTab === 'activity') && (
-        <div className="space-y-4">
-          {simpleView && <h3 className="font-bold text-slate-700 text-lg pt-4">Recent Activity</h3>}
-          
-          {recentActivity.length > 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
-              {recentActivity.map((activity, index) => (
-                <ActivityItem key={index} activity={activity} />
-              ))}
-            </div>
-          ) : (
-            <div className="bg-slate-50 rounded-2xl p-8 text-center">
-              <Clock size={48} className="mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500">No recent activity</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 6. Quick Links (Hidden in simpleView to reduce clutter) */}
-      {!simpleView && (
-        <div className="grid grid-cols-2 gap-3">
-          <button 
-            onClick={() => onSelectSwimmer && swimmers[0] && onSelectSwimmer(swimmers[0])}
-            className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all"
-          >
-            <Camera size={24} className="text-blue-500 mb-2" />
-            <p className="font-semibold text-slate-800">Upload Video</p>
-            <p className="text-xs text-slate-500">Share race footage</p>
-          </button>
-          <button className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all">
-            <Target size={24} className="text-emerald-500 mb-2" />
-            <p className="font-semibold text-slate-800">Time Standards</p>
-            <p className="text-xs text-slate-500">View progress</p>
-          </button>
-        </div>
+      {activeTab === 'resources' && (
+        <ResourcesPlaceholder />
       )}
     </div>
   );
