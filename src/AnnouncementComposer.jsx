@@ -309,26 +309,34 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
           {showAdvanced && (
             <div className="space-y-3 pt-2 border-t border-slate-100">
               {/* Pin Option */}
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div className={`w-10 h-6 rounded-full transition-colors ${isPinned ? 'bg-blue-600' : 'bg-slate-200'}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform mt-0.5 ${isPinned ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}`} />
+              <button
+                type="button"
+                onClick={() => setIsPinned(!isPinned)}
+                className="flex items-center gap-3 cursor-pointer w-full"
+              >
+                <div className={`w-10 h-6 rounded-full transition-colors relative ${isPinned ? 'bg-blue-600' : 'bg-slate-200'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm absolute top-0.5 transition-all ${isPinned ? 'left-4' : 'left-0.5'}`} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Pin size={16} className="text-slate-500" />
+                  <Pin size={16} className={isPinned ? 'text-blue-600' : 'text-slate-500'} />
                   <span className="text-sm text-slate-700">Pin to top</span>
                 </div>
-              </label>
+              </button>
 
               {/* Urgent Option */}
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div className={`w-10 h-6 rounded-full transition-colors ${isUrgent ? 'bg-red-500' : 'bg-slate-200'}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform mt-0.5 ${isUrgent ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}`} />
+              <button
+                type="button"
+                onClick={() => setIsUrgent(!isUrgent)}
+                className="flex items-center gap-3 cursor-pointer w-full"
+              >
+                <div className={`w-10 h-6 rounded-full transition-colors relative ${isUrgent ? 'bg-red-500' : 'bg-slate-200'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm absolute top-0.5 transition-all ${isUrgent ? 'left-4' : 'left-0.5'}`} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Bell size={16} className="text-slate-500" />
+                  <Bell size={16} className={isUrgent ? 'text-red-500' : 'text-slate-500'} />
                   <span className="text-sm text-slate-700">Mark as urgent</span>
                 </div>
-              </label>
+              </button>
 
               {/* Expiration Date */}
               <div>
