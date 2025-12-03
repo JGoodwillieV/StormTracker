@@ -259,6 +259,7 @@ export default function App() {
               <ParentDashboard 
                 user={session.user}
                 onSelectSwimmer={handleParentSelectSwimmer}
+                simpleView={true}
               />
             </div>
           )}
