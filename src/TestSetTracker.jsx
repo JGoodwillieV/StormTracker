@@ -387,7 +387,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-4 space-y-4 max-w-2xl mx-auto pb-8">
+          <div className="p-4 space-y-4 max-w-2xl mx-auto pb-40">
             {/* Group Selection */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
               <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -529,7 +529,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
                     <input
                       type="number"
                       value={reps}
-                      onChange={(e) => setReps(Math.max(1, parseInt(e.target.value) || 1))}
+                      onChange={(e) => setReps(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value)))}
                       className="w-full min-w-0 text-center text-xl font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl py-2 px-1"
                     />
                     <button
