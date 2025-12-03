@@ -219,8 +219,7 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             group_name,
             group_id,
             age,
-            gender,
-            date_of_birth
+            gender
           )
         `)
         .eq('parent_id', parentData.id);
