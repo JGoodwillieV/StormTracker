@@ -153,7 +153,7 @@ function DashboardTabs({ activeTab, onChange, unreadCount }) {
 }
 
 // Main Parent Dashboard Component
-export default function ParentDashboard({ user, onSelectSwimmer }) {
+export default function ParentDashboard({ user, onSelectSwimmer, simpleView = false }) {
   const [swimmers, setSwimmers] = useState([]);
   const [swimmerStats, setSwimmerStats] = useState({});
   const [recentActivity, setRecentActivity] = useState([]);
@@ -169,13 +169,11 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
 
   const loadUnreadCount = async () => {
     try {
-      // Get total announcements
       const { data: announcements } = await supabase
         .from('announcements')
         .select('id')
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
 
-      // Get user's read announcements
       const { data: reads } = await supabase
         .from('announcement_reads')
         .select('announcement_id')
@@ -193,23 +191,22 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
     try {
       setLoading(true);
 
-      // Get parent info
-      const { data: parentData, error: parentError } = await supabase
+      const { data: parentData } = await supabase
         .from('parents')
         .select('*')
         .eq('user_id', user.id)
         .single();
 
-      if (parentData) {
-        setParentName(parentData.account_name);
-      } else {
-        console.error('No parent record found for user:', user.id);
+      if (!parentData) {
         setLoading(false);
         return;
       }
 
+      setParentName(parentData.account_name);
+
       // Get parent's swimmers
-      const { data: swimmerLinks, error: swimmerError } = await supabase
+      // Note: Removed date_of_birth here to match your schema fix
+      const { data: swimmerLinks } = await supabase
         .from('swimmer_parents')
         .select(`
           swimmer_id,
@@ -217,7 +214,6 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             id,
             name,
             group_name,
-            group_id,
             age,
             gender
           )
@@ -230,7 +226,7 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
           .filter(Boolean);
         setSwimmers(swimmerList);
 
-        // Load stats for each swimmer
+        // Load stats logic (unchanged)
         const stats = {};
         const activities = [];
 
@@ -270,11 +266,7 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
               });
             });
           } else {
-            stats[swimmer.id] = {
-              totalSwims: 0,
-              recentPB: false,
-              standardsCount: 0
-            };
+            stats[swimmer.id] = { totalSwims: 0, recentPB: false, standardsCount: 0 };
           }
         }
 
@@ -297,58 +289,63 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
     );
   }
 
-  // Get swimmer group IDs for targeting
   const swimmerGroupIds = swimmers.map(s => s.group_id).filter(Boolean);
 
   return (
     <div className="space-y-6">
-      {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
-        {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
-        
-        <div className="relative">
-          <h1 className="text-2xl font-bold mb-1">
-            Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
-          </h1>
-          <p className="text-blue-100">
-            {swimmers.length === 1 
-              ? `Tracking ${swimmers[0].name}'s swimming journey`
-              : `Tracking ${swimmers.length} swimmers`
-            }
-          </p>
+      
+      {/* 1. Welcome Header (Only shown in standard dashboard view) */}
+      {!simpleView && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
           
-          {/* Quick action buttons */}
-          <div className="flex gap-2 mt-4">
-            <button 
-              onClick={() => setActiveTab('updates')}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Bell size={14} />
-              {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
-            </button>
+          <div className="relative">
+            <h1 className="text-2xl font-bold mb-1">
+              Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
+            </h1>
+            <p className="text-blue-100">
+              {swimmers.length === 1 
+                ? `Tracking ${swimmers[0].name}'s swimming journey`
+                : `Tracking ${swimmers.length} swimmers`
+              }
+            </p>
+            <div className="flex gap-2 mt-4">
+              <button 
+                onClick={() => setActiveTab('updates')}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Bell size={14} />
+                {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Tab Navigation */}
-      <DashboardTabs 
-        activeTab={activeTab} 
-        onChange={setActiveTab}
-        unreadCount={unreadCount}
-      />
+      {/* 2. Tabs (Hidden in simpleView) */}
+      {!simpleView && (
+        <DashboardTabs 
+          activeTab={activeTab} 
+          onChange={setActiveTab}
+          unreadCount={unreadCount}
+        />
+      )}
 
-      {/* Tab Content */}
-      {activeTab === 'updates' && (
+      {/* 3. Daily Brief (Hidden in simpleView) */}
+      {!simpleView && activeTab === 'updates' && (
         <DailyBrief 
           userId={user.id} 
           swimmerGroups={swimmerGroupIds}
         />
       )}
 
-      {activeTab === 'swimmers' && (
+      {/* 4. Swimmers List (Shown if tab is active OR if in simpleView) */}
+      {(simpleView || activeTab === 'swimmers') && (
         <div className="space-y-3">
+          {/* Optional header for simple view to separate sections */}
+          {simpleView && <h3 className="font-bold text-slate-700 text-lg">Swimmers</h3>}
+          
           {swimmers.map(swimmer => (
             <SwimmerCard
               key={swimmer.id}
@@ -361,14 +358,16 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             <div className="bg-slate-50 rounded-2xl p-8 text-center">
               <User size={48} className="mx-auto text-slate-300 mb-3" />
               <p className="text-slate-500">No swimmers linked to your account yet.</p>
-              <p className="text-sm text-slate-400 mt-1">Contact your coach if this seems incorrect.</p>
             </div>
           )}
         </div>
       )}
 
-      {activeTab === 'activity' && (
+      {/* 5. Activity Feed (Shown if tab is active OR if in simpleView) */}
+      {(simpleView || activeTab === 'activity') && (
         <div className="space-y-4">
+          {simpleView && <h3 className="font-bold text-slate-700 text-lg pt-4">Recent Activity</h3>}
+          
           {recentActivity.length > 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
               {recentActivity.map((activity, index) => (
@@ -379,28 +378,29 @@ export default function ParentDashboard({ user, onSelectSwimmer }) {
             <div className="bg-slate-50 rounded-2xl p-8 text-center">
               <Clock size={48} className="mx-auto text-slate-300 mb-3" />
               <p className="text-slate-500">No recent activity</p>
-              <p className="text-sm text-slate-400 mt-1">Swim times and achievements will appear here</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Quick Links - Always visible at bottom */}
-      <div className="grid grid-cols-2 gap-3">
-        <button 
-          onClick={() => onSelectSwimmer && swimmers[0] && onSelectSwimmer(swimmers[0])}
-          className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all"
-        >
-          <Camera size={24} className="text-blue-500 mb-2" />
-          <p className="font-semibold text-slate-800">Upload Video</p>
-          <p className="text-xs text-slate-500">Share race footage</p>
-        </button>
-        <button className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all">
-          <Target size={24} className="text-emerald-500 mb-2" />
-          <p className="font-semibold text-slate-800">Time Standards</p>
-          <p className="text-xs text-slate-500">View progress</p>
-        </button>
-      </div>
+      {/* 6. Quick Links (Hidden in simpleView to reduce clutter) */}
+      {!simpleView && (
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={() => onSelectSwimmer && swimmers[0] && onSelectSwimmer(swimmers[0])}
+            className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all"
+          >
+            <Camera size={24} className="text-blue-500 mb-2" />
+            <p className="font-semibold text-slate-800">Upload Video</p>
+            <p className="text-xs text-slate-500">Share race footage</p>
+          </button>
+          <button className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-blue-300 hover:shadow-sm transition-all">
+            <Target size={24} className="text-emerald-500 mb-2" />
+            <p className="font-semibold text-slate-800">Time Standards</p>
+            <p className="text-xs text-slate-500">View progress</p>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
