@@ -413,6 +413,7 @@ export default function App() {
 const MobileNav = ({ activeTab, setActiveTab }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
+    { id: 'announcements', icon: 'megaphone', label: 'Updates' },
     { id: 'analysis', icon: 'video', label: 'Analyze' },
     { id: 'roster', icon: 'users', label: 'Roster' },
   ];
