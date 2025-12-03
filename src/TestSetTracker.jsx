@@ -789,7 +789,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
         </div>
 
         {/* Bottom Controls */}
-        <div className="bg-slate-800 px-4 py-3 flex items-center justify-between shrink-0 border-t border-slate-700">
+        <div className="bg-slate-800 px-4 pt-4 pb-24 md:py-4 flex items-center justify-between shrink-0 border-t border-slate-700">
           <div className="flex items-center gap-2">
             {!isRunning && masterClock === 0 ? (
               <button
