@@ -67,51 +67,76 @@ function parseSeedTime(timeStr) {
 
 /**
  * Parse a D01 record (individual entry)
- * Fixed-width format - positions are critical
+ * Fixed-width format - positions based on actual SD3 file analysis
+ * 
+ * Example line:
+ * "D01VA      Eliason, Colin A            E39804EAD8B6AUSA0303200817MM  502 24 15OV           23.89Y"
+ * Positions (1-indexed):
+ * 1-3: Record type "D01"
+ * 4-5: LSC code "VA"
+ * 12-39: Swimmer name "Eliason, Colin A"
+ * 40-51: USA Swimming ID (12 chars) "E39804EAD8B6"
+ * 52-54: Country "USA"
+ * 55-62: Birth date MMDDYYYY "03032008"
+ * 63-64: Age "17"
+ * 65: Gender "M"
+ * 66: Attached "M"
+ * 68-72: Event code (right-aligned) " 502" or "2001" or "1002"
+ * 73-75: Event number " 24"
+ * 76-80: Age group "15OV" or "1314"
+ * 81-96: Seed time (right-aligned) "23.89Y" or "1:45.55Y"
  */
 function parseD01Record(line) {
-  // D01 record structure (approximate positions based on sample):
-  // Pos 0-2: Record type "D01"
-  // Pos 3-4: LSC code (e.g., "VA")
-  // Pos 11-35: Swimmer name (Last, First MI)
-  // Pos 36-47: USA Swimming ID (hex)
-  // Pos 48-50: Country code
-  // Pos 51-58: Birth date (MMDDYYYY)
-  // Pos 59-60: Age
-  // Pos 61: Gender (M/F)
-  // Pos 62: Attached flag
-  // Pos 64-68: Event code (distance + stroke)
-  // Pos 69-71: Event number in meet
-  // Pos 73-76: Age group
-  // Pos 87-95: Seed time
-  
   try {
-    const swimmerName = line.substring(11, 36).trim();
-    const usaSwimmingId = line.substring(36, 48).trim();
-    const birthDate = line.substring(51, 59).trim();
-    const age = parseInt(line.substring(59, 61).trim(), 10);
-    const gender = line.substring(61, 62).trim();
+    // Use 0-indexed positions (subtract 1 from the 1-indexed positions above)
+    const swimmerName = line.substring(11, 39).trim();
+    const usaSwimmingId = line.substring(39, 51).trim();
+    const birthDate = line.substring(54, 62).trim();
+    const ageStr = line.substring(62, 64).trim();
+    const age = parseInt(ageStr, 10);
+    const gender = line.substring(64, 65).trim();
     
-    // Event info - need to find it carefully
-    // Looking at sample: "  502 24 15OV           23.89Y"
-    // Event code starts around position 63-64
-    const eventSection = line.substring(63, 100);
+    // Event section - need to parse more carefully
+    // The format varies slightly, so let's extract the whole section and parse it
+    const eventSection = line.substring(66, 100).trim();
     
-    // Parse event code (first non-space sequence of digits)
-    const eventMatch = eventSection.match(/^\s*(\d+)\s*(\d+)\s*(\w+)\s+([\d:\.]+[YLX]?)/);
+    // Event section format: "502 24 15OV           23.89Y" or "2001 12 15OV         1:45.55Y"
+    // Split by whitespace and parse
+    const parts = eventSection.split(/\s+/).filter(p => p.length > 0);
     
-    if (!eventMatch) {
-      console.warn('Could not parse event section:', eventSection);
+    if (parts.length < 4) {
+      console.warn('Could not parse event section:', eventSection, 'parts:', parts);
       return null;
     }
     
-    const eventCode = eventMatch[1];
-    const eventNumber = parseInt(eventMatch[2], 10);
-    const ageGroup = eventMatch[3];
-    const seedTimeStr = eventMatch[4];
+    const eventCode = parts[0]; // "502" or "2001" or "1002"
+    const eventNumber = parseInt(parts[1], 10); // "24" -> 24
+    const ageGroup = parts[2]; // "15OV" or "1314" or "1314B"
+    const seedTimeStr = parts[3]; // "23.89Y" or "1:45.55Y"
     
-    const eventInfo = parseEventCode(eventCode);
-    const seedTime = parseSeedTime(seedTimeStr);
+    // Parse event code - last digit is stroke, rest is distance
+    const strokeCode = eventCode.slice(-1);
+    const distance = eventCode.slice(0, -1);
+    const stroke = STROKE_CODES[strokeCode] || 'Unknown';
+    const eventName = `${distance} ${stroke}`;
+    
+    // Parse seed time
+    let seedTimeSeconds = null;
+    let seedTimeDisplay = null;
+    
+    if (seedTimeStr) {
+      const cleaned = seedTimeStr.replace(/[YLX]/g, '').trim();
+      seedTimeDisplay = cleaned;
+      
+      if (cleaned.includes(':')) {
+        const timeParts = cleaned.split(':');
+        const minutes = parseInt(timeParts[0], 10);
+        const seconds = parseFloat(timeParts[1]);
+        seedTimeSeconds = minutes * 60 + seconds;
+      } else if (cleaned && !isNaN(parseFloat(cleaned))) {
+        seedTimeSeconds = parseFloat(cleaned);
+      }
+    }
     
     // Check for bonus indicator (B in age group)
     const isBonus = ageGroup.includes('B');
@@ -125,13 +150,13 @@ function parseD01Record(line) {
       gender: gender === 'M' ? 'Male' : gender === 'F' ? 'Female' : null,
       eventCode,
       eventNumber: isNaN(eventNumber) ? null : eventNumber,
-      eventName: eventInfo.displayName,
-      distance: eventInfo.distance,
-      stroke: eventInfo.stroke,
+      eventName,
+      distance: parseInt(distance, 10),
+      stroke,
       ageGroup: cleanAgeGroup,
       isBonus,
-      seedTimeSeconds: seedTime?.totalSeconds || null,
-      seedTimeDisplay: seedTime?.display || null
+      seedTimeSeconds,
+      seedTimeDisplay
     };
   } catch (error) {
     console.error('Error parsing D01 record:', error, line);
