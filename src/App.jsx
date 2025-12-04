@@ -227,23 +227,24 @@ export default function App() {
   }
 
   if (loading || roleLoading) return <div className="h-screen flex items-center justify-center">Loading...</div>
+  // Handle invite links
+  const path = window.location.pathname;
+  const inviteMatch = path.match(/^\/invite\/(.+)$/);
+
+  if (inviteMatch) {
+    return (
+      <InviteLanding 
+        token={inviteMatch[1]} 
+        onComplete={() => {
+          window.history.pushState({}, '', '/');
+          window.location.reload();
+        }} 
+      />
+    );
+  }
+  // -------------------------------
   if (!session) return <Login />
 
-// Handle invite links
-const path = window.location.pathname;
-const inviteMatch = path.match(/^\/invite\/(.+)$/);
-
-if (inviteMatch) {
-  return (
-    <InviteLanding 
-      token={inviteMatch[1]} 
-      onComplete={() => {
-        window.history.pushState({}, '', '/');
-        window.location.reload();
-      }} 
-    />
-  );
-}
   
   // Parent view - different layout
   if (userRole === 'parent') {
@@ -562,8 +563,7 @@ const ParentSidebar = ({ activeTab, setActiveTab, onLogout }) => {
   );
 };
 
-const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
-  const activeCount = swimmers ? swimmers.length : 0;
+const Dashboard = ({ navigateTo, swimmers, stats, onLogout, onInviteParent }) => {  const activeCount = swimmers ? swimmers.length : 0;
 
   return (
     <div className="p-4 md:p-8 space-y-8 overflow-y-auto h-full pb-24 md:pb-8">
