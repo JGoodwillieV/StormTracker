@@ -103,15 +103,34 @@ function ActivityItem({ activity }) {
   };
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-      <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center shadow-sm">
+    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl">
+      <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center shadow-sm shrink-0 mt-0.5">
         {getIcon()}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-slate-800 font-medium truncate">{activity.title}</p>
-        <p className="text-xs text-slate-500">{activity.subtitle}</p>
+        {/* Removed 'truncate' to allow full event name wrapping */}
+        <p className="text-sm text-slate-800 font-medium leading-tight mb-0.5">
+          {activity.title}
+        </p>
+        
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-xs text-slate-500">{activity.subtitle}</p>
+          
+          {/* Show Time Drop/Add if available */}
+          {activity.diffLabel && (
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+              activity.isDrop 
+                ? 'bg-emerald-100 text-emerald-700' 
+                : 'bg-red-100 text-red-700'
+            }`}>
+              {activity.diffLabel}
+            </span>
+          )}
+        </div>
       </div>
-      <span className="text-xs text-slate-400 shrink-0">{activity.time}</span>
+      <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap mt-0.5">
+        {activity.time}
+      </span>
     </div>
   );
 }
