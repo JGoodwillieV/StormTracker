@@ -270,7 +270,7 @@ function ResourcesPlaceholder() {
 }
 
 // Tab selector for dashboard sections
-function DashboardTabs({ activeTab, onChange, unreadCount }) {
+function DashboardTabs({ activeTab, onChange, unreadCount, actionCount }) {
   const tabs = [
     { id: 'updates', label: 'Updates', icon: Megaphone, badge: unreadCount },
     { id: 'actions', label: 'Actions', icon: Bell, badge: actionCount },
