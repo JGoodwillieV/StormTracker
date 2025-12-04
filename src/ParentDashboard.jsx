@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import DailyBrief from './DailyBrief';
+import ActionRequiredBanner from './ActionRequiredBanner';
+import ActionCenter from './ActionCenter';
 import {
   User, Clock, Trophy, TrendingUp, Camera, Calendar,
   ChevronRight, Star, Award, Zap, Target, Medal,
@@ -271,6 +273,7 @@ function ResourcesPlaceholder() {
 function DashboardTabs({ activeTab, onChange, unreadCount }) {
   const tabs = [
     { id: 'updates', label: 'Updates', icon: Megaphone, badge: unreadCount },
+    { id: 'actions', label: 'Actions', icon: Bell, badge: actionCount },
     { id: 'calendar', label: 'Calendar', icon: Calendar, badge: 0 },
     { id: 'resources', label: 'Resources', icon: FolderOpen, badge: 0 }
   ];
@@ -315,10 +318,12 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const [parentName, setParentName] = useState('');
   const [activeTab, setActiveTab] = useState('updates');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [actionCount, setActionCount] = useState(0);
 
   useEffect(() => {
     loadParentData();
     loadUnreadCount();
+    loadActionCount();
   }, [user]);
 
   const loadUnreadCount = async () => {
@@ -340,6 +345,16 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
       console.error('Error loading unread count:', error);
     }
   };
+
+  const loadActionCount = async () => {
+  try {
+    const { data } = await supabase
+      .rpc('get_parent_pending_actions', { parent_user_uuid: user.id });
+    setActionCount(data?.length || 0);
+  } catch (error) {
+    console.error('Error loading action count:', error);
+  }
+};
 
   const loadParentData = async () => {
     try {
@@ -517,11 +532,18 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
         </div>
       </div>
 
+{/* ACTION REQUIRED BANNER  */}
+    <ActionRequiredBanner 
+      userId={user.id}
+      onActionClick={() => setActiveTab('actions')}
+    />
+      
       {/* Tab Navigation */}
       <DashboardTabs 
         activeTab={activeTab} 
         onChange={setActiveTab}
         unreadCount={unreadCount}
+        actionCount={actionCount}
       />
 
       {/* Tab Content */}
@@ -530,6 +552,10 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
           userId={user.id} 
           swimmerGroups={swimmerGroupIds}
         />
+      )}
+
+      {activeTab === 'actions' && (
+        <ActionCenter userId={user.id} parentId={parentData?.id} />
       )}
 
       {activeTab === 'calendar' && (
