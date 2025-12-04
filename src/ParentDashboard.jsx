@@ -316,6 +316,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [parentName, setParentName] = useState('');
+  const [parentId, setParentId] = useState(null);
   const [activeTab, setActiveTab] = useState('updates');
   const [unreadCount, setUnreadCount] = useState(0);
   const [actionCount, setActionCount] = useState(0);
@@ -372,6 +373,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
       }
 
       setParentName(parentData.account_name);
+      setParentId(parentData.id);
 
       // Get parent's swimmers
       const { data: swimmerLinks } = await supabase
@@ -555,7 +557,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
       )}
 
       {activeTab === 'actions' && (
-        <ActionCenter userId={user.id} parentId={parentData?.id} />
+        <ActionCenter userId={user.id} parentId={parentId} />
       )}
 
       {activeTab === 'calendar' && (
