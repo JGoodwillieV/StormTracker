@@ -98,6 +98,22 @@ export default function InviteLanding({ token, onComplete }) {
       }
 
       if (session) {
+        // 1. Force create the user profile as 'parent'
+        const { error: profileError } = await supabase
+          .from('user_profiles')
+          .upsert({
+            id: session.user.id,
+            role: 'parent',
+            display_name: email.split('@')[0],
+            first_login: true
+          });
+          
+        if (profileError) console.error('Profile creation error:', profileError);
+        // ----------------------
+
+        // 2. Then accept the invite logic
+        await acceptInvite(session.user.id);
+      }
         await acceptInvite(session.user.id);
       }
     } catch (err) {
