@@ -22,7 +22,7 @@ import { MessageSquare } from 'lucide-react'; // Import icon
 import AnnouncementsManager from './AnnouncementComposer';
 import { Megaphone } from 'lucide-react';
 import MeetEntriesManager from './MeetEntriesManager';
-import { FileText } from 'lucide-react';
+
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
