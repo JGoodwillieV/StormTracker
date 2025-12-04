@@ -48,7 +48,6 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'file-text': FileText,
     'message-square': MessageSquare,
     'megaphone': Megaphone,
-    'file-text': FileText,
     'user-plus': UserPlus,
     'image': ImageIcon, 'camera': Camera, 'user': User
   };
