@@ -82,7 +82,7 @@ export default function App() {
     }
   }, [session]);
 
-  const fetchUserRole = async () => {
+const fetchUserRole = async () => {
     try {
       setRoleLoading(true);
       
@@ -94,20 +94,18 @@ export default function App() {
         .single();
 
       if (error) {
-        // If no profile exists, create one as coach (for existing users)
+        // If no profile exists...
         if (error.code === 'PGRST116') {
-
-// If we are on an invite page, DO NOT create a default coach profile.
+          
+          // --- FIX: Prevent creating Coach profile on Invite pages ---
+          // If we are on an invite page, DO NOT create a default coach profile.
           // Let the InviteLanding component handle the profile creation.
           if (window.location.pathname.startsWith('/invite')) {
              return;
           }
-          // ----------------------
+          // ---------------------------------------------------------
 
-          const { error: insertError } = await supabase
-            .from('user_profiles')
-            .insert({
-          
+          // Create one as coach (for existing users or direct signups)
           const { error: insertError } = await supabase
             .from('user_profiles')
             .insert({ 
