@@ -24,6 +24,20 @@ const formatTime = (seconds) => {
   return secs;
 };
 
+// Helper to convert time string (e.g. "1:02.50") to seconds for math
+const timeToSeconds = (timeStr) => {
+  if (!timeStr) return null;
+  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
+  const parts = cleanStr.split(':');
+  let val = 0;
+  if (parts.length === 2) {
+    val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+  } else {
+    val = parseFloat(parts[0]);
+  }
+  return isNaN(val) ? null : val;
+};
+
 // Helper to calculate age from DOB
 const calculateAge = (dob) => {
   if (!dob) return null;
@@ -376,7 +390,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   }
 };
 
-  const loadParentData = async () => {
+const loadParentData = async () => {
     try {
       setLoading(true);
 
@@ -425,7 +439,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
             .select('*')
             .eq('swimmer_id', swimmer.id)
             .order('date', { ascending: false })
-            .limit(20);
+            .limit(50); // Limit increased to 50 to find previous swims for comparison
 
           if (times && times.length > 0) {
             const thirtyDaysAgo = new Date();
@@ -443,13 +457,39 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
               standardsCount
             };
 
+            // Process recent activities
             times.slice(0, 3).forEach(time => {
+              // 1. Find the most recent previous swim for this specific event
+              const prevSwim = times.find(t => 
+                t.event === time.event && 
+                new Date(t.date) < new Date(time.date)
+              );
+
+              let diffLabel = null;
+              let isDrop = false;
+
+              // 2. Calculate the difference if a previous swim exists
+              if (prevSwim) {
+                const currentSec = timeToSeconds(time.time);
+                const prevSec = timeToSeconds(prevSwim.time);
+                
+                if (currentSec && prevSec) {
+                  const diff = currentSec - prevSec;
+                  isDrop = diff < 0;
+                  // Format as "+0.55s" or "-1.20s"
+                  diffLabel = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}s`;
+                }
+              }
+
+              // 3. Create the activity object with the new data
               activities.push({
                 type: time.is_best_time ? 'pb' : 'meet',
                 title: time.is_best_time 
                   ? `${swimmer.name} - New PB!` 
                   : `${swimmer.name} - ${time.event}`,
-                subtitle: `${time.time} at ${time.meet_name || 'Meet'}`,
+                subtitle: `${time.time} at ${time.meet_name || 'Meet'}`, // Fix: Use raw string to avoid NaN
+                diffLabel, // This is what the UI needs for the badge
+                isDrop,    // This determines if it's Green or Red
                 time: new Date(time.date).toLocaleDateString(),
                 date: new Date(time.date)
               });
