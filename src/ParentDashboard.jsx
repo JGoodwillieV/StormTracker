@@ -430,7 +430,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
                 title: time.is_best_time 
                   ? `${swimmer.name} - New PB!` 
                   : `${swimmer.name} - ${time.event}`,
-                subtitle: `${formatTime(time.time)} at ${time.meet_name || 'Meet'}`,
+                subtitle: `${time.time} at ${time.meet_name || 'Meet'}`,
                 time: new Date(time.date).toLocaleDateString(),
                 date: new Date(time.date)
               });
