@@ -22,7 +22,9 @@ import { MessageSquare } from 'lucide-react'; // Import icon
 import AnnouncementsManager from './AnnouncementComposer';
 import { Megaphone } from 'lucide-react';
 import MeetEntriesManager from './MeetEntriesManager';
-
+import InviteParentModal from './InviteParentModal';
+import InviteLanding from './InviteLanding';
+import { UserPlus } from 'lucide-react';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -32,6 +34,7 @@ import {
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
   PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User
 } from 'lucide-react'
+
 
 // --- Icon Helper ---
 const Icon = ({ name, size = 20, className = "" }) => {
@@ -46,6 +49,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'message-square': MessageSquare,
     'megaphone': Megaphone,
     'file-text': FileText,
+    'user-plus': UserPlus,
     'image': ImageIcon, 'camera': Camera, 'user': User
   };
   const LucideIcon = icons[name] || Waves;
@@ -59,6 +63,7 @@ export default function App() {
   const [selectedSwimmer, setSelectedSwimmer] = useState(null)
   const [currentAnalysis, setCurrentAnalysis] = useState(null) 
   const [loading, setLoading] = useState(true)
+  const [showInviteModal, setShowInviteModal] = useState(false);
   
   // User role state
   const [userRole, setUserRole] = useState(null) // 'coach' or 'parent'
@@ -224,6 +229,22 @@ export default function App() {
   if (loading || roleLoading) return <div className="h-screen flex items-center justify-center">Loading...</div>
   if (!session) return <Login />
 
+// Handle invite links
+const path = window.location.pathname;
+const inviteMatch = path.match(/^\/invite\/(.+)$/);
+
+if (inviteMatch) {
+  return (
+    <InviteLanding 
+      token={inviteMatch[1]} 
+      onComplete={() => {
+        window.history.pushState({}, '', '/');
+        window.location.reload();
+      }} 
+    />
+  );
+}
+  
   // Parent view - different layout
   if (userRole === 'parent') {
     return (
@@ -320,6 +341,7 @@ export default function App() {
                 swimmers={swimmers} 
                 stats={stats} // Pass real stats
                 onLogout={handleLogout} 
+                onInviteParent={() => setShowInviteModal(true)}
             />
         )}
         
@@ -407,7 +429,13 @@ export default function App() {
         
         
       </main>
-      
+      {/* Invite Parent Modal */}
+      {showInviteModal && (
+        <InviteParentModal 
+          swimmers={swimmers} 
+          onClose={() => setShowInviteModal(false)} 
+        />
+      )}
       {/* PWA Install Prompt */}
       <InstallPrompt />
     </div>
@@ -606,6 +634,10 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout }) => {
            <div onClick={() => navigateTo('reports')} className="bg-purple-50 border border-purple-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-purple-100 transition-colors">
                 <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="file-text" size={20}/></div>
                 <div className="font-bold text-purple-900">Team Reports</div>
+          </div>
+           <div onClick={onInviteParent} className="bg-purple-50 border border-purple-100 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-purple-100 transition-colors" >
+                <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm"><Icon name="user-plus" size={20}/></div>
+                <div className="font-bold text-purple-900">Invite Parents</div>
           </div>
          </div>
          
