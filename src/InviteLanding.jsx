@@ -53,7 +53,7 @@ export default function InviteLanding({ token, onComplete }) {
     }
   };
 
-  const handleAuth = async (e) => {
+const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError(null);
     setAuthLoading(true);
@@ -109,11 +109,8 @@ export default function InviteLanding({ token, onComplete }) {
           });
           
         if (profileError) console.error('Profile creation error:', profileError);
-        // ----------------------
 
         // 2. Then accept the invite logic
-        await acceptInvite(session.user.id);
-      }
         await acceptInvite(session.user.id);
       }
     } catch (err) {
