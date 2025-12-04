@@ -38,6 +38,13 @@ const timeToSeconds = (timeStr) => {
   return isNaN(val) ? null : val;
 };
 
+// Helper to strip " (Finals)" or " (Prelims)" for comparison
+const normalizeEventName = (evt) => {
+  if (!evt) return "";
+  // Removes (Finals), (Prelims), (Prelim) - case insensitive
+  return evt.replace(/\s*\((Finals|Prelims|Prelim)\)/gi, '').trim();
+};
+
 // Helper to calculate age from DOB
 const calculateAge = (dob) => {
   if (!dob) return null;
@@ -408,17 +415,12 @@ const loadParentData = async () => {
       setParentName(parentData.account_name);
       setParentId(parentData.id);
 
-      // Get parent's swimmers
       const { data: swimmerLinks } = await supabase
         .from('swimmer_parents')
         .select(`
           swimmer_id,
           swimmers (
-            id,
-            name,
-            group_name,
-            age,
-            gender
+            id, name, group_name, age, gender
           )
         `)
         .eq('parent_id', parentData.id);
@@ -429,17 +431,18 @@ const loadParentData = async () => {
           .filter(Boolean);
         setSwimmers(swimmerList);
 
-        // Load stats logic
         const stats = {};
         const activities = [];
 
         for (const swimmer of swimmerList) {
+          // Fetch up to 50 recent results to ensure we find history
           const { data: times } = await supabase
             .from('results')
             .select('*')
             .eq('swimmer_id', swimmer.id)
             .order('date', { ascending: false })
-            .limit(50); // Limit increased to 50 to find previous swims for comparison
+            .order('id', { ascending: false }) // Secondary sort by ID ensures Finals > Prelims if same date
+            .limit(50);
 
           if (times && times.length > 0) {
             const thirtyDaysAgo = new Date();
@@ -457,18 +460,40 @@ const loadParentData = async () => {
               standardsCount
             };
 
-            // Process recent activities
+            // Process the 3 most recent swims for the activity feed
             times.slice(0, 3).forEach(time => {
-              // 1. Find the most recent previous swim for this specific event
-              const prevSwim = times.find(t => 
-                t.event === time.event && 
-                new Date(t.date) < new Date(time.date)
-              );
+              const currentNorm = normalizeEventName(time.event);
+
+              // Find the immediate previous swim for this normalized event
+              const prevSwim = times.find(t => {
+                if (t.id === time.id) return false; // Skip self
+                
+                // Must match event type (e.g. "50 Free" matches "50 Free (Prelims)")
+                if (normalizeEventName(t.event) !== currentNorm) return false; 
+                
+                const d1 = new Date(time.date);
+                const d2 = new Date(t.date);
+                
+                // If t is older, it's a previous swim
+                if (d2 < d1) return true;
+                
+                // If same date, check if t is the Prelim to our Final
+                if (d2.getTime() === d1.getTime()) {
+                   // If IDs exist and t.id is smaller, it was entered earlier
+                   if (t.id < time.id) return true;
+                   
+                   // Fallback: If current is Final and t is Prelim
+                   const isCurrentFinal = time.event.toLowerCase().includes('final');
+                   const isCandidatePrelim = t.event.toLowerCase().includes('prelim');
+                   if (isCurrentFinal && isCandidatePrelim) return true;
+                }
+                
+                return false;
+              });
 
               let diffLabel = null;
               let isDrop = false;
 
-              // 2. Calculate the difference if a previous swim exists
               if (prevSwim) {
                 const currentSec = timeToSeconds(time.time);
                 const prevSec = timeToSeconds(prevSwim.time);
@@ -476,20 +501,18 @@ const loadParentData = async () => {
                 if (currentSec && prevSec) {
                   const diff = currentSec - prevSec;
                   isDrop = diff < 0;
-                  // Format as "+0.55s" or "-1.20s"
                   diffLabel = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}s`;
                 }
               }
 
-              // 3. Create the activity object with the new data
               activities.push({
                 type: time.is_best_time ? 'pb' : 'meet',
                 title: time.is_best_time 
                   ? `${swimmer.name} - New PB!` 
-                  : `${swimmer.name} - ${time.event}`,
-                subtitle: `${time.time} at ${time.meet_name || 'Meet'}`, // Fix: Use raw string to avoid NaN
-                diffLabel, // This is what the UI needs for the badge
-                isDrop,    // This determines if it's Green or Red
+                  : `${swimmer.name} - ${time.event}`, // e.g. "100 Free (Finals)"
+                subtitle: `${time.time} at ${time.meet_name || 'Meet'}`,
+                diffLabel, 
+                isDrop,
                 time: new Date(time.date).toLocaleDateString(),
                 date: new Date(time.date)
               });
