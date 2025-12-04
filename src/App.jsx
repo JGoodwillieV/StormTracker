@@ -447,6 +447,7 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { id: 'announcements', icon: 'megaphone', label: 'Announcements' },
+    { id: 'meet-entries', icon: 'file-text', label: 'Meet Entries' },
     { id: 'analysis', icon: 'video', label: 'AI Analysis' },
     { id: 'roster', icon: 'users', label: 'Roster' },
   ];
