@@ -248,9 +248,9 @@ export default function App() {
       <InviteLanding 
         token={inviteMatch[1]} 
         onComplete={() => {
-          window.history.pushState({}, '', '/');
-          window.location.reload();
-        }} 
+          // Use this simple hard redirect instead of pushState/reload
+          window.location.href = '/'; 
+        }}
       />
     );
   }
