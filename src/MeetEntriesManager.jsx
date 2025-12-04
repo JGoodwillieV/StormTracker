@@ -167,55 +167,75 @@ function UploadModal({ onClose, onSuccess }) {
       
       // Helper to convert "Last, First MI" to normalized format
       const normalizeSD3Name = (name) => {
-        if (!name) return '';
+        if (!name) return { full: '', first: '', last: '' };
         // SD3 format: "Last, First MI" or "Last, First"
         const parts = name.split(',').map(p => p.trim());
         if (parts.length >= 2) {
-          const lastName = parts[0];
+          const lastName = parts[0].toLowerCase().replace(/[^a-z]/g, '');
           // Get first name (ignore middle initial)
-          const firstPart = parts[1].split(' ')[0];
-          // Return as "firstlast" lowercase, no spaces
-          return (firstPart + lastName).toLowerCase().replace(/[^a-z]/g, '');
+          const firstPart = parts[1].split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+          return {
+            full: firstPart + lastName,
+            first: firstPart,
+            last: lastName
+          };
         }
-        return name.toLowerCase().replace(/[^a-z]/g, '');
+        const normalized = name.toLowerCase().replace(/[^a-z]/g, '');
+        return { full: normalized, first: '', last: '' };
       };
       
-      // Helper to normalize database name (assumed "First Last" format)
+      // Helper to normalize database name (assumed "First MI Last" format based on screenshot)
       const normalizeDBName = (name) => {
-        if (!name) return '';
-        // DB format: "First Last" - just remove spaces and lowercase
-        return name.toLowerCase().replace(/[^a-z]/g, '');
+        if (!name) return { full: '', first: '', last: '' };
+        // DB format appears to be "First MI Last" (e.g., "Marielle A Anderson")
+        const parts = name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const firstName = parts[0].toLowerCase().replace(/[^a-z]/g, '');
+          // Last name is the last part
+          const lastName = parts[parts.length - 1].toLowerCase().replace(/[^a-z]/g, '');
+          const full = name.toLowerCase().replace(/[^a-z]/g, '');
+          return { full, first: firstName, last: lastName };
+        }
+        const normalized = name.toLowerCase().replace(/[^a-z]/g, '');
+        return { full: normalized, first: '', last: '' };
       };
       
       const matches = swimmerList.map(swimmer => {
-        // Try exact USA Swimming ID match first
-        let match = dbSwimmers?.find(db => 
-          db.usa_swimming_id && db.usa_swimming_id === swimmer.usaSwimmingId
-        );
+        // Try USA Swimming ID match first (most reliable)
+        // SD3 truncates to 12 chars, DB has 14 chars, so match on first 12
+        let match = null;
+        
+        if (swimmer.usaSwimmingId) {
+          const sd3Id = swimmer.usaSwimmingId.substring(0, 12).toUpperCase();
+          match = dbSwimmers?.find(db => {
+            if (!db.usa_swimming_id) return false;
+            const dbId = db.usa_swimming_id.substring(0, 12).toUpperCase();
+            return dbId === sd3Id;
+          });
+        }
         
         // If no ID match, try name matching
         if (!match) {
-          const sd3Normalized = normalizeSD3Name(swimmer.name);
+          const sd3Name = normalizeSD3Name(swimmer.name);
           
           match = dbSwimmers?.find(db => {
-            const dbNormalized = normalizeDBName(db.name);
+            const dbName = normalizeDBName(db.name);
             
-            // Exact match after normalization
-            if (dbNormalized === sd3Normalized) return true;
+            // Exact match on first + last name
+            if (sd3Name.first && sd3Name.last && dbName.first && dbName.last) {
+              if (sd3Name.first === dbName.first && sd3Name.last === dbName.last) {
+                return true;
+              }
+            }
             
-            // Check if one contains the other (for partial matches)
-            if (dbNormalized.includes(sd3Normalized) || sd3Normalized.includes(dbNormalized)) return true;
+            // Full normalized name match
+            if (dbName.full === sd3Name.full) return true;
             
-            // Also try matching just first name + last name separately
-            // SD3: "Eliason, Colin A" -> lastName="Eliason", firstName="Colin"
-            const sd3Parts = swimmer.name.split(',').map(p => p.trim());
-            if (sd3Parts.length >= 2) {
-              const sd3Last = sd3Parts[0].toLowerCase().replace(/[^a-z]/g, '');
-              const sd3First = sd3Parts[1].split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-              
-              // DB: "Colin Eliason" -> check if both first and last are present
-              const dbLower = db.name?.toLowerCase() || '';
-              if (dbLower.includes(sd3First) && dbLower.includes(sd3Last)) return true;
+            // Check if first and last are both present in DB name
+            if (sd3Name.first && sd3Name.last) {
+              if (dbName.full.includes(sd3Name.first) && dbName.full.includes(sd3Name.last)) {
+                return true;
+              }
             }
             
             return false;
