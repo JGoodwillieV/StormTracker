@@ -10,6 +10,27 @@ import {
   Loader2, User, Waves, MapPin, Timer
 } from 'lucide-react';
 
+// Helper function to format seed time for display
+function formatSeedTime(seconds, displayStr) {
+  // If we have a display string from the original parsing, use it
+  if (displayStr && displayStr !== 'NT') {
+    return displayStr;
+  }
+  
+  // Otherwise format from seconds
+  if (!seconds || seconds === 0) {
+    return 'NT';
+  }
+  
+  if (seconds >= 60) {
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(2).padStart(5, '0');
+    return `${mins}:${secs}`;
+  }
+  
+  return seconds.toFixed(2);
+}
+
 // Status badge component
 function StatusBadge({ status }) {
   const config = {
@@ -810,7 +831,9 @@ function SwimmerEntryCard({ group, confirmations }) {
               >
                 <div className="flex items-center gap-3">
                   <Waves size={16} className="text-blue-500" />
-                  <span className="font-medium text-slate-700">{entry.event_name}</span>
+                  <span className="font-medium text-slate-700">
+                    {entry.event_number ? `#${entry.event_number} - ` : ''}{entry.event_name}
+                  </span>
                   {entry.is_bonus && (
                     <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
                       Bonus
@@ -818,7 +841,7 @@ function SwimmerEntryCard({ group, confirmations }) {
                   )}
                 </div>
                 <span className="text-slate-600 font-mono">
-                  {entry.seed_time_display || 'NT'}
+                  {formatSeedTime(entry.seed_time_seconds, entry.seed_time_display)}
                 </span>
               </div>
             ))}
