@@ -96,6 +96,18 @@ export default function App() {
       if (error) {
         // If no profile exists, create one as coach (for existing users)
         if (error.code === 'PGRST116') {
+
+// If we are on an invite page, DO NOT create a default coach profile.
+          // Let the InviteLanding component handle the profile creation.
+          if (window.location.pathname.startsWith('/invite')) {
+             return;
+          }
+          // ----------------------
+
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert({
+          
           const { error: insertError } = await supabase
             .from('user_profiles')
             .insert({ 
