@@ -38,7 +38,7 @@ const timeToSeconds = (timeStr) => {
   return isNaN(val) ? null : val;
 };
 
-// Helper to strip " (Finals)" or " (Prelims)" for comparison
+// Helper to strip " (Finals)" or " (Prelims)" so we can compare them
 const normalizeEventName = (evt) => {
   if (!evt) return "";
   // Removes (Finals), (Prelims), (Prelim) - case insensitive
@@ -435,14 +435,14 @@ const loadParentData = async () => {
         const activities = [];
 
         for (const swimmer of swimmerList) {
-          // Fetch up to 50 recent results to ensure we find history
+          // Fetch up to 100 recent results to find history/PBs
           const { data: times } = await supabase
             .from('results')
             .select('*')
             .eq('swimmer_id', swimmer.id)
             .order('date', { ascending: false })
-            .order('id', { ascending: false }) // Secondary sort by ID ensures Finals > Prelims if same date
-            .limit(50);
+            .order('id', { ascending: false }) // Secondary sort helps tie-break same day
+            .limit(100);
 
           if (times && times.length > 0) {
             const thirtyDaysAgo = new Date();
@@ -463,29 +463,30 @@ const loadParentData = async () => {
             // Process the 3 most recent swims for the activity feed
             times.slice(0, 3).forEach(time => {
               const currentNorm = normalizeEventName(time.event);
+              const currentSec = timeToSeconds(time.time);
 
-              // Find the immediate previous swim for this normalized event
-              const prevSwim = times.find(t => {
+              // 1. Find ALL previous swims for this event (Prelims AND Finals)
+              const previousSwims = times.filter(t => {
                 if (t.id === time.id) return false; // Skip self
                 
-                // Must match event type (e.g. "50 Free" matches "50 Free (Prelims)")
+                // Must match normalized event (e.g. "50 Free" matches "50 Free (Prelims)")
                 if (normalizeEventName(t.event) !== currentNorm) return false; 
                 
                 const d1 = new Date(time.date);
                 const d2 = new Date(t.date);
                 
-                // If t is older, it's a previous swim
+                // Strictly older date
                 if (d2 < d1) return true;
                 
-                // If same date, check if t is the Prelim to our Final
+                // If same date, check for Prelim vs Final logic
                 if (d2.getTime() === d1.getTime()) {
-                   // If IDs exist and t.id is smaller, it was entered earlier
-                   if (t.id < time.id) return true;
-                   
-                   // Fallback: If current is Final and t is Prelim
+                   // If current is Final, we can compare against same-day Prelim
                    const isCurrentFinal = time.event.toLowerCase().includes('final');
                    const isCandidatePrelim = t.event.toLowerCase().includes('prelim');
                    if (isCurrentFinal && isCandidatePrelim) return true;
+                   
+                   // Fallback: assume lower ID means entered earlier
+                   if (t.id < time.id) return true;
                 }
                 
                 return false;
@@ -494,12 +495,18 @@ const loadParentData = async () => {
               let diffLabel = null;
               let isDrop = false;
 
-              if (prevSwim) {
-                const currentSec = timeToSeconds(time.time);
-                const prevSec = timeToSeconds(prevSwim.time);
+              // 2. Compare against the FASTEST previous time (PB comparison)
+              if (currentSec && previousSwims.length > 0) {
+                // Convert all previous valid times to seconds
+                const prevSecondsList = previousSwims
+                  .map(s => timeToSeconds(s.time))
+                  .filter(s => s !== null);
                 
-                if (currentSec && prevSec) {
-                  const diff = currentSec - prevSec;
+                if (prevSecondsList.length > 0) {
+                  // Find the Best Time (Minimum seconds)
+                  const bestPrevSec = Math.min(...prevSecondsList);
+                  
+                  const diff = currentSec - bestPrevSec;
                   isDrop = diff < 0;
                   diffLabel = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}s`;
                 }
@@ -509,7 +516,7 @@ const loadParentData = async () => {
                 type: time.is_best_time ? 'pb' : 'meet',
                 title: time.is_best_time 
                   ? `${swimmer.name} - New PB!` 
-                  : `${swimmer.name} - ${time.event}`, // e.g. "100 Free (Finals)"
+                  : `${swimmer.name} - ${time.event}`,
                 subtitle: `${time.time} at ${time.meet_name || 'Meet'}`,
                 diffLabel, 
                 isDrop,
