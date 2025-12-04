@@ -165,6 +165,28 @@ function UploadModal({ onClose, onSuccess }) {
         .from('swimmers')
         .select('id, name, usa_swimming_id');
       
+      // Helper to convert "Last, First MI" to normalized format
+      const normalizeSD3Name = (name) => {
+        if (!name) return '';
+        // SD3 format: "Last, First MI" or "Last, First"
+        const parts = name.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+          const lastName = parts[0];
+          // Get first name (ignore middle initial)
+          const firstPart = parts[1].split(' ')[0];
+          // Return as "firstlast" lowercase, no spaces
+          return (firstPart + lastName).toLowerCase().replace(/[^a-z]/g, '');
+        }
+        return name.toLowerCase().replace(/[^a-z]/g, '');
+      };
+      
+      // Helper to normalize database name (assumed "First Last" format)
+      const normalizeDBName = (name) => {
+        if (!name) return '';
+        // DB format: "First Last" - just remove spaces and lowercase
+        return name.toLowerCase().replace(/[^a-z]/g, '');
+      };
+      
       const matches = swimmerList.map(swimmer => {
         // Try exact USA Swimming ID match first
         let match = dbSwimmers?.find(db => 
@@ -173,16 +195,30 @@ function UploadModal({ onClose, onSuccess }) {
         
         // If no ID match, try name matching
         if (!match) {
-          // Normalize names for comparison
-          const normalize = (name) => name?.toLowerCase().replace(/[^a-z]/g, '') || '';
-          const swimmerNorm = normalize(swimmer.name);
+          const sd3Normalized = normalizeSD3Name(swimmer.name);
           
           match = dbSwimmers?.find(db => {
-            const dbNorm = normalize(db.name);
-            // Check if names are similar enough
-            return dbNorm === swimmerNorm || 
-                   dbNorm.includes(swimmerNorm) || 
-                   swimmerNorm.includes(dbNorm);
+            const dbNormalized = normalizeDBName(db.name);
+            
+            // Exact match after normalization
+            if (dbNormalized === sd3Normalized) return true;
+            
+            // Check if one contains the other (for partial matches)
+            if (dbNormalized.includes(sd3Normalized) || sd3Normalized.includes(dbNormalized)) return true;
+            
+            // Also try matching just first name + last name separately
+            // SD3: "Eliason, Colin A" -> lastName="Eliason", firstName="Colin"
+            const sd3Parts = swimmer.name.split(',').map(p => p.trim());
+            if (sd3Parts.length >= 2) {
+              const sd3Last = sd3Parts[0].toLowerCase().replace(/[^a-z]/g, '');
+              const sd3First = sd3Parts[1].split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+              
+              // DB: "Colin Eliason" -> check if both first and last are present
+              const dbLower = db.name?.toLowerCase() || '';
+              if (dbLower.includes(sd3First) && dbLower.includes(sd3Last)) return true;
+            }
+            
+            return false;
           });
         }
         
