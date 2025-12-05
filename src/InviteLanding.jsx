@@ -34,7 +34,7 @@ export default function InviteLanding({ token, onComplete }) {
       console.log('[InviteLanding] Loading invite for token:', token);
       
       const { data, error } = await supabase.rpc('get_invite_by_token', {
-        invite_token: token
+        p_token: token
       });
 
       console.log('[InviteLanding] Invite data:', data, 'Error:', error);
@@ -146,8 +146,8 @@ export default function InviteLanding({ token, onComplete }) {
       console.log('[InviteLanding] Accepting invite for user:', userId);
       
       const { data, error } = await supabase.rpc('accept_parent_invite', {
-        invite_token: token,
-        accepting_user_id: userId
+        p_token: token,
+        p_user_id: userId
       });
 
       console.log('[InviteLanding] Accept invite result:', data, 'Error:', error);
