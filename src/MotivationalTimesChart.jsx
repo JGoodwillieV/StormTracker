@@ -82,12 +82,12 @@ const compareEvents = (a, b) => {
   const aKey = getEventSortKey(a);
   const bKey = getEventSortKey(b);
   
-  // First sort by distance
-  if (aKey.distance !== bKey.distance) {
-    return aKey.distance - bKey.distance;
+  // First sort by stroke order
+  if (aKey.strokeIndex !== bKey.strokeIndex) {
+    return aKey.strokeIndex - bKey.strokeIndex;
   }
-  // Then by stroke order
-  return aKey.strokeIndex - bKey.strokeIndex;
+  // Then by distance within that stroke
+  return aKey.distance - bKey.distance;
 };
 
 export default function MotivationalTimesChart({ swimmerId, age, gender }) {
@@ -102,7 +102,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
 
       const { data: results } = await supabase
         .from('results')
-        .select('event, time, date, round')
+        .select('event, time, date')
         .eq('swimmer_id', swimmerId);
 
       const { data: standards } = await supabase
@@ -118,7 +118,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
         return;
       }
 
-      // Group results by normalized event name - check all rounds (prelim, finals, etc.)
+      // Group results by normalized event name - keeps best time across all swims
       const eventMap = {};
       results.forEach(r => {
         const norm = normalizeEvent(r.event);
@@ -126,7 +126,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
         const seconds = timeToSeconds(r.time);
         if (seconds >= 999999) return;
 
-        // Keep the best time across all rounds (prelim, finals, timed finals, etc.)
+        // Keep the best time across all swims (prelim, finals, etc.)
         if (!eventMap[norm] || seconds < eventMap[norm].pbSeconds) {
           eventMap[norm] = {
             event: norm,
