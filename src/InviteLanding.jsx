@@ -31,9 +31,13 @@ export default function InviteLanding({ token, onComplete }) {
 
   const loadInvite = async () => {
     try {
+      console.log('[InviteLanding] Loading invite for token:', token);
+      
       const { data, error } = await supabase.rpc('get_invite_by_token', {
         invite_token: token
       });
+
+      console.log('[InviteLanding] Invite data:', data, 'Error:', error);
 
       if (error) throw error;
 
@@ -46,14 +50,14 @@ export default function InviteLanding({ token, onComplete }) {
       setInviteData(data);
       setEmail(data.email || '');
     } catch (err) {
-      console.error('Error loading invite:', err);
+      console.error('[InviteLanding] Error loading invite:', err);
       setError('Failed to load invite');
     } finally {
       setLoading(false);
     }
   };
 
-const handleAuth = async (e) => {
+  const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError(null);
     setAuthLoading(true);
@@ -69,26 +73,32 @@ const handleAuth = async (e) => {
           throw new Error('Password must be at least 6 characters');
         }
 
+        console.log('[InviteLanding] Signing up user:', email);
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password
         });
+        
         if (error) throw error;
         session = data.session;
+        console.log('[InviteLanding] Signup result - session:', !!session, 'user:', data.user?.id);
         
         // If no session, email confirmation might be required
-        if (!session) {
-          // For now, try logging in immediately (depends on Supabase settings)
+        if (!session && data.user) {
+          console.log('[InviteLanding] No session after signup, trying to log in...');
+          // Try logging in immediately (depends on Supabase settings)
           const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
             email: email.trim(),
             password
           });
           if (loginError) {
-            throw new Error('Account created! Please check your email to verify, then log in.');
+            // Email confirmation is required
+            throw new Error('Account created! Please check your email to verify your account, then come back and log in.');
           }
           session = loginData.session;
         }
       } else {
+        console.log('[InviteLanding] Logging in user:', email);
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password
@@ -98,35 +108,49 @@ const handleAuth = async (e) => {
       }
 
       if (session) {
-        // 1. Force create the user profile as 'parent'
+        console.log('[InviteLanding] Got session for user:', session.user.id);
+        
+        // 1. Create/update user profile as 'parent'
+        console.log('[InviteLanding] Creating/updating user profile...');
         const { error: profileError } = await supabase
           .from('user_profiles')
           .upsert({
             id: session.user.id,
             role: 'parent',
-            display_name: email.split('@')[0],
+            display_name: inviteData?.account_name || email.split('@')[0],
             first_login: true
+          }, {
+            onConflict: 'id'
           });
           
-        if (profileError) console.error('Profile creation error:', profileError);
+        if (profileError) {
+          console.error('[InviteLanding] Profile creation error:', profileError);
+        } else {
+          console.log('[InviteLanding] Profile created/updated successfully');
+        }
 
-        // 2. Then accept the invite logic
+        // 2. Accept the invite (links swimmers to parent)
         await acceptInvite(session.user.id);
+      } else {
+        throw new Error('Failed to create session. Please try again.');
       }
     } catch (err) {
-      console.error('Auth error:', err);
+      console.error('[InviteLanding] Auth error:', err);
       setAuthError(err.message);
-    } finally {
       setAuthLoading(false);
     }
   };
 
   const acceptInvite = async (userId) => {
     try {
+      console.log('[InviteLanding] Accepting invite for user:', userId);
+      
       const { data, error } = await supabase.rpc('accept_parent_invite', {
         invite_token: token,
         accepting_user_id: userId
       });
+
+      console.log('[InviteLanding] Accept invite result:', data, 'Error:', error);
 
       if (error) throw error;
 
@@ -134,19 +158,22 @@ const handleAuth = async (e) => {
         throw new Error(data.error || 'Failed to accept invite');
       }
 
-      setAccepted(true);
+      console.log('[InviteLanding] Invite accepted! Parent ID:', data.parent_id, 'Swimmers linked:', data.swimmers_linked);
       
-      // Redirect to dashboard after a moment
+      setAccepted(true);
+      setAuthLoading(false);
+      
+      // Redirect to dashboard after showing success message
       setTimeout(() => {
-        if (onComplete) {
-          onComplete();
-        } else {
-          window.location.href = '/';
-        }
+        console.log('[InviteLanding] Redirecting to dashboard...');
+        // Clear the URL and do a full page reload to reset all state
+        window.location.replace('/');
       }, 2000);
+      
     } catch (err) {
-      console.error('Error accepting invite:', err);
+      console.error('[InviteLanding] Error accepting invite:', err);
       setAuthError(err.message);
+      setAuthLoading(false);
     }
   };
 
@@ -196,6 +223,7 @@ const handleAuth = async (e) => {
             You're now connected to {inviteData?.swimmer_names?.length || 0} swimmer{inviteData?.swimmer_names?.length !== 1 ? 's' : ''}.
           </p>
           <p className="text-sm text-slate-400">Redirecting to your dashboard...</p>
+          <Loader2 size={24} className="animate-spin text-blue-600 mx-auto mt-4" />
         </div>
       </div>
     );
@@ -246,6 +274,7 @@ const handleAuth = async (e) => {
           {/* Tab Toggle */}
           <div className="flex bg-slate-100 rounded-xl p-1 mb-6">
             <button
+              type="button"
               onClick={() => setAuthMode('signup')}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 authMode === 'signup' 
@@ -256,6 +285,7 @@ const handleAuth = async (e) => {
               Create Account
             </button>
             <button
+              type="button"
               onClick={() => setAuthMode('login')}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 authMode === 'login' 
