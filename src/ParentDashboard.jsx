@@ -242,7 +242,13 @@ function ResourcesPlaceholder() {
   const sampleResources = [
     { type: 'link', title: 'Team Website', description: 'Official Hanover Aquatics site', icon: ExternalLink },
     { type: 'doc', title: 'Parent Handbook', description: 'Team policies & information', icon: FileText },
-    { type: 'link', title: 'Spirit Wear Store', description: 'Order team gear', icon: ExternalLink },
+    { 
+      type: 'link', 
+      title: 'Spirit Wear Store', 
+      description: 'Order team gear', 
+      icon: ExternalLink,
+      url: 'https://bsnteamsports.com/shop/VDYxM7x5yv' // Added URL here
+    },
     { type: 'doc', title: 'Meet Day Guide', description: 'What to expect at meets', icon: FileText },
   ];
 
@@ -265,19 +271,36 @@ function ResourcesPlaceholder() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {sampleResources.map((resource, index) => {
             const Icon = resource.icon;
+            // Check if this resource has a URL
+            const isClickable = !!resource.url;
+            // Use 'a' tag if clickable, 'div' if not
+            const Component = isClickable ? 'a' : 'div';
+
             return (
-              <div 
+              <Component 
                 key={index}
-                className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3 opacity-60"
+                href={resource.url}
+                target={isClickable ? "_blank" : undefined}
+                rel={isClickable ? "noopener noreferrer" : undefined}
+                className={`bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3 ${
+                  isClickable 
+                    ? 'hover:shadow-md hover:border-blue-300 transition-all cursor-pointer' 
+                    : 'opacity-60'
+                }`}
               >
-                <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center">
-                  <Icon size={18} className="text-slate-400" />
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  isClickable ? 'bg-blue-50' : 'bg-slate-50'
+                }`}>
+                  <Icon size={18} className={isClickable ? 'text-blue-500' : 'text-slate-400'} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-semibold text-slate-800">{resource.title}</h4>
+                  <h4 className={`font-semibold ${isClickable ? 'text-blue-700' : 'text-slate-800'}`}>
+                    {resource.title}
+                  </h4>
                   <p className="text-xs text-slate-500">{resource.description}</p>
                 </div>
-              </div>
+                {isClickable && <ExternalLink size={14} className="text-slate-300" />}
+              </Component>
             );
           })}
         </div>
