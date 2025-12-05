@@ -8,6 +8,40 @@ import {
   Pin, X, RefreshCw
 } from 'lucide-react';
 
+// Helper function to convert URLs in text to clickable links
+function Linkify({ children, className = '' }) {
+  if (!children || typeof children !== 'string') return children;
+  
+  // URL regex pattern - matches http://, https://, and www. URLs
+  const urlPattern = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
+  
+  const parts = children.split(urlPattern);
+  
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.match(urlPattern)) {
+          // Add https:// to www. links if needed
+          const href = part.startsWith('www.') ? `https://${part}` : part;
+          return (
+            <a
+              key={index}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()} // Prevent card click when clicking link
+              className={`text-blue-600 hover:text-blue-800 underline break-all ${className}`}
+            >
+              {part}
+            </a>
+          );
+        }
+        return part;
+      })}
+    </>
+  );
+}
+
 // Type configuration with icons and colors
 const ANNOUNCEMENT_TYPES = {
   alert: {
@@ -110,7 +144,7 @@ function AnnouncementCard({ announcement, onMarkRead }) {
               <h3 className="font-bold text-lg mb-1">{announcement.title}</h3>
             )}
             <p className={`text-red-50 ${isExpanded ? '' : 'line-clamp-2'}`}>
-              {announcement.content}
+              <Linkify className="text-white hover:text-red-100">{announcement.content}</Linkify>
             </p>
             {announcement.content.length > 100 && (
               <button className="text-xs text-white/70 mt-2 hover:text-white">
@@ -156,7 +190,7 @@ function AnnouncementCard({ announcement, onMarkRead }) {
               <h3 className="font-bold text-slate-800 mb-1">{announcement.title}</h3>
             )}
             <p className={`text-slate-600 text-sm ${isExpanded ? '' : 'line-clamp-2'}`}>
-              {announcement.content}
+              <Linkify>{announcement.content}</Linkify>
             </p>
           </div>
         </div>
@@ -192,7 +226,7 @@ function AnnouncementCard({ announcement, onMarkRead }) {
             <h3 className="font-semibold text-slate-800 mb-1">{announcement.title}</h3>
           )}
           <p className={`text-slate-600 text-sm ${isExpanded ? '' : 'line-clamp-2'}`}>
-            {announcement.content}
+            <Linkify>{announcement.content}</Linkify>
           </p>
           {announcement.content.length > 120 && !isExpanded && (
             <button className="text-xs text-blue-600 mt-1 hover:text-blue-700 font-medium">
