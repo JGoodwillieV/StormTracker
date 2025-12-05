@@ -27,7 +27,15 @@ const formatTime = (seconds) => {
 // Helper to convert time string (e.g. "1:02.50") to seconds for math
 const timeToSeconds = (timeStr) => {
   if (!timeStr) return null;
+  
+  // Handle DQ, NS, etc.
+  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) {
+    return null;
+  }
+  
   const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
+  if (!cleanStr) return null;
+  
   const parts = cleanStr.split(':');
   let val = 0;
   if (parts.length === 2) {
@@ -41,9 +49,30 @@ const timeToSeconds = (timeStr) => {
 // Helper to strip " (Finals)" or " (Prelims)" so we can compare them
 const normalizeEventName = (evt) => {
   if (!evt) return "";
-  // Removes (Finals), (Prelims), (Prelim) - case insensitive
-  return evt.replace(/\s*\((Finals|Prelims|Prelim)\)/gi, '').trim();
+  
+  // First remove (Finals), (Prelims), (Prelim) - case insensitive
+  let clean = evt.replace(/\s*\((Finals|Prelims|Prelim)\)/gi, '').trim();
+  
+  // Now normalize the event name to extract distance + stroke
+  const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
+  
+  if (match) {
+    const dist = match[1];
+    let stroke = match[2].toLowerCase();
+    
+    // Normalize stroke abbreviations to full names
+    if (stroke === 'free') stroke = 'freestyle';
+    if (stroke === 'back') stroke = 'backstroke';
+    if (stroke === 'breast') stroke = 'breaststroke';
+    if (stroke === 'fly') stroke = 'butterfly';
+    if (stroke === 'individual medley') stroke = 'im';
+    
+    return `${dist} ${stroke}`;
+  }
+  
+  return clean.toLowerCase();
 };
+
 
 // Helper to calculate age from DOB
 const calculateAge = (dob) => {
