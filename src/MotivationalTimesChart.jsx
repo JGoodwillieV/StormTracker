@@ -67,6 +67,29 @@ const formatEventDisplay = (evt) => {
   return evt;
 };
 
+// Sort events by distance first, then by stroke order
+const STROKE_ORDER = ['freestyle', 'backstroke', 'breaststroke', 'butterfly', 'im'];
+
+const getEventSortKey = (eventName) => {
+  const parts = eventName.split(' ');
+  const distance = parseInt(parts[0]) || 0;
+  const stroke = parts.slice(1).join(' ').toLowerCase();
+  const strokeIndex = STROKE_ORDER.indexOf(stroke);
+  return { distance, strokeIndex: strokeIndex === -1 ? 999 : strokeIndex };
+};
+
+const compareEvents = (a, b) => {
+  const aKey = getEventSortKey(a);
+  const bKey = getEventSortKey(b);
+  
+  // First sort by distance
+  if (aKey.distance !== bKey.distance) {
+    return aKey.distance - bKey.distance;
+  }
+  // Then by stroke order
+  return aKey.strokeIndex - bKey.strokeIndex;
+};
+
 export default function MotivationalTimesChart({ swimmerId, age, gender }) {
   const [loading, setLoading] = useState(true);
   const [eventData, setEventData] = useState([]);
@@ -79,7 +102,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
 
       const { data: results } = await supabase
         .from('results')
-        .select('event, time, date')
+        .select('event, time, date, round')
         .eq('swimmer_id', swimmerId);
 
       const { data: standards } = await supabase
@@ -95,7 +118,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
         return;
       }
 
-      // Group results by normalized event name
+      // Group results by normalized event name - check all rounds (prelim, finals, etc.)
       const eventMap = {};
       results.forEach(r => {
         const norm = normalizeEvent(r.event);
@@ -103,7 +126,8 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
         const seconds = timeToSeconds(r.time);
         if (seconds >= 999999) return;
 
-        if (!eventMap[norm] || seconds < eventMap[norm].seconds) {
+        // Keep the best time across all rounds (prelim, finals, timed finals, etc.)
+        if (!eventMap[norm] || seconds < eventMap[norm].pbSeconds) {
           eventMap[norm] = {
             event: norm,
             pb: r.time,
@@ -158,7 +182,7 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
     
     if (sortConfig.key === 'event') {
       data.sort((a, b) => {
-        const comp = a.event.localeCompare(b.event);
+        const comp = compareEvents(a.event, b.event);
         return sortConfig.direction === 'asc' ? comp : -comp;
       });
     } else if (sortConfig.key === 'pb') {
