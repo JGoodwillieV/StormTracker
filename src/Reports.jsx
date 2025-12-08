@@ -1,6 +1,7 @@
 // src/Reports.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
+import MeetReportGenerator from './MeetReportGenerator';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
@@ -78,6 +79,7 @@ export default function Reports({ onBack }) {
       case 'funnel': return <TeamFunnelReport onBack={() => setCurrentReport(null)} />;
       case 'heatmap': return <FlawHeatmapReport onBack={() => setCurrentReport(null)} />;
       case 'groups': return <GroupProgressionReport onBack={() => setCurrentReport(null)} />;
+      case 'meetreport': return <MeetReportGenerator onBack={() => setCurrentReport(null)} />;
       default: return null;
     }
   };
@@ -99,7 +101,15 @@ export default function Reports({ onBack }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* 1. QUALIFIERS */}
+            {/* MEET REPORT - Add this card */}
+              <div onClick={() => setCurrentReport('meetreport')} className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-2xl cursor-pointer shadow-lg hover:shadow-xl transition-all group text-white">
+                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><FileText size={24} /></div>
+                <h3 className="font-bold text-lg">Meet Report</h3>
+                <p className="text-indigo-100 text-sm mt-1">Generate comprehensive post-meet reports with stats & charts.</p>
+              </div>
+          
+          
+          {/* 1. QUALIFIERS */}
             <div onClick={() => setCurrentReport('qualifiers')} className="bg-white p-6 rounded-2xl border hover:border-blue-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
                 <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Trophy size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Qualifiers List</h3>
