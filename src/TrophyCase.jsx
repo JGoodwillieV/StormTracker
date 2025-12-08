@@ -121,7 +121,7 @@ export default function TrophyCase({ swimmerId, age, gender }) {
         }
       });
 
-      // 4. Calculate Highest Badge per Event
+      // 4. Calculate ALL Badges Earned per Event
       // Initialize counts for all badges
       const badgeCounts = {};
       ALL_STANDARD_KEYS.forEach(key => {
@@ -135,15 +135,15 @@ export default function TrophyCase({ swimmerId, age, gender }) {
         // Find matching standards for this specific event
         const eventStds = standards
             .filter(s => s.event.toLowerCase() === swamEvent) 
-            .sort((a, b) => a.time_seconds - b.time_seconds); // Fastest (hardest) first
+            .sort((a, b) => b.time_seconds - a.time_seconds); // Slowest (easiest) first
 
-        // Check from hardest to easiest. Stop at the first one we beat.
+        // Count ALL badges earned for this event (not just the highest)
+        // If swimmer beats a time, they earn that badge AND all easier ones
         for (let std of eventStds) {
           if (time <= std.time_seconds) {
             if (badgeCounts[std.name] !== undefined) {
               badgeCounts[std.name]++;
             }
-            break; // We found the highest badge for this event, stop looking.
           }
         }
       });
