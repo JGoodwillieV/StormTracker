@@ -650,10 +650,12 @@ const loadParentData = async () => {
     <div className="space-y-6">
       {/* Welcome Header */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
-        
-        <div className="relative">
+        {/* Floating Background Logo */}
+          <div className="absolute top-1/2 right-4 -translate-y-1/2 opacity-10 pointer-events-none">
+             <img src="/team-logo-white.png" className="h-48 w-auto" alt="" />
+          </div>
+
+          <div className="relative z-10">
           <h1 className="text-2xl font-bold mb-1">
             Welcome back{parentName ? `, ${parentName.split(',')[1]?.trim() || parentName}` : ''}!
           </h1>
