@@ -10,8 +10,6 @@ import {
   Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2,
   Plus, Crop, Move, RefreshCw, FileVideo, Minimize2
 } from 'lucide-react';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 // Video type definitions
 const VIDEO_TYPES = [
@@ -76,10 +74,6 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
   const [originalSize, setOriginalSize] = useState(0);
   const [compressedSize, setCompressedSize] = useState(0);
   
-  // Compression settings
-  const [compressionPreset, setCompressionPreset] = useState('medium');
-  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
-  const [ffmpegLoading, setFfmpegLoading] = useState(false);
   
   // Swimmer selection (bounding box)
   const [firstFrame, setFirstFrame] = useState(null);
@@ -101,41 +95,6 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
     }
   }, [saveApiKey, apiKey]);
 
-  // Load FFmpeg
-  // Load FFmpeg
-const loadFFmpeg = async () => {
-  if (ffmpegLoaded) return true;
-  
-  setFfmpegLoading(true);
-  try {
-    const ffmpeg = ffmpegRef.current;
-    
-    ffmpeg.on('log', ({ message }) => {
-      console.log('[FFmpeg]', message);
-    });
-    
-    ffmpeg.on('progress', ({ progress }) => {
-      setCompressionProgress(Math.round(progress * 100));
-    });
-    
-    // Try loading from unpkg CDN
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-    
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-    
-    setFfmpegLoaded(true);
-    setFfmpegLoading(false);
-    return true;
-  } catch (error) {
-    console.error('Failed to load FFmpeg:', error);
-    console.error('Error details:', error.message);
-    setFfmpegLoading(false);
-    return false;
-  }
-};
 
   // Extract first frame from video
   const extractFirstFrame = (file) => {
@@ -195,67 +154,22 @@ const loadFFmpeg = async () => {
     }
   };
 
-  // Compress video
-  const compressVideo = async () => {
-    if (!videoFile) return null;
-    
-    const loaded = await loadFFmpeg();
-    if (!loaded) {
-      alert('Failed to load video processor. Using original file.');
-      return videoFile;
-    }
-    
-    setStep('compressing');
-    setCompressionProgress(0);
-    setProgressMessage('Preparing video compression...');
-    
-    try {
-      const ffmpeg = ffmpegRef.current;
-      const inputName = 'input' + videoFile.name.substring(videoFile.name.lastIndexOf('.'));
-      const outputName = 'output.mp4';
-      
-      // Write input file
-      await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
-      
-      setProgressMessage('Compressing video & removing audio...');
-      
-      // Get CRF from preset
-      const preset = COMPRESSION_PRESETS.find(p => p.id === compressionPreset);
-      const crf = preset?.crf || 28;
-      
-      // FFmpeg command: compress video, remove audio, scale if needed
-      await ffmpeg.exec([
-        '-i', inputName,
-        '-c:v', 'libx264',
-        '-crf', crf.toString(),
-        '-preset', 'fast',
-        '-an', // Remove audio
-        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', // Ensure even dimensions
-        '-movflags', '+faststart',
-        outputName
-      ]);
-      
-      // Read output file
-      const data = await ffmpeg.readFile(outputName);
-      const compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
-      const compressed = new File([compressedBlob], videoFile.name.replace(/\.[^/.]+$/, '') + '_compressed.mp4', {
-        type: 'video/mp4'
-      });
-      
-      setCompressedFile(compressed);
-      setCompressedSize(compressed.size);
-      
-      // Clean up
-      await ffmpeg.deleteFile(inputName);
-      await ffmpeg.deleteFile(outputName);
-      
-      return compressed;
-    } catch (error) {
-      console.error('Compression failed:', error);
-      setProgressMessage('Compression failed, using original file...');
-      return videoFile;
-    }
-  };
+// Compress video - simplified version (skip FFmpeg, just check size)
+const compressVideo = async () => {
+  if (!videoFile) return null;
+  
+  // Check file size - Supabase free tier limit is typically 50MB
+  const MAX_SIZE_MB = 50;
+  const fileSizeMB = videoFile.size / (1024 * 1024);
+  
+  if (fileSizeMB > MAX_SIZE_MB) {
+    alert(`Video is too large (${fileSizeMB.toFixed(1)}MB). Please upload a video under ${MAX_SIZE_MB}MB.\n\nTip: Use your phone's built-in video trimmer or a free tool like HandBrake to compress the video before uploading.`);
+    return null;
+  }
+  
+  // Return original file (no compression for now)
+  return videoFile;
+};
 
   // Swimmer bounding box drawing handlers
   const getSwimmerCanvasCoordinates = (e) => {
@@ -372,17 +286,19 @@ const loadFFmpeg = async () => {
     ? Math.round((1 - compressedSize / originalSize) * 100) 
     : 0;
 
-  const handleStartAnalysis = async () => {
-    if (!videoFile) return alert('Please select a video file.');
-    if (!selectedSwimmerId) return alert('Please select a swimmer.');
-    if (!videoType) return alert('Please select a video type.');
-    if (!apiKey) return alert('Please enter your Gemini API key.');
+const handleStartAnalysis = async () => {
+  if (!videoFile) return alert('Please select a video file.');
+  if (!selectedSwimmerId) return alert('Please select a swimmer.');
+  if (!videoType) return alert('Please select a video type.');
+  if (!apiKey) return alert('Please enter your Gemini API key.');
 
-    // Compress video first
-    const fileToUpload = await compressVideo();
-    if (!fileToUpload) return;
+  // Check file size
+  const fileToUpload = await compressVideo();
+  if (!fileToUpload) return;
 
-    setStep('uploading');
+  setStep('uploading');
+  setUploadProgress(0);
+  setProgressMessage('Uploading video...');
     setUploadProgress(0);
     setProgressMessage('Uploading compressed video...');
 
