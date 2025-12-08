@@ -493,9 +493,12 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   return (
     <aside className="w-64 bg-[#0f172a] flex-col p-6 fixed h-full z-10 hidden md:flex">
        <div className="flex items-center gap-3 mb-10 px-2">
-           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-               <Icon name="waves" className="text-white" size={20} />
-           </div>
+           {/* Using the white logo for the dark sidebar background */}
+    <img 
+      src="/team-logo-white.png" 
+      alt="StormTracker" 
+      className="h-12 w-auto object-contain" 
+    />
            <h1 className="text-white font-bold text-xl">StormTracker</h1>
        </div>
        <nav className="space-y-2 flex-1">
