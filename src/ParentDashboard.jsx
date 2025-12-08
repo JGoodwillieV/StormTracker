@@ -649,7 +649,7 @@ const loadParentData = async () => {
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white relative overflow-hidden">
+      <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl p-6 text-white relative overflow-hidden">
         {/* Floating Background Logo */}
           <div className="absolute top-1/2 right-4 -translate-y-1/2 opacity-20 pointer-events-none">
              <img src="/team-logo-white.png" className="h-48 w-auto" alt="" />
