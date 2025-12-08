@@ -102,32 +102,40 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
   }, [saveApiKey, apiKey]);
 
   // Load FFmpeg
-  const loadFFmpeg = async () => {
-    if (ffmpegLoaded) return true;
+  // Load FFmpeg
+const loadFFmpeg = async () => {
+  if (ffmpegLoaded) return true;
+  
+  setFfmpegLoading(true);
+  try {
+    const ffmpeg = ffmpegRef.current;
     
-    setFfmpegLoading(true);
-    try {
-      const ffmpeg = ffmpegRef.current;
-      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-      
-      ffmpeg.on('progress', ({ progress }) => {
-        setCompressionProgress(Math.round(progress * 100));
-      });
-      
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      });
-      
-      setFfmpegLoaded(true);
-      setFfmpegLoading(false);
-      return true;
-    } catch (error) {
-      console.error('Failed to load FFmpeg:', error);
-      setFfmpegLoading(false);
-      return false;
-    }
-  };
+    ffmpeg.on('log', ({ message }) => {
+      console.log('[FFmpeg]', message);
+    });
+    
+    ffmpeg.on('progress', ({ progress }) => {
+      setCompressionProgress(Math.round(progress * 100));
+    });
+    
+    // Try loading from unpkg CDN
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+    
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    
+    setFfmpegLoaded(true);
+    setFfmpegLoading(false);
+    return true;
+  } catch (error) {
+    console.error('Failed to load FFmpeg:', error);
+    console.error('Error details:', error.message);
+    setFfmpegLoading(false);
+    return false;
+  }
+};
 
   // Extract first frame from video
   const extractFirstFrame = (file) => {
