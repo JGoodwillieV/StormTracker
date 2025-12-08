@@ -1,5 +1,5 @@
 // src/Analysis.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from './supabase';
 import { 
   UploadCloud, ChevronLeft, Video, Camera, Waves, Play, Pause, 
@@ -7,8 +7,11 @@ import {
   Mic, MicOff, PenTool, Type, Check, X, Trash2, Save, Share2,
   Sparkles, Loader2, AlertCircle, Clock, User, Tag, Film,
   ChevronDown, ChevronUp, Eye, EyeOff, Edit3, MessageSquare,
-  Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2
+  Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2,
+  Plus, Crop, Move, RefreshCw, FileVideo, Minimize2
 } from 'lucide-react';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 // Video type definitions
 const VIDEO_TYPES = [
@@ -41,8 +44,15 @@ const VIDEO_TYPES = [
 // Stroke options
 const STROKES = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly', 'IM'];
 
+// Compression quality presets
+const COMPRESSION_PRESETS = [
+  { id: 'high', label: 'High Quality', crf: 23, description: 'Best quality, larger file' },
+  { id: 'medium', label: 'Balanced', crf: 28, description: 'Good quality, moderate size' },
+  { id: 'low', label: 'Smaller File', crf: 32, description: 'Acceptable quality, smallest size' }
+];
+
 export default function Analysis({ swimmers, onBack, supabase: sb }) {
-  const [step, setStep] = useState('setup'); // setup, uploading, analyzing, editor
+  const [step, setStep] = useState('setup'); // setup, compressing, uploading, analyzing, editor
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   const [saveApiKey, setSaveApiKey] = useState(!!localStorage.getItem('gemini_api_key'));
   
@@ -55,14 +65,32 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
   // Upload state
   const [uploadProgress, setUploadProgress] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [compressionProgress, setCompressionProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
   
   // Video & Analysis data
   const [videoFile, setVideoFile] = useState(null);
+  const [compressedFile, setCompressedFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [originalSize, setOriginalSize] = useState(0);
+  const [compressedSize, setCompressedSize] = useState(0);
+  
+  // Compression settings
+  const [compressionPreset, setCompressionPreset] = useState('medium');
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+  const [ffmpegLoading, setFfmpegLoading] = useState(false);
+  
+  // Swimmer selection (bounding box)
+  const [firstFrame, setFirstFrame] = useState(null);
+  const [swimmerBoundingBox, setSwimmerBoundingBox] = useState(null);
+  const [isDrawingBox, setIsDrawingBox] = useState(false);
+  const [boxDrawStart, setBoxDrawStart] = useState(null);
+  const [showSwimmerSelect, setShowSwimmerSelect] = useState(false);
   
   const fileInputRef = useRef(null);
+  const ffmpegRef = useRef(new FFmpeg());
+  const swimmerCanvasRef = useRef(null);
 
   // Handle API key storage preference
   useEffect(() => {
@@ -73,16 +101,268 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
     }
   }, [saveApiKey, apiKey]);
 
-  const handleFileSelect = (e) => {
+  // Load FFmpeg
+  const loadFFmpeg = async () => {
+    if (ffmpegLoaded) return true;
+    
+    setFfmpegLoading(true);
+    try {
+      const ffmpeg = ffmpegRef.current;
+      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+      
+      ffmpeg.on('progress', ({ progress }) => {
+        setCompressionProgress(Math.round(progress * 100));
+      });
+      
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+      
+      setFfmpegLoaded(true);
+      setFfmpegLoading(false);
+      return true;
+    } catch (error) {
+      console.error('Failed to load FFmpeg:', error);
+      setFfmpegLoading(false);
+      return false;
+    }
+  };
+
+  // Extract first frame from video
+  const extractFirstFrame = (file) => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      
+      video.onloadeddata = () => {
+        video.currentTime = 0.1; // Get frame slightly after start
+      };
+      
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        resolve({
+          dataUrl,
+          width: video.videoWidth,
+          height: video.videoHeight
+        });
+        
+        URL.revokeObjectURL(video.src);
+      };
+      
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setVideoFile(file);
+      setCompressedFile(null);
+      setOriginalSize(file.size);
+      setCompressedSize(0);
       setVideoUrl(URL.createObjectURL(file));
+      setSwimmerBoundingBox(null);
+      
       if (!videoTitle) {
         setVideoTitle(file.name.replace(/\.[^/.]+$/, ''));
       }
+      
+      // Extract first frame for swimmer selection
+      try {
+        const frame = await extractFirstFrame(file);
+        setFirstFrame(frame);
+        setShowSwimmerSelect(true);
+      } catch (err) {
+        console.error('Failed to extract first frame:', err);
+      }
     }
   };
+
+  // Compress video
+  const compressVideo = async () => {
+    if (!videoFile) return null;
+    
+    const loaded = await loadFFmpeg();
+    if (!loaded) {
+      alert('Failed to load video processor. Using original file.');
+      return videoFile;
+    }
+    
+    setStep('compressing');
+    setCompressionProgress(0);
+    setProgressMessage('Preparing video compression...');
+    
+    try {
+      const ffmpeg = ffmpegRef.current;
+      const inputName = 'input' + videoFile.name.substring(videoFile.name.lastIndexOf('.'));
+      const outputName = 'output.mp4';
+      
+      // Write input file
+      await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
+      
+      setProgressMessage('Compressing video & removing audio...');
+      
+      // Get CRF from preset
+      const preset = COMPRESSION_PRESETS.find(p => p.id === compressionPreset);
+      const crf = preset?.crf || 28;
+      
+      // FFmpeg command: compress video, remove audio, scale if needed
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-c:v', 'libx264',
+        '-crf', crf.toString(),
+        '-preset', 'fast',
+        '-an', // Remove audio
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', // Ensure even dimensions
+        '-movflags', '+faststart',
+        outputName
+      ]);
+      
+      // Read output file
+      const data = await ffmpeg.readFile(outputName);
+      const compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
+      const compressed = new File([compressedBlob], videoFile.name.replace(/\.[^/.]+$/, '') + '_compressed.mp4', {
+        type: 'video/mp4'
+      });
+      
+      setCompressedFile(compressed);
+      setCompressedSize(compressed.size);
+      
+      // Clean up
+      await ffmpeg.deleteFile(inputName);
+      await ffmpeg.deleteFile(outputName);
+      
+      return compressed;
+    } catch (error) {
+      console.error('Compression failed:', error);
+      setProgressMessage('Compression failed, using original file...');
+      return videoFile;
+    }
+  };
+
+  // Swimmer bounding box drawing handlers
+  const getSwimmerCanvasCoordinates = (e) => {
+    const canvas = swimmerCanvasRef.current;
+    if (!canvas) return null;
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  };
+
+  const handleSwimmerBoxMouseDown = (e) => {
+    const coords = getSwimmerCanvasCoordinates(e);
+    if (coords) {
+      setIsDrawingBox(true);
+      setBoxDrawStart(coords);
+      setSwimmerBoundingBox(null);
+    }
+  };
+
+  const handleSwimmerBoxMouseMove = (e) => {
+    if (!isDrawingBox || !boxDrawStart) return;
+    
+    const coords = getSwimmerCanvasCoordinates(e);
+    if (coords) {
+      const box = {
+        x: Math.min(boxDrawStart.x, coords.x),
+        y: Math.min(boxDrawStart.y, coords.y),
+        width: Math.abs(coords.x - boxDrawStart.x),
+        height: Math.abs(coords.y - boxDrawStart.y)
+      };
+      setSwimmerBoundingBox(box);
+      drawSwimmerFrame(box);
+    }
+  };
+
+  const handleSwimmerBoxMouseUp = () => {
+    setIsDrawingBox(false);
+    setBoxDrawStart(null);
+  };
+
+  // Draw the frame with bounding box overlay
+  const drawSwimmerFrame = useCallback((box = swimmerBoundingBox) => {
+    const canvas = swimmerCanvasRef.current;
+    if (!canvas || !firstFrame) return;
+    
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      if (box && box.width > 10 && box.height > 10) {
+        // Darken everything outside the box
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, box.y);
+        ctx.fillRect(0, box.y, box.x, box.height);
+        ctx.fillRect(box.x + box.width, box.y, canvas.width - box.x - box.width, box.height);
+        ctx.fillRect(0, box.y + box.height, canvas.width, canvas.height - box.y - box.height);
+        
+        // Draw box border
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([]);
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
+        
+        // Corner handles
+        const handleSize = 10;
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(box.x - handleSize/2, box.y - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(box.x + box.width - handleSize/2, box.y - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(box.x - handleSize/2, box.y + box.height - handleSize/2, handleSize, handleSize);
+        ctx.fillRect(box.x + box.width - handleSize/2, box.y + box.height - handleSize/2, handleSize, handleSize);
+        
+        // Label
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(box.x, box.y - 28, 120, 24);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px system-ui';
+        ctx.fillText('Target Swimmer', box.x + 8, box.y - 10);
+      }
+    };
+    
+    img.src = firstFrame.dataUrl;
+  }, [firstFrame, swimmerBoundingBox]);
+
+  // Initialize canvas when first frame is ready
+  useEffect(() => {
+    if (firstFrame && swimmerCanvasRef.current) {
+      const canvas = swimmerCanvasRef.current;
+      canvas.width = firstFrame.width;
+      canvas.height = firstFrame.height;
+      drawSwimmerFrame();
+    }
+  }, [firstFrame, drawSwimmerFrame]);
+
+  // Format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Calculate compression ratio
+  const compressionRatio = originalSize > 0 && compressedSize > 0 
+    ? Math.round((1 - compressedSize / originalSize) * 100) 
+    : 0;
 
   const handleStartAnalysis = async () => {
     if (!videoFile) return alert('Please select a video file.');
@@ -90,13 +370,17 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
     if (!videoType) return alert('Please select a video type.');
     if (!apiKey) return alert('Please enter your Gemini API key.');
 
+    // Compress video first
+    const fileToUpload = await compressVideo();
+    if (!fileToUpload) return;
+
     setStep('uploading');
     setUploadProgress(0);
-    setProgressMessage('Preparing upload...');
+    setProgressMessage('Uploading compressed video...');
 
     try {
       // 1. Upload to Supabase Storage
-      const fileName = `${selectedSwimmerId}/${Date.now()}_${videoFile.name}`;
+      const fileName = `${selectedSwimmerId}/${Date.now()}_${fileToUpload.name}`;
       
       // Simulate progress (Supabase doesn't have upload progress callback)
       const progressInterval = setInterval(() => {
@@ -105,7 +389,7 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
 
       const { error: uploadError } = await supabase.storage
         .from('race-videos')
-        .upload(fileName, videoFile);
+        .upload(fileName, fileToUpload);
 
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -123,7 +407,7 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
       setStep('analyzing');
       setAnalysisProgress(0);
 
-      await runAIAnalysis(publicUrl);
+      await runAIAnalysis(publicUrl, fileToUpload);
 
     } catch (error) {
       console.error(error);
@@ -132,13 +416,13 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
     }
   };
 
-  const runAIAnalysis = async (url) => {
+  const runAIAnalysis = async (url, file) => {
     setProgressMessage('Preparing video for analysis...');
     setAnalysisProgress(10);
 
     try {
       // Convert video to base64 for Gemini
-      const videoBlob = await fetch(videoFile ? URL.createObjectURL(videoFile) : url).then(r => r.blob());
+      const videoBlob = await fetch(file ? URL.createObjectURL(file) : url).then(r => r.blob());
       const base64 = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result.split(',')[1]);
@@ -152,11 +436,29 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
       const videoTypeInfo = VIDEO_TYPES.find(v => v.id === videoType);
       const focusAreas = videoTypeInfo?.prompts.join(', ') || 'general technique';
 
+      // Build swimmer focus instruction if bounding box is set
+      let swimmerFocusInstruction = '';
+      if (swimmerBoundingBox && firstFrame && swimmerBoundingBox.width > 10) {
+        const relX = Math.round((swimmerBoundingBox.x / firstFrame.width) * 100);
+        const relY = Math.round((swimmerBoundingBox.y / firstFrame.height) * 100);
+        const relW = Math.round((swimmerBoundingBox.width / firstFrame.width) * 100);
+        const relH = Math.round((swimmerBoundingBox.height / firstFrame.height) * 100);
+        
+        swimmerFocusInstruction = `
+IMPORTANT - SWIMMER IDENTIFICATION:
+The user has marked a specific swimmer to analyze. In the first frame of the video, the target swimmer is located in a bounding box at approximately:
+- Position: ${relX}% from left, ${relY}% from top
+- Size: ${relW}% width, ${relH}% height of frame
+Focus your ENTIRE analysis on this specific swimmer. Ignore all other swimmers in the pool. Track this swimmer throughout the video based on their initial position, lane, and appearance.
+`;
+      }
+
       const prompt = `You are an expert swimming coach and video analyst. Analyze this ${videoType.replace('-', ' ')} video of a ${stroke} swimmer.
 
 VIDEO TYPE: ${videoTypeInfo?.label}
 STROKE: ${stroke}
 FOCUS AREAS: ${focusAreas}
+${swimmerFocusInstruction}
 
 Please provide a detailed analysis in the following JSON format (return ONLY valid JSON, no markdown):
 {
@@ -197,7 +499,7 @@ Be specific and actionable. Reference specific timestamps when possible. Focus o
       setProgressMessage('AI is analyzing technique...');
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -205,7 +507,7 @@ Be specific and actionable. Reference specific timestamps when possible. Focus o
             contents: [{
               parts: [
                 { text: prompt },
-                { inlineData: { mimeType: videoFile.type, data: base64 } }
+                { inlineData: { mimeType: 'video/mp4', data: base64 } }
               ]
             }]
           })
@@ -237,59 +539,27 @@ Be specific and actionable. Reference specific timestamps when possible. Focus o
       setAnalysisProgress(100);
       setProgressMessage('Analysis complete!');
 
-      // Short delay before transitioning to editor
-      setTimeout(() => {
-        setStep('editor');
-      }, 1000);
+      setTimeout(() => setStep('editor'), 500);
 
     } catch (error) {
-      console.error('AI Analysis Error:', error);
-      alert('AI Analysis failed: ' + error.message);
+      console.error('Analysis error:', error);
+      alert('Analysis failed: ' + error.message);
       setStep('setup');
     }
   };
 
-  // Render based on current step
-  if (step === 'setup') {
-    return (
-      <SetupStep 
-        swimmers={swimmers}
-        selectedSwimmerId={selectedSwimmerId}
-        setSelectedSwimmerId={setSelectedSwimmerId}
-        videoType={videoType}
-        setVideoType={setVideoType}
-        stroke={stroke}
-        setStroke={setStroke}
-        videoTitle={videoTitle}
-        setVideoTitle={setVideoTitle}
-        videoFile={videoFile}
-        videoUrl={videoUrl}
-        apiKey={apiKey}
-        setApiKey={setApiKey}
-        saveApiKey={saveApiKey}
-        setSaveApiKey={setSaveApiKey}
-        fileInputRef={fileInputRef}
-        handleFileSelect={handleFileSelect}
-        handleStartAnalysis={handleStartAnalysis}
-        onBack={onBack}
-      />
-    );
+  // Render based on step
+  if (step === 'compressing') {
+    return <CompressionProgress progress={compressionProgress} message={progressMessage} />;
   }
 
   if (step === 'uploading' || step === 'analyzing') {
-    return (
-      <ProgressStep 
-        step={step}
-        uploadProgress={uploadProgress}
-        analysisProgress={analysisProgress}
-        progressMessage={progressMessage}
-      />
-    );
+    return <ProgressStep step={step} uploadProgress={uploadProgress} analysisProgress={analysisProgress} progressMessage={progressMessage} />;
   }
 
-  if (step === 'editor') {
+  if (step === 'editor' && aiAnalysis) {
     return (
-      <EditorStep 
+      <EditorStep
         videoUrl={videoUrl}
         videoTitle={videoTitle}
         setVideoTitle={setVideoTitle}
@@ -305,31 +575,19 @@ Be specific and actionable. Reference specific timestamps when possible. Focus o
     );
   }
 
-  return null;
-}
-
-// ============================================
-// SETUP STEP COMPONENT
-// ============================================
-const SetupStep = ({
-  swimmers, selectedSwimmerId, setSelectedSwimmerId,
-  videoType, setVideoType, stroke, setStroke,
-  videoTitle, setVideoTitle, videoFile, videoUrl,
-  apiKey, setApiKey, saveApiKey, setSaveApiKey,
-  fileInputRef, handleFileSelect, handleStartAnalysis, onBack
-}) => {
+  // Setup Step
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-500">
+        <button onClick={onBack} className="p-2 hover:bg-white rounded-xl text-slate-500 transition-colors">
           <ChevronLeft size={24} />
         </button>
         <div>
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Video className="text-blue-600" /> Video Analysis Studio
           </h2>
-          <p className="text-slate-500 text-sm">AI-powered technique analysis with coach annotations</p>
+          <p className="text-slate-500 text-sm">AI-powered technique analysis with smart compression</p>
         </div>
       </div>
 
@@ -349,16 +607,16 @@ const SetupStep = ({
                   onClick={() => setVideoType(type.id)}
                   className={`p-4 rounded-xl border-2 text-left transition-all ${
                     isSelected 
-                      ? `border-${type.color}-500 bg-${type.color}-50 ring-2 ring-${type.color}-200` 
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
                       : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${
-                    isSelected ? `bg-${type.color}-500 text-white` : 'bg-slate-100 text-slate-500'
+                    isSelected ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'
                   }`}>
                     <Icon size={20} />
                   </div>
-                  <div className="font-bold text-slate-800">{type.label}</div>
+                  <h4 className="font-bold text-slate-800">{type.label}</h4>
                   <p className="text-xs text-slate-500 mt-1">{type.description}</p>
                 </button>
               );
@@ -369,18 +627,18 @@ const SetupStep = ({
         {/* Swimmer & Stroke Selection */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <User size={18} className="text-slate-400" /> Swimmer & Stroke
+            <User size={18} className="text-slate-400" /> Swimmer Details
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Swimmer</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Select Swimmer</label>
               <select
                 value={selectedSwimmerId}
                 onChange={e => setSelectedSwimmerId(e.target.value)}
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
-                <option value="">Select a swimmer...</option>
-                {swimmers.map(s => (
+                <option value="">Choose a swimmer...</option>
+                {swimmers?.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -403,14 +661,14 @@ const SetupStep = ({
         {/* Video Upload */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <UploadCloud size={18} className="text-slate-400" /> Video Upload
+            <UploadCloud size={18} className="text-slate-400" /> Upload Video
           </h3>
           
-          <input 
-            type="file" 
+          <input
             ref={fileInputRef}
+            type="file"
+            accept="video/*"
             onChange={handleFileSelect}
-            accept="video/mp4,video/quicktime,video/webm"
             className="hidden"
           />
 
@@ -423,7 +681,7 @@ const SetupStep = ({
                 <UploadCloud size={32} />
               </div>
               <h4 className="font-bold text-slate-800 text-lg mb-1">Click to upload video</h4>
-              <p className="text-slate-500 text-sm">MP4, MOV, WebM up to 100MB</p>
+              <p className="text-slate-500 text-sm">MP4, MOV, WebM • No size limit (will be compressed)</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -434,6 +692,51 @@ const SetupStep = ({
                   className="w-full h-full object-contain"
                   controls
                 />
+              </div>
+              
+              {/* File Info & Compression Settings */}
+              <div className="flex flex-wrap gap-4 items-center justify-between p-4 bg-slate-50 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <FileVideo size={24} className="text-slate-400" />
+                  <div>
+                    <p className="font-medium text-slate-700">{videoFile.name}</p>
+                    <p className="text-sm text-slate-500">
+                      Original: {formatFileSize(originalSize)}
+                      {compressedSize > 0 && (
+                        <span className="text-green-600 ml-2">
+                          → {formatFileSize(compressedSize)} ({compressionRatio}% smaller)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-blue-600 text-sm font-medium hover:underline"
+                >
+                  Change video
+                </button>
+              </div>
+
+              {/* Compression Quality Preset */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Compression Quality</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {COMPRESSION_PRESETS.map(preset => (
+                    <button
+                      key={preset.id}
+                      onClick={() => setCompressionPreset(preset.id)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        compressionPreset === preset.id 
+                          ? 'border-blue-500 bg-blue-50' 
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <p className="font-medium text-slate-800">{preset.label}</p>
+                      <p className="text-xs text-slate-500">{preset.description}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
               
               {/* Video Title */}
@@ -447,17 +750,94 @@ const SetupStep = ({
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-
-              {/* Change Video Button */}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-blue-600 text-sm font-medium hover:underline"
-              >
-                Change video
-              </button>
             </div>
           )}
         </div>
+
+        {/* Swimmer Selection (Bounding Box) */}
+        {firstFrame && showSwimmerSelect && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Target size={18} className="text-purple-500" /> Select Your Swimmer
+              </h3>
+              <button
+                onClick={() => setShowSwimmerSelect(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <Minimize2 size={20} />
+              </button>
+            </div>
+            
+            <p className="text-sm text-slate-500 mb-4">
+              Draw a box around the swimmer you want to analyze. This helps the AI focus on the correct swimmer when there are multiple people in the pool.
+            </p>
+            
+            <div className="relative bg-slate-900 rounded-xl overflow-hidden">
+              <canvas
+                ref={swimmerCanvasRef}
+                onMouseDown={handleSwimmerBoxMouseDown}
+                onMouseMove={handleSwimmerBoxMouseMove}
+                onMouseUp={handleSwimmerBoxMouseUp}
+                onMouseLeave={handleSwimmerBoxMouseUp}
+                className="w-full h-auto cursor-crosshair"
+                style={{ maxHeight: '400px', objectFit: 'contain' }}
+              />
+            </div>
+            
+            <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center gap-2 text-sm">
+                {swimmerBoundingBox && swimmerBoundingBox.width > 10 ? (
+                  <span className="flex items-center gap-1.5 text-green-600">
+                    <CheckCircle2 size={16} />
+                    Swimmer selected
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-slate-400">
+                    <Crop size={16} />
+                    Click and drag to select swimmer
+                  </span>
+                )}
+              </div>
+              
+              {swimmerBoundingBox && (
+                <button
+                  onClick={() => {
+                    setSwimmerBoundingBox(null);
+                    drawSwimmerFrame(null);
+                  }}
+                  className="text-sm text-red-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <RotateCcw size={14} />
+                  Reset selection
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Show swimmer select button if hidden */}
+        {firstFrame && !showSwimmerSelect && (
+          <button
+            onClick={() => setShowSwimmerSelect(true)}
+            className="w-full p-4 bg-white border border-slate-200 rounded-2xl text-left hover:bg-slate-50 transition-colors flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <Target size={20} className="text-purple-500" />
+              <div>
+                <p className="font-medium text-slate-700">Swimmer Selection</p>
+                <p className="text-sm text-slate-500">
+                  {swimmerBoundingBox && swimmerBoundingBox.width > 10 
+                    ? 'Target swimmer marked' 
+                    : 'Optional: Mark specific swimmer to track'}
+                </p>
+              </div>
+            </div>
+            {swimmerBoundingBox && swimmerBoundingBox.width > 10 && (
+              <CheckCircle2 size={20} className="text-green-500" />
+            )}
+          </button>
+        )}
 
         {/* API Key */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -488,15 +868,78 @@ const SetupStep = ({
           </div>
         </div>
 
+        {/* FFmpeg Loading Status */}
+        {ffmpegLoading && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+            <Loader2 size={20} className="text-amber-600 animate-spin" />
+            <p className="text-amber-800 text-sm">Loading video processor...</p>
+          </div>
+        )}
+
         {/* Start Analysis Button */}
         <button
           onClick={handleStartAnalysis}
-          disabled={!videoFile || !selectedSwimmerId || !videoType || !apiKey}
+          disabled={!videoFile || !selectedSwimmerId || !videoType || !apiKey || ffmpegLoading}
           className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-xl text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
         >
           <Sparkles size={20} />
-          Start AI Analysis
+          Compress & Analyze Video
         </button>
+
+        <p className="text-center text-xs text-slate-400">
+          Video will be compressed and audio removed before upload to reduce file size
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// COMPRESSION PROGRESS COMPONENT
+// ============================================
+const CompressionProgress = ({ progress, message }) => {
+  return (
+    <div className="h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-purple-50 p-8">
+      <div className="bg-white rounded-3xl p-12 shadow-xl border border-slate-200 max-w-md w-full text-center">
+        {/* Animated Icon */}
+        <div className="relative w-32 h-32 mx-auto mb-8">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+            <circle 
+              cx="50" cy="50" r="45" 
+              fill="none" 
+              stroke="#e2e8f0" 
+              strokeWidth="8"
+            />
+            <circle 
+              cx="50" cy="50" r="45" 
+              fill="none" 
+              stroke="url(#compressionGradient)" 
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={`${progress * 2.83} 283`}
+              className="transition-all duration-500"
+            />
+            <defs>
+              <linearGradient id="compressionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#8b5cf6" />
+                <stop offset="100%" stopColor="#ec4899" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <RefreshCw size={32} className="text-purple-500 animate-spin" />
+          </div>
+        </div>
+
+        <h3 className="text-2xl font-bold text-slate-800 mb-2">
+          Compressing Video
+        </h3>
+        <p className="text-slate-500 mb-4">{message}</p>
+        <div className="text-3xl font-bold text-purple-600">{progress}%</div>
+        
+        <p className="text-xs text-slate-400 mt-6">
+          Removing audio & optimizing for analysis...
+        </p>
       </div>
     </div>
   );
@@ -1244,32 +1687,28 @@ const EditorStep = ({
           </div>
         </div>
 
-        {/* Right Panel - Analysis */}
-        <div className="w-[420px] bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden">
+        {/* Side Panel */}
+        <div className="w-96 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden">
           {/* Panel Tabs */}
           <div className="flex border-b border-slate-700 shrink-0">
             {[
               { id: 'ai', label: 'AI Analysis', icon: Sparkles },
-              { id: 'coach', label: 'Notes', icon: MessageSquare },
-              { id: 'annotations', label: `Lines${annotations.length > 0 ? ` (${annotations.length})` : ''}`, icon: PenTool },
-              { id: 'drills', label: 'Drills', icon: Target }
-            ].map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActivePanel(tab.id)}
-                  className={`flex-1 px-3 py-3 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                    activePanel === tab.id 
-                      ? 'text-white bg-slate-700/50 border-b-2 border-blue-500' 
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Icon size={14} />
-                  {tab.label}
-                </button>
-              );
-            })}
+              { id: 'coach', label: 'Coach', icon: MessageSquare },
+              { id: 'annotations', label: 'Lines', icon: PenTool }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActivePanel(tab.id)}
+                className={`flex-1 py-3 px-2 text-xs font-bold uppercase flex items-center justify-center gap-1.5 transition-colors ${
+                  activePanel === tab.id
+                    ? 'text-blue-400 border-b-2 border-blue-400 bg-slate-700/50'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <tab.icon size={14} />
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {/* Panel Content */}
@@ -1278,31 +1717,10 @@ const EditorStep = ({
             {activePanel === 'ai' && (
               <div className="space-y-6">
                 {/* Summary */}
-                {aiAnalysis?.summary && (
-                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
-                    <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 flex items-center gap-2">
-                      <Sparkles size={14} /> AI Summary
-                    </h4>
-                    <p className="text-sm text-slate-300 leading-relaxed">{aiAnalysis.summary}</p>
-                  </div>
-                )}
-
-                {/* Metrics */}
-                {aiAnalysis?.metrics && (
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Metrics</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(aiAnalysis.metrics).map(([key, value]) => (
-                        value && (
-                          <div key={key} className="bg-slate-700/50 rounded-lg p-3">
-                            <div className="text-xs text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</div>
-                            <div className="text-lg font-bold text-white">{value}</div>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Summary</h4>
+                  <p className="text-sm text-slate-300">{aiAnalysis?.summary}</p>
+                </div>
 
                 {/* Strengths */}
                 {aiAnalysis?.strengths?.length > 0 && (
@@ -1316,11 +1734,11 @@ const EditorStep = ({
                           <div className="font-medium text-emerald-400 text-sm">{s.title}</div>
                           <p className="text-xs text-slate-400 mt-1">{s.description}</p>
                           {s.timestamp && (
-                            <button 
+                            <button
                               onClick={() => seekTo(s.timestamp)}
                               className="text-xs text-emerald-400 mt-2 hover:underline"
                             >
-                              Jump to {formatTimeShort(s.timestamp)}
+                              @ {formatTime(s.timestamp)}
                             </button>
                           )}
                         </div>
@@ -1333,7 +1751,7 @@ const EditorStep = ({
                 {aiAnalysis?.improvements?.length > 0 && (
                   <div>
                     <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
-                      <AlertCircle size={14} className="text-yellow-400" /> Areas for Improvement
+                      <AlertCircle size={14} className="text-amber-400" /> Areas to Improve
                     </h4>
                     <div className="space-y-2">
                       {aiAnalysis.improvements.map((imp) => (
@@ -1342,68 +1760,62 @@ const EditorStep = ({
                           className={`rounded-lg p-3 border transition-all ${
                             imp.status === 'accepted' 
                               ? 'bg-emerald-500/10 border-emerald-500/30' 
-                              : imp.status === 'declined'
-                                ? 'bg-slate-700/30 border-slate-600 opacity-50'
-                                : 'bg-slate-700/50 border-slate-600'
+                              : imp.status === 'rejected'
+                              ? 'bg-slate-700/30 border-slate-600 opacity-50'
+                              : 'bg-amber-500/10 border-amber-500/20'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                                  imp.severity === 'High' ? 'bg-red-500/20 text-red-400' :
-                                  imp.severity === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                  'bg-slate-500/20 text-slate-400'
-                                }`}>
-                                  {imp.severity}
-                                </span>
-                                <span className="font-medium text-white text-sm">{imp.title}</span>
-                              </div>
+                              <div className="font-medium text-amber-400 text-sm">{imp.title}</div>
                               <p className="text-xs text-slate-400 mt-1">{imp.description}</p>
                               {imp.suggestion && (
-                                <p className="text-xs text-blue-400 mt-2">
-                                  <span className="font-bold">Fix:</span> {imp.suggestion}
-                                </p>
-                              )}
-                              {imp.timestamp && (
-                                <button 
-                                  onClick={() => seekTo(imp.timestamp)}
-                                  className="text-xs text-slate-500 mt-2 hover:text-white"
-                                >
-                                  @ {formatTimeShort(imp.timestamp)}
-                                </button>
+                                <p className="text-xs text-blue-400 mt-2">💡 {imp.suggestion}</p>
                               )}
                             </div>
-                            
-                            {/* Accept/Decline Buttons */}
-                            {imp.status === 'pending' && (
-                              <div className="flex flex-col gap-1">
-                                <button
-                                  onClick={() => updateFeedbackStatus(imp.id, 'accepted')}
-                                  className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded hover:bg-emerald-500/30"
-                                  title="Accept"
-                                >
-                                  <Check size={14} />
-                                </button>
-                                <button
-                                  onClick={() => updateFeedbackStatus(imp.id, 'declined')}
-                                  className="p-1.5 bg-slate-600 text-slate-400 rounded hover:bg-slate-500"
-                                  title="Decline"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            )}
-                            
-                            {imp.status !== 'pending' && (
+                            <div className="flex gap-1">
                               <button
-                                onClick={() => updateFeedbackStatus(imp.id, 'pending')}
-                                className="text-xs text-slate-500 hover:text-white"
+                                onClick={() => updateFeedbackStatus(imp.id, 'accepted')}
+                                className={`p-1.5 rounded ${imp.status === 'accepted' ? 'bg-emerald-500 text-white' : 'hover:bg-slate-700 text-slate-400'}`}
                               >
-                                Reset
+                                <Check size={14} />
                               </button>
-                            )}
+                              <button
+                                onClick={() => updateFeedbackStatus(imp.id, 'rejected')}
+                                className={`p-1.5 rounded ${imp.status === 'rejected' ? 'bg-red-500 text-white' : 'hover:bg-slate-700 text-slate-400'}`}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           </div>
+                          {imp.timestamp && (
+                            <button
+                              onClick={() => seekTo(imp.timestamp)}
+                              className="text-xs text-amber-400 mt-2 hover:underline"
+                            >
+                              @ {formatTime(imp.timestamp)}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Drills */}
+                {aiAnalysis?.drills?.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                      <Target size={14} className="text-purple-400" /> Recommended Drills
+                    </h4>
+                    <div className="space-y-2">
+                      {aiAnalysis.drills.map((drill, i) => (
+                        <div key={i} className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                          <div className="font-medium text-purple-400 text-sm">{drill.name}</div>
+                          <p className="text-xs text-slate-500 mt-0.5">{drill.purpose}</p>
+                          {drill.description && (
+                            <p className="text-xs text-slate-400 mt-2">{drill.description}</p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1412,12 +1824,12 @@ const EditorStep = ({
               </div>
             )}
 
-            {/* Coach Notes Panel */}
+            {/* Coach Panel */}
             {activePanel === 'coach' && (
               <div className="space-y-6">
-                {/* General Notes */}
+                {/* Coach Notes */}
                 <div>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">General Notes</h4>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Overall Notes</h4>
                   <textarea
                     value={coachNotes}
                     onChange={e => setCoachNotes(e.target.value)}
@@ -1502,29 +1914,11 @@ const EditorStep = ({
                   </p>
                 </div>
 
-                {/* Annotation Duration Setting */}
-                <div className="flex items-center justify-between bg-slate-700/50 rounded-lg p-3">
-                  <span className="text-sm text-slate-300">Line display duration</span>
-                  <select
-                    value={annotationDuration}
-                    onChange={e => setAnnotationDuration(Number(e.target.value))}
-                    className="bg-slate-600 text-white text-sm rounded px-2 py-1 border-0"
-                  >
-                    <option value={1}>1 second</option>
-                    <option value={2}>2 seconds</option>
-                    <option value={3}>3 seconds</option>
-                    <option value={5}>5 seconds</option>
-                    <option value={10}>10 seconds</option>
-                  </select>
-                </div>
-
-                {/* Annotations List */}
+                {/* Annotation List */}
                 {annotations.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <PenTool size={32} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No annotations yet</p>
-                    <p className="text-xs mt-1">Enable drawing mode to add lines</p>
-                  </div>
+                  <p className="text-sm text-slate-500 text-center py-8">
+                    No annotations yet. Enable drawing mode and draw on the video.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {annotations
@@ -1536,75 +1930,38 @@ const EditorStep = ({
                             seekTo(ann.timestamp);
                             setSelectedAnnotation(ann.id);
                           }}
-                          className={`bg-slate-700/50 rounded-lg p-3 border cursor-pointer transition-all group ${
+                          className={`bg-slate-700/50 rounded-lg p-3 border cursor-pointer transition-all ${
                             selectedAnnotation === ann.id 
                               ? 'border-purple-500 bg-purple-500/10' 
                               : 'border-slate-600 hover:border-slate-500'
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
                               <div 
-                                className="w-4 h-4 rounded-full border-2 border-white/50"
+                                className="w-3 h-3 rounded-full" 
                                 style={{ backgroundColor: ann.color }}
                               />
-                              <div>
-                                <div className="text-sm font-medium text-white">
-                                  {ann.label || 'Untitled Line'}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    seekTo(ann.timestamp);
-                                  }}
-                                  className="text-xs text-slate-400 hover:text-blue-400"
-                                >
-                                  @ {formatTime(ann.timestamp)}
-                                </button>
-                              </div>
+                              <span className="text-xs font-mono text-slate-400">
+                                {formatTimeShort(ann.timestamp)}
+                              </span>
                             </div>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteAnnotation(ann.id);
                               }}
-                              className="p-1.5 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-1 text-slate-500 hover:text-red-400"
                             >
                               <Trash2 size={14} />
                             </button>
                           </div>
+                          {ann.label && (
+                            <p className="text-sm text-white mt-1">{ann.label}</p>
+                          )}
                         </div>
                       ))}
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* Drills Panel */}
-            {activePanel === 'drills' && (
-              <div className="space-y-4">
-                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 mb-4">
-                  <h4 className="text-xs font-bold text-purple-400 uppercase mb-2">Recommended Drills</h4>
-                  <p className="text-sm text-slate-400">Based on AI analysis, these drills address the identified areas for improvement.</p>
-                </div>
-
-                {aiAnalysis?.drills?.length > 0 ? (
-                  aiAnalysis.drills.map((drill, i) => (
-                    <div key={i} className="bg-slate-700/50 rounded-xl p-4 border border-slate-600">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center text-purple-400 font-bold text-sm shrink-0">
-                          {i + 1}
-                        </div>
-                        <div>
-                          <h5 className="font-bold text-white">{drill.name}</h5>
-                          <p className="text-xs text-purple-400 mt-0.5">{drill.purpose}</p>
-                          <p className="text-sm text-slate-400 mt-2">{drill.description}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-500 text-center py-8">No drills recommended</p>
                 )}
               </div>
             )}
@@ -1639,19 +1996,19 @@ const EditorStep = ({
             <div className="flex gap-3">
               <button
                 onClick={cancelAnnotation}
-                className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-300 font-medium rounded-xl hover:bg-slate-600"
+                className="flex-1 py-2 px-4 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={() => saveAnnotation(false)}
-                className="flex-1 px-4 py-2.5 bg-slate-600 text-white font-medium rounded-xl hover:bg-slate-500"
+                className="flex-1 py-2 px-4 bg-slate-600 hover:bg-slate-500 text-white rounded-xl font-medium"
               >
-                Skip Label
+                No Label
               </button>
               <button
                 onClick={() => saveAnnotation(true)}
-                className="flex-1 px-4 py-2.5 bg-purple-500 text-white font-bold rounded-xl hover:bg-purple-600"
+                className="flex-1 py-2 px-4 bg-purple-500 hover:bg-purple-600 text-white rounded-xl font-medium"
               >
                 Save
               </button>
@@ -1662,6 +2019,7 @@ const EditorStep = ({
     </div>
   );
 };
+
 
 // Plus icon component (if not imported)
 const Plus = ({ size = 24, className = '' }) => (
