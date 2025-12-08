@@ -16,7 +16,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xlsx": "^0.18.5",
-    "recharts": "^2.10.3"
+    "recharts": "^2.10.3",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
