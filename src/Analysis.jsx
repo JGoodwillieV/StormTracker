@@ -8,7 +8,7 @@ import {
   Sparkles, Loader2, AlertCircle, Clock, User, Tag, Film,
   ChevronDown, ChevronUp, Eye, EyeOff, Edit3, MessageSquare,
   Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2,
-  Plus, Crop, Move, RefreshCw, FileVideo, Minimize2
+  Plus, Crop, FileVideo, Minimize2
 } from 'lucide-react';
 
 // Video type definitions
@@ -83,7 +83,6 @@ export default function Analysis({ swimmers, onBack, supabase: sb }) {
   const [showSwimmerSelect, setShowSwimmerSelect] = useState(false);
   
   const fileInputRef = useRef(null);
-  const ffmpegRef = useRef(new FFmpeg());
   const swimmerCanvasRef = useRef(null);
 
   // Handle API key storage preference
