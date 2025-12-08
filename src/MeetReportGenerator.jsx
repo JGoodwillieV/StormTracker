@@ -1,8 +1,8 @@
 // src/MeetReportGenerator.jsx
 // Comprehensive Meet Report Generator for Coaches
-// Generates detailed post-meet reports with stats, charts, and highlights
+// V2: Fixed duplicate times + Added PDF Export
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './supabase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -12,7 +12,7 @@ import {
   ChevronLeft, Calendar, Users, Trophy, TrendingUp, TrendingDown,
   Award, Target, Zap, Clock, Filter, Download, Share2, Loader2,
   CheckCircle, Star, Flame, Medal, ChevronDown, ChevronRight,
-  Percent, Timer, Activity, BarChart3, FileText, Sparkles
+  Percent, Timer, Activity, BarChart3, FileText, Sparkles, Printer
 } from 'lucide-react';
 
 // ============================================
@@ -68,12 +68,12 @@ const normalizeEvent = (evt) => {
 // Standard hierarchy
 const STANDARD_HIERARCHY = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B'];
 const STANDARD_COLORS = {
-  'AAAA': { bg: 'bg-rose-500', light: 'bg-rose-50', text: 'text-rose-600', border: 'border-rose-200' },
-  'AAA': { bg: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-200' },
-  'AA': { bg: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
-  'A': { bg: 'bg-yellow-500', light: 'bg-yellow-50', text: 'text-yellow-600', border: 'border-yellow-200' },
-  'BB': { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
-  'B': { bg: 'bg-amber-600', light: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  'AAAA': { bg: 'bg-rose-500', light: 'bg-rose-50', text: 'text-rose-600', border: 'border-rose-200', hex: '#f43f5e' },
+  'AAA': { bg: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-200', hex: '#a855f7' },
+  'AA': { bg: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', hex: '#3b82f6' },
+  'A': { bg: 'bg-yellow-500', light: 'bg-yellow-50', text: 'text-yellow-600', border: 'border-yellow-200', hex: '#eab308' },
+  'BB': { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', hex: '#94a3b8' },
+  'B': { bg: 'bg-amber-600', light: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', hex: '#d97706' },
 };
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -104,37 +104,6 @@ const StatCard = ({ icon: Icon, label, value, subValue, color = 'blue', large = 
           {subValue && <p className="text-sm text-slate-500 mt-0.5">{subValue}</p>}
         </div>
       </div>
-    </div>
-  );
-};
-
-// ============================================
-// HIGHLIGHT CARD COMPONENT
-// ============================================
-
-const HighlightCard = ({ icon: Icon, title, subtitle, badge, badgeColor = 'blue' }) => {
-  const badgeColors = {
-    blue: 'bg-blue-100 text-blue-700',
-    green: 'bg-emerald-100 text-emerald-700',
-    yellow: 'bg-amber-100 text-amber-700',
-    purple: 'bg-purple-100 text-purple-700',
-    rose: 'bg-rose-100 text-rose-700',
-  };
-
-  return (
-    <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-slate-50 to-white rounded-xl border border-slate-100">
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-200/50">
-        <Icon size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-slate-800 truncate">{title}</p>
-        <p className="text-sm text-slate-500 truncate">{subtitle}</p>
-      </div>
-      {badge && (
-        <span className={`px-2 py-1 rounded-full text-xs font-bold ${badgeColors[badgeColor]}`}>
-          {badge}
-        </span>
-      )}
     </div>
   );
 };
@@ -174,25 +143,196 @@ const ExpandableSection = ({ title, icon: Icon, children, defaultOpen = true, co
 };
 
 // ============================================
+// PDF EXPORT FUNCTION
+// ============================================
+
+const generatePDFContent = (data) => {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>${data.meetName || 'Meet Report'}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1e293b; line-height: 1.5; padding: 20px; max-width: 800px; margin: 0 auto;
+    }
+    .header {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: white; padding: 30px; border-radius: 16px; margin-bottom: 24px;
+    }
+    .header h1 { font-size: 28px; margin-bottom: 8px; }
+    .header p { opacity: 0.9; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-card {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; text-align: center;
+    }
+    .stat-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
+    .stat-card .value { font-size: 24px; font-weight: 700; color: #1e293b; }
+    .stat-card .sub { font-size: 11px; color: #64748b; }
+    .hero {
+      background: linear-gradient(135deg, #10b981, #14b8a6);
+      color: white; padding: 24px; border-radius: 16px; margin-bottom: 24px;
+    }
+    .hero .big-number { font-size: 48px; font-weight: 900; }
+    .section {
+      background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+      margin-bottom: 16px; overflow: hidden; page-break-inside: avoid;
+    }
+    .section-header {
+      background: #f8fafc; padding: 12px 16px; font-weight: 700; font-size: 16px; border-bottom: 1px solid #e2e8f0;
+    }
+    .section-content { padding: 16px; }
+    .item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+    .item:last-child { border-bottom: none; }
+    .item .rank {
+      width: 24px; height: 24px; border-radius: 50%; background: #e2e8f0;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; margin-right: 12px; color: #64748b;
+    }
+    .item .rank.gold { background: #fbbf24; color: white; }
+    .item .rank.silver { background: #94a3b8; color: white; }
+    .item .rank.bronze { background: #b45309; color: white; }
+    .item .name { font-weight: 600; }
+    .item .event { color: #64748b; font-size: 14px; }
+    .item .drop { color: #10b981; font-weight: 700; }
+    .item .details { font-size: 12px; color: #94a3b8; margin-left: 36px; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: 12px; font-weight: 700; color: white; margin-right: 8px;
+    }
+    .badge-AAAA { background: #f43f5e; }
+    .badge-AAA { background: #a855f7; }
+    .badge-AA { background: #3b82f6; }
+    .badge-A { background: #eab308; }
+    .badge-BB { background: #94a3b8; }
+    .badge-B { background: #d97706; }
+    .standard-group { margin-bottom: 16px; }
+    .standard-item { padding: 8px 12px; background: #f8fafc; border-radius: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+    th { background: #f8fafc; font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+    .footer { text-align: center; padding: 24px; color: #94a3b8; font-size: 12px; border-top: 1px solid #e2e8f0; margin-top: 24px; }
+    @media print { body { padding: 0; } .section { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${data.meetName || 'Meet Report'}</h1>
+    <p>${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="label">Total Swims</div><div class="value">${data.totalSwims}</div></div>
+    <div class="stat-card"><div class="label">Best Times</div><div class="value">${data.bestTimeCount}</div><div class="sub">${data.btPercent}% of swims</div></div>
+    <div class="stat-card"><div class="label">First Times</div><div class="value">${data.firstTimeCount}</div></div>
+    <div class="stat-card"><div class="label">New Standards</div><div class="value">${data.newStandards.length}</div></div>
+  </div>
+
+  <div class="hero">
+    <div><div style="font-size:12px;opacity:0.9;text-transform:uppercase">Team Best Time Rate</div><div class="big-number">${data.btPercent}%</div><div style="opacity:0.9">${data.bestTimeCount} out of ${data.totalSwims} swims</div></div>
+  </div>
+
+  ${data.topTimeDrops && data.topTimeDrops.length > 0 ? `
+  <div class="section">
+    <div class="section-header">🔥 Biggest Time Drops</div>
+    <div class="section-content">
+      ${data.topTimeDrops.map((drop, idx) => `
+        <div class="item">
+          <div><span class="rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">${idx + 1}</span><span class="name">${drop.swimmer.name}</span> <span class="event">- ${drop.event}</span></div>
+          <span class="drop">-${drop.drop.toFixed(2)}s</span>
+        </div>
+        <div class="details">${drop.oldTime} → ${drop.newTime}</div>
+      `).join('')}
+    </div>
+  </div>
+  ` : ''}
+
+  ${data.newStandards && data.newStandards.length > 0 ? `
+  <div class="section">
+    <div class="section-header">🏆 New Time Standards Achieved</div>
+    <div class="section-content">
+      ${['AAAA', 'AAA', 'AA', 'A', 'BB', 'B'].filter(level => data.standardsByLevel[level]?.length > 0).map(level => `
+        <div class="standard-group">
+          <div style="margin-bottom:8px"><span class="badge badge-${level}">${level}</span><span style="color:#64748b;font-size:14px">${data.standardsByLevel[level].length} achieved</span></div>
+          ${data.standardsByLevel[level].map(ns => `
+            <div class="standard-item"><div><strong>${ns.swimmer.name}</strong> <span style="color:#64748b">- ${ns.event}</span></div><span style="font-family:monospace">${ns.time}</span></div>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+  </div>
+  ` : ''}
+
+  ${data.strokeStats && Object.keys(data.strokeStats).length > 0 ? `
+  <div class="section">
+    <div class="section-header">🏊 Performance by Stroke</div>
+    <div class="section-content">
+      <table>
+        <thead><tr><th>Stroke</th><th>Swims</th><th>Best Time %</th><th>Avg Drop</th></tr></thead>
+        <tbody>
+          ${Object.entries(data.strokeStats).map(([stroke, stats]) => `
+            <tr><td><strong>${stroke}</strong></td><td>${stats.swims}</td><td>${stats.btPercent}%</td><td>${stats.avgDrop > 0 ? '-' + stats.avgDrop.toFixed(2) + 's' : '-'}</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  ` : ''}
+
+  ${data.groupStats && data.groupStats.length > 0 ? `
+  <div class="section">
+    <div class="section-header">👥 Performance by Group</div>
+    <div class="section-content">
+      <table>
+        <thead><tr><th>Group</th><th>Swimmers</th><th>Swims</th><th>Best Time %</th></tr></thead>
+        <tbody>
+          ${data.groupStats.map(group => `
+            <tr><td><strong>${group.name}</strong></td><td>${group.swimmerCount}</td><td>${group.swims}</td><td>${group.btPercent}%</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  ` : ''}
+
+  ${data.biggestMovers && data.biggestMovers.length > 0 ? `
+  <div class="section">
+    <div class="section-header">🥇 Biggest Movers (Total Time Dropped)</div>
+    <div class="section-content">
+      ${data.biggestMovers.slice(0, 10).map((mover, idx) => `
+        <div class="item">
+          <div><span class="rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">${idx + 1}</span><span class="name">${mover.swimmer.name}</span></div>
+          <span class="drop">-${mover.totalDrop.toFixed(2)}s</span>
+        </div>
+        <div class="details">${mover.bestTimes} BT • Best: ${mover.biggestDropEvent} (-${mover.biggestDrop.toFixed(2)}s)</div>
+      `).join('')}
+    </div>
+  </div>
+  ` : ''}
+
+  <div class="footer">Generated by StormTracker • ${new Date().toLocaleDateString()}</div>
+  <script>window.onload = function() { window.print(); }</script>
+</body>
+</html>`;
+};
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 
 export default function MeetReportGenerator({ onBack }) {
-  // Setup State
-  const [step, setStep] = useState('select'); // 'select' | 'loading' | 'report'
+  const [step, setStep] = useState('select');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedGroups, setSelectedGroups] = useState([]);
   const [availableGroups, setAvailableGroups] = useState([]);
   const [meetName, setMeetName] = useState('');
-
-  // Loading State
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('');
-
-  // Report Data State
   const [reportData, setReportData] = useState(null);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
-  // Load available groups on mount
   useEffect(() => {
     const loadGroups = async () => {
       const { data } = await supabase.from('swimmers').select('group_name');
@@ -203,7 +343,6 @@ export default function MeetReportGenerator({ onBack }) {
     };
     loadGroups();
 
-    // Set default date range to last 7 days
     const today = new Date();
     const lastWeek = new Date(today);
     lastWeek.setDate(lastWeek.getDate() - 7);
@@ -212,6 +351,188 @@ export default function MeetReportGenerator({ onBack }) {
       end: today.toISOString().split('T')[0]
     });
   }, []);
+
+  const handleExportPDF = async () => {
+    if (!reportData) return;
+    setIsExportingPDF(true);
+    try {
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(generatePDFContent(reportData));
+      printWindow.document.close();
+    } catch (error) {
+      console.error('PDF export error:', error);
+      alert('Error exporting PDF. Please try again.');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
+  // ============================================
+  // ANALYSIS LOGIC (FIXED: Deduplication)
+  // ============================================
+
+  const analyzeMeetResults = (meetResults, historicalBests, swimmerMap, standards) => {
+    const totalSwims = meetResults.length;
+    let bestTimeCount = 0;
+    let firstTimeCount = 0;
+    const timeDrops = [];
+    const strokeStats = {};
+    const groupStats = {};
+    const swimmerPerformance = {};
+
+    // STEP 1: Build meet bests per swimmer/event (ONLY fastest time)
+    const meetBests = {};
+    meetResults.forEach(result => {
+      const swimmer = swimmerMap[result.swimmer_id];
+      if (!swimmer) return;
+      const normalized = normalizeEvent(result.event);
+      if (!normalized) return;
+      const currentSeconds = timeToSeconds(result.time);
+      if (currentSeconds >= 999999) return;
+
+      if (!meetBests[result.swimmer_id]) meetBests[result.swimmer_id] = {};
+      if (!meetBests[result.swimmer_id][normalized] || currentSeconds < meetBests[result.swimmer_id][normalized].seconds) {
+        meetBests[result.swimmer_id][normalized] = { time: result.time, seconds: currentSeconds, result };
+      }
+    });
+
+    // Count all swims for stroke/group stats
+    meetResults.forEach(result => {
+      const swimmer = swimmerMap[result.swimmer_id];
+      if (!swimmer) return;
+      const normalized = normalizeEvent(result.event);
+      if (!normalized) return;
+      const currentSeconds = timeToSeconds(result.time);
+      if (currentSeconds >= 999999) return;
+      const { stroke } = parseEvent(result.event);
+
+      if (!strokeStats[stroke]) strokeStats[stroke] = { swims: 0, bestTimes: 0, totalDrop: 0, drops: [] };
+      strokeStats[stroke].swims++;
+
+      const group = swimmer.group_name || 'Ungrouped';
+      if (!groupStats[group]) groupStats[group] = { swimmers: new Set(), swims: 0, bestTimes: 0, totalDrop: 0 };
+      groupStats[group].swimmers.add(result.swimmer_id);
+      groupStats[group].swims++;
+    });
+
+    // STEP 2: Process using ONLY meet bests (deduped)
+    const newStandards = [];
+    const processedStandards = new Set();
+
+    Object.entries(meetBests).forEach(([swimmerId, events]) => {
+      const swimmer = swimmerMap[swimmerId];
+      if (!swimmer) return;
+
+      if (!swimmerPerformance[swimmerId]) {
+        swimmerPerformance[swimmerId] = {
+          swimmer, swims: 0, bestTimes: 0, totalDrop: 0, biggestDrop: 0, biggestDropEvent: '', newStandards: []
+        };
+      }
+
+      Object.entries(events).forEach(([normalized, meetBest]) => {
+        const { dist, stroke } = parseEvent(normalized);
+        const currentSeconds = meetBest.seconds;
+        const historicalBest = historicalBests[swimmerId]?.[normalized];
+
+        swimmerPerformance[swimmerId].swims++;
+
+        if (!historicalBest) {
+          firstTimeCount++;
+        } else if (currentSeconds < historicalBest.seconds) {
+          bestTimeCount++;
+          swimmerPerformance[swimmerId].bestTimes++;
+          const drop = historicalBest.seconds - currentSeconds;
+          swimmerPerformance[swimmerId].totalDrop += drop;
+
+          if (drop > swimmerPerformance[swimmerId].biggestDrop) {
+            swimmerPerformance[swimmerId].biggestDrop = drop;
+            swimmerPerformance[swimmerId].biggestDropEvent = normalized;
+          }
+
+          timeDrops.push({
+            swimmer, event: normalized, oldTime: historicalBest.time, oldSeconds: historicalBest.seconds,
+            newTime: meetBest.time, newSeconds: currentSeconds, drop, dropPercent: (drop / historicalBest.seconds) * 100
+          });
+
+          if (strokeStats[stroke]) {
+            strokeStats[stroke].bestTimes++;
+            strokeStats[stroke].totalDrop += drop;
+            strokeStats[stroke].drops.push(drop);
+          }
+          const group = swimmer.group_name || 'Ungrouped';
+          if (groupStats[group]) {
+            groupStats[group].bestTimes++;
+            groupStats[group].totalDrop += drop;
+          }
+        }
+
+        // Check standards (ONLY ONCE per swimmer/event/standard)
+        if (standards && swimmer) {
+          const swimmerAge = parseInt(swimmer.age) || 0;
+          const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+
+          const relevantStandards = standards.filter(std => {
+            const stdGender = std.gender.trim().toUpperCase();
+            const genderMatch = stdGender === swimmerGender;
+            const ageMatch = (std.age_max === 99) || (swimmerAge >= std.age_min && swimmerAge <= std.age_max);
+            const { dist: stdDist, stroke: stdStroke } = parseEvent(std.event);
+            const eventMatch = dist === stdDist && stroke.toLowerCase() === stdStroke.toLowerCase();
+            return genderMatch && ageMatch && eventMatch;
+          });
+
+          relevantStandards.forEach(std => {
+            const standardKey = `${swimmerId}-${normalized}-${std.name}`;
+            if (processedStandards.has(standardKey)) return;
+
+            const achievedNow = currentSeconds <= std.time_seconds;
+            const achievedBefore = historicalBest && historicalBest.seconds <= std.time_seconds;
+
+            if (achievedNow && !achievedBefore) {
+              processedStandards.add(standardKey);
+              newStandards.push({
+                swimmer, event: normalized, standard: std.name, time: meetBest.time,
+                seconds: currentSeconds, cutTime: secondsToTime(std.time_seconds)
+              });
+              swimmerPerformance[swimmerId].newStandards.push({ event: normalized, standard: std.name });
+            }
+          });
+        }
+      });
+    });
+
+    timeDrops.sort((a, b) => b.drop - a.drop);
+
+    Object.keys(strokeStats).forEach(stroke => {
+      const stats = strokeStats[stroke];
+      stats.btPercent = stats.swims > 0 ? Math.round((stats.bestTimes / stats.swims) * 100) : 0;
+      stats.avgDrop = stats.drops.length > 0 ? stats.drops.reduce((a, b) => a + b, 0) / stats.drops.length : 0;
+    });
+
+    const groupStatsArray = Object.entries(groupStats).map(([name, stats]) => ({
+      name, swimmerCount: stats.swimmers.size, swims: stats.swims, bestTimes: stats.bestTimes,
+      btPercent: stats.swims > 0 ? Math.round((stats.bestTimes / stats.swims) * 100) : 0,
+      avgDrop: stats.bestTimes > 0 ? stats.totalDrop / stats.bestTimes : 0
+    }));
+
+    const standardsByLevel = {};
+    newStandards.forEach(ns => {
+      if (!standardsByLevel[ns.standard]) standardsByLevel[ns.standard] = [];
+      standardsByLevel[ns.standard].push(ns);
+    });
+
+    const biggestMovers = Object.values(swimmerPerformance)
+      .filter(p => p.totalDrop > 0)
+      .sort((a, b) => b.totalDrop - a.totalDrop)
+      .slice(0, 10);
+
+    return {
+      totalSwims, bestTimeCount, firstTimeCount,
+      btPercent: totalSwims > 0 ? Math.round((bestTimeCount / totalSwims) * 100) : 0,
+      timeDrops, newStandards, standardsByLevel, strokeStats, groupStats: groupStatsArray,
+      swimmerPerformance, biggestMovers, topTimeDrops: timeDrops.slice(0, 5),
+      topPercentDrops: [...timeDrops].sort((a, b) => b.dropPercent - a.dropPercent).slice(0, 5)
+    };
+  };
 
   // ============================================
   // GENERATE REPORT
@@ -227,12 +548,10 @@ export default function MeetReportGenerator({ onBack }) {
     setLoadingProgress(0);
 
     try {
-      // 1. Fetch Swimmers
       setLoadingMessage('Loading swimmers...');
       setLoadingProgress(10);
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       
-      // Filter by group if selected
       const filteredSwimmers = selectedGroups.length > 0
         ? swimmers.filter(s => selectedGroups.includes(s.group_name))
         : swimmers;
@@ -240,7 +559,6 @@ export default function MeetReportGenerator({ onBack }) {
       const swimmerIds = filteredSwimmers.map(s => s.id);
       const swimmerMap = filteredSwimmers.reduce((acc, s) => { acc[s.id] = s; return acc; }, {});
 
-      // 2. Fetch Meet Results (within date range)
       setLoadingMessage('Loading meet results...');
       setLoadingProgress(20);
       
@@ -257,7 +575,6 @@ export default function MeetReportGenerator({ onBack }) {
         return;
       }
 
-      // 3. Fetch Historical Results (before meet)
       setLoadingMessage('Loading historical times...');
       setLoadingProgress(40);
       
@@ -282,11 +599,10 @@ export default function MeetReportGenerator({ onBack }) {
         }
       }
 
-      // Build historical best times map
       setLoadingMessage('Analyzing personal bests...');
       setLoadingProgress(50);
       
-      const historicalBests = {}; // { swimmerId: { "50 Freestyle": { time, seconds } } }
+      const historicalBests = {};
       allHistoricalResults.forEach(r => {
         const normalized = normalizeEvent(r.event);
         if (!normalized) return;
@@ -299,21 +615,16 @@ export default function MeetReportGenerator({ onBack }) {
         }
       });
 
-      // 4. Fetch Time Standards
       setLoadingMessage('Loading time standards...');
       setLoadingProgress(60);
       
-      const { data: standards } = await supabase
-        .from('time_standards')
-        .select('*');
+      const { data: standards } = await supabase.from('time_standards').select('*');
 
-      // 5. Analyze Meet Results
       setLoadingMessage('Analyzing meet performance...');
       setLoadingProgress(70);
 
       const analysis = analyzeMeetResults(meetResults, historicalBests, swimmerMap, standards);
 
-      // 6. Build Report Data
       setLoadingMessage('Generating report...');
       setLoadingProgress(90);
 
@@ -336,215 +647,14 @@ export default function MeetReportGenerator({ onBack }) {
   };
 
   // ============================================
-  // ANALYSIS LOGIC
-  // ============================================
-
-  const analyzeMeetResults = (meetResults, historicalBests, swimmerMap, standards) => {
-    const totalSwims = meetResults.length;
-    let bestTimeCount = 0;
-    let firstTimeCount = 0;
-    const timeDrops = [];
-    const newStandards = [];
-    const strokeStats = {};
-    const groupStats = {};
-    const swimmerPerformance = {};
-
-    // Track best times at this meet per swimmer/event
-    const meetBests = {}; // { swimmerId: { event: { time, seconds } } }
-
-    meetResults.forEach(result => {
-      const swimmer = swimmerMap[result.swimmer_id];
-      if (!swimmer) return;
-
-      const normalized = normalizeEvent(result.event);
-      if (!normalized) return;
-
-      const currentSeconds = timeToSeconds(result.time);
-      if (currentSeconds >= 999999) return;
-
-      const { dist, stroke } = parseEvent(result.event);
-
-      // Track meet best per swimmer/event
-      if (!meetBests[result.swimmer_id]) meetBests[result.swimmer_id] = {};
-      if (!meetBests[result.swimmer_id][normalized] || currentSeconds < meetBests[result.swimmer_id][normalized].seconds) {
-        meetBests[result.swimmer_id][normalized] = { time: result.time, seconds: currentSeconds };
-      }
-
-      // Initialize swimmer performance tracking
-      if (!swimmerPerformance[result.swimmer_id]) {
-        swimmerPerformance[result.swimmer_id] = {
-          swimmer,
-          swims: 0,
-          bestTimes: 0,
-          totalDrop: 0,
-          biggestDrop: 0,
-          biggestDropEvent: '',
-          newStandards: []
-        };
-      }
-      swimmerPerformance[result.swimmer_id].swims++;
-
-      // Check if this is a best time or first time
-      const historicalBest = historicalBests[result.swimmer_id]?.[normalized];
-
-      if (!historicalBest) {
-        // First time in this event
-        firstTimeCount++;
-      } else if (currentSeconds < historicalBest.seconds) {
-        // Best time!
-        bestTimeCount++;
-        swimmerPerformance[result.swimmer_id].bestTimes++;
-
-        const drop = historicalBest.seconds - currentSeconds;
-        swimmerPerformance[result.swimmer_id].totalDrop += drop;
-
-        if (drop > swimmerPerformance[result.swimmer_id].biggestDrop) {
-          swimmerPerformance[result.swimmer_id].biggestDrop = drop;
-          swimmerPerformance[result.swimmer_id].biggestDropEvent = normalized;
-        }
-
-        timeDrops.push({
-          swimmer,
-          event: normalized,
-          oldTime: historicalBest.time,
-          oldSeconds: historicalBest.seconds,
-          newTime: result.time,
-          newSeconds: currentSeconds,
-          drop,
-          dropPercent: (drop / historicalBest.seconds) * 100
-        });
-      }
-
-      // Stroke stats
-      if (!strokeStats[stroke]) {
-        strokeStats[stroke] = { swims: 0, bestTimes: 0, totalDrop: 0, drops: [] };
-      }
-      strokeStats[stroke].swims++;
-      
-      if (historicalBest && currentSeconds < historicalBest.seconds) {
-        strokeStats[stroke].bestTimes++;
-        strokeStats[stroke].totalDrop += (historicalBest.seconds - currentSeconds);
-        strokeStats[stroke].drops.push(historicalBest.seconds - currentSeconds);
-      }
-
-      // Group stats
-      const group = swimmer.group_name || 'Ungrouped';
-      if (!groupStats[group]) {
-        groupStats[group] = { swimmers: new Set(), swims: 0, bestTimes: 0, totalDrop: 0 };
-      }
-      groupStats[group].swimmers.add(result.swimmer_id);
-      groupStats[group].swims++;
-      
-      if (historicalBest && currentSeconds < historicalBest.seconds) {
-        groupStats[group].bestTimes++;
-        groupStats[group].totalDrop += (historicalBest.seconds - currentSeconds);
-      }
-
-      // Check for new standards achieved
-      if (standards && swimmer) {
-        const swimmerAge = parseInt(swimmer.age) || 0;
-        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
-
-        const relevantStandards = standards.filter(std => {
-          const stdGender = std.gender.trim().toUpperCase();
-          const genderMatch = stdGender === swimmerGender;
-          const ageMatch = (std.age_max === 99) || (swimmerAge >= std.age_min && swimmerAge <= std.age_max);
-          
-          // Match event
-          const { dist: stdDist, stroke: stdStroke } = parseEvent(std.event);
-          const eventMatch = dist === stdDist && stroke.toLowerCase() === stdStroke.toLowerCase();
-
-          return genderMatch && ageMatch && eventMatch;
-        });
-
-        relevantStandards.forEach(std => {
-          // Check if achieved now but not before
-          const achievedNow = currentSeconds <= std.time_seconds;
-          const achievedBefore = historicalBest && historicalBest.seconds <= std.time_seconds;
-
-          if (achievedNow && !achievedBefore) {
-            newStandards.push({
-              swimmer,
-              event: normalized,
-              standard: std.name,
-              time: result.time,
-              cutTime: secondsToTime(std.time_seconds)
-            });
-
-            swimmerPerformance[result.swimmer_id].newStandards.push({
-              event: normalized,
-              standard: std.name
-            });
-          }
-        });
-      }
-    });
-
-    // Sort time drops by absolute drop
-    timeDrops.sort((a, b) => b.drop - a.drop);
-
-    // Calculate stroke averages
-    Object.keys(strokeStats).forEach(stroke => {
-      const stats = strokeStats[stroke];
-      stats.btPercent = stats.swims > 0 ? Math.round((stats.bestTimes / stats.swims) * 100) : 0;
-      stats.avgDrop = stats.drops.length > 0 
-        ? stats.drops.reduce((a, b) => a + b, 0) / stats.drops.length 
-        : 0;
-    });
-
-    // Convert group stats
-    const groupStatsArray = Object.entries(groupStats).map(([name, stats]) => ({
-      name,
-      swimmerCount: stats.swimmers.size,
-      swims: stats.swims,
-      bestTimes: stats.bestTimes,
-      btPercent: stats.swims > 0 ? Math.round((stats.bestTimes / stats.swims) * 100) : 0,
-      avgDrop: stats.bestTimes > 0 ? stats.totalDrop / stats.bestTimes : 0
-    }));
-
-    // Group standards by level
-    const standardsByLevel = {};
-    newStandards.forEach(ns => {
-      if (!standardsByLevel[ns.standard]) standardsByLevel[ns.standard] = [];
-      standardsByLevel[ns.standard].push(ns);
-    });
-
-    // Find biggest movers
-    const biggestMovers = Object.values(swimmerPerformance)
-      .filter(p => p.totalDrop > 0)
-      .sort((a, b) => b.totalDrop - a.totalDrop)
-      .slice(0, 10);
-
-    return {
-      totalSwims,
-      bestTimeCount,
-      firstTimeCount,
-      btPercent: totalSwims > 0 ? Math.round((bestTimeCount / totalSwims) * 100) : 0,
-      timeDrops,
-      newStandards,
-      standardsByLevel,
-      strokeStats,
-      groupStats: groupStatsArray,
-      swimmerPerformance,
-      biggestMovers,
-      topTimeDrops: timeDrops.slice(0, 5),
-      topPercentDrops: [...timeDrops].sort((a, b) => b.dropPercent - a.dropPercent).slice(0, 5)
-    };
-  };
-
-  // ============================================
   // RENDER: SELECTION SCREEN
   // ============================================
 
   if (step === 'select') {
     return (
       <div className="max-w-2xl mx-auto">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={onBack}
-            className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
-          >
+          <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
             <ChevronLeft size={24} />
           </button>
           <div>
@@ -555,13 +665,9 @@ export default function MeetReportGenerator({ onBack }) {
           </div>
         </div>
 
-        {/* Form */}
         <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-6">
-          {/* Meet Name (Optional) */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Meet Name (Optional)
-            </label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Meet Name (Optional)</label>
             <input
               type="text"
               value={meetName}
@@ -571,7 +677,6 @@ export default function MeetReportGenerator({ onBack }) {
             />
           </div>
 
-          {/* Date Range */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -597,7 +702,6 @@ export default function MeetReportGenerator({ onBack }) {
             </div>
           </div>
 
-          {/* Group Filter */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               <Users size={14} className="inline mr-1" /> Filter by Group (Optional)
@@ -606,37 +710,22 @@ export default function MeetReportGenerator({ onBack }) {
               {availableGroups.map(group => (
                 <button
                   key={group}
-                  onClick={() => {
-                    setSelectedGroups(prev =>
-                      prev.includes(group)
-                        ? prev.filter(g => g !== group)
-                        : [...prev, group]
-                    );
-                  }}
+                  onClick={() => setSelectedGroups(prev => prev.includes(group) ? prev.filter(g => g !== group) : [...prev, group])}
                   className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                    selectedGroups.includes(group)
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    selectedGroups.includes(group) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   {group}
                 </button>
               ))}
               {selectedGroups.length > 0 && (
-                <button
-                  onClick={() => setSelectedGroups([])}
-                  className="px-3 py-1.5 rounded-full text-sm font-medium text-rose-600 hover:bg-rose-50"
-                >
+                <button onClick={() => setSelectedGroups([])} className="px-3 py-1.5 rounded-full text-sm font-medium text-rose-600 hover:bg-rose-50">
                   Clear All
                 </button>
               )}
             </div>
-            {availableGroups.length === 0 && (
-              <p className="text-sm text-slate-400 mt-2">No groups found</p>
-            )}
           </div>
 
-          {/* Generate Button */}
           <button
             onClick={generateReport}
             disabled={!dateRange.start || !dateRange.end}
@@ -659,22 +748,15 @@ export default function MeetReportGenerator({ onBack }) {
       <div className="max-w-md mx-auto text-center py-20">
         <div className="w-20 h-20 mx-auto mb-6 relative">
           <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
-          <div
-            className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin"
-          ></div>
+          <div className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin"></div>
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-lg font-bold text-indigo-600">{loadingProgress}%</span>
           </div>
         </div>
         <h3 className="text-xl font-bold text-slate-800 mb-2">Generating Report</h3>
         <p className="text-slate-500">{loadingMessage}</p>
-        
-        {/* Progress bar */}
         <div className="mt-6 w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
-            style={{ width: `${loadingProgress}%` }}
-          ></div>
+          <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500" style={{ width: `${loadingProgress}%` }}></div>
         </div>
       </div>
     );
@@ -685,102 +767,43 @@ export default function MeetReportGenerator({ onBack }) {
   // ============================================
 
   if (step === 'report' && reportData) {
-    const {
-      meetName: reportMeetName,
-      dateRange: reportDateRange,
-      totalSwims,
-      bestTimeCount,
-      firstTimeCount,
-      btPercent,
-      topTimeDrops,
-      newStandards,
-      standardsByLevel,
-      strokeStats,
-      groupStats,
-      biggestMovers
-    } = reportData;
+    const { meetName: reportMeetName, dateRange: reportDateRange, totalSwims, bestTimeCount, firstTimeCount, btPercent, topTimeDrops, newStandards, standardsByLevel, strokeStats, groupStats, biggestMovers } = reportData;
 
-    // Prepare chart data
     const strokeChartData = Object.entries(strokeStats).map(([stroke, stats]) => ({
-      name: stroke,
-      'Best Time %': stats.btPercent,
-      'Total Swims': stats.swims,
-      'Avg Drop': parseFloat(stats.avgDrop.toFixed(2))
+      name: stroke, 'Best Time %': stats.btPercent, 'Total Swims': stats.swims
     }));
 
-    const groupChartData = groupStats.map(g => ({
-      name: g.name,
-      'Best Time %': g.btPercent,
-      'Swimmers': g.swimmerCount
-    }));
+    const groupChartData = groupStats.map(g => ({ name: g.name, 'Best Time %': g.btPercent, 'Swimmers': g.swimmerCount }));
 
-    const standardsPieData = Object.entries(standardsByLevel).map(([level, items]) => ({
-      name: level,
-      value: items.length
-    }));
+    const standardsPieData = Object.entries(standardsByLevel).map(([level, items]) => ({ name: level, value: items.length }));
 
     return (
       <div className="space-y-6 pb-12">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setStep('select')}
-              className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
-            >
+            <button onClick={() => setStep('select')} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
               <ChevronLeft size={24} />
             </button>
             <div>
               <h2 className="text-2xl font-bold text-slate-900">{reportMeetName}</h2>
               <p className="text-slate-500">
-                {new Date(reportDateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                {' - '}
-                {new Date(reportDateRange.end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {new Date(reportDateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(reportDateRange.end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors">
-              <Share2 size={20} />
-            </button>
-            <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors">
-              <Download size={20} />
-            </button>
-          </div>
+          <button onClick={handleExportPDF} disabled={isExportingPDF} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
+            {isExportingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+            {isExportingPDF ? 'Exporting...' : 'Export PDF'}
+          </button>
         </div>
 
-        {/* Executive Summary Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
-            icon={Activity}
-            label="Total Swims"
-            value={totalSwims}
-            color="blue"
-          />
-          <StatCard
-            icon={TrendingUp}
-            label="Best Times"
-            value={bestTimeCount}
-            subValue={`${btPercent}% of swims`}
-            color="green"
-          />
-          <StatCard
-            icon={Zap}
-            label="First Times"
-            value={firstTimeCount}
-            subValue="New events"
-            color="yellow"
-          />
-          <StatCard
-            icon={Award}
-            label="New Standards"
-            value={newStandards.length}
-            subValue="Achieved"
-            color="purple"
-          />
+          <StatCard icon={Activity} label="Total Swims" value={totalSwims} color="blue" />
+          <StatCard icon={TrendingUp} label="Best Times" value={bestTimeCount} subValue={`${btPercent}% of swims`} color="green" />
+          <StatCard icon={Zap} label="First Times" value={firstTimeCount} subValue="New events" color="yellow" />
+          <StatCard icon={Award} label="New Standards" value={newStandards.length} subValue="Achieved" color="purple" />
         </div>
 
-        {/* Biggest Best Time Percentage - Hero Section */}
         <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between">
             <div>
@@ -794,39 +817,35 @@ export default function MeetReportGenerator({ onBack }) {
           </div>
         </div>
 
-        {/* Top Time Drops */}
-        <ExpandableSection title="Biggest Time Drops" icon={Flame} count={topTimeDrops.length}>
-          <div className="space-y-3">
-            {topTimeDrops.map((drop, idx) => (
-              <div key={idx} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
-                  idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-slate-300'
-                }`}>
-                  {idx + 1}
+        {topTimeDrops && topTimeDrops.length > 0 && (
+          <ExpandableSection title="Biggest Time Drops" icon={Flame} count={topTimeDrops.length}>
+            <div className="space-y-3">
+              {topTimeDrops.map((drop, idx) => (
+                <div key={idx} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-slate-300'}`}>
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800">{drop.swimmer.name}</p>
+                    <p className="text-sm text-slate-500">{drop.event}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono text-sm text-slate-500">{drop.oldTime} → {drop.newTime}</p>
+                    <p className="font-bold text-emerald-600">-{drop.drop.toFixed(2)}s</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800">{drop.swimmer.name}</p>
-                  <p className="text-sm text-slate-500">{drop.event}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-sm text-slate-500">{drop.oldTime} → {drop.newTime}</p>
-                  <p className="font-bold text-emerald-600">-{drop.drop.toFixed(2)}s</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </ExpandableSection>
+              ))}
+            </div>
+          </ExpandableSection>
+        )}
 
-        {/* New Standards Achieved */}
         {newStandards.length > 0 && (
           <ExpandableSection title="New Time Standards Achieved" icon={Trophy} count={newStandards.length}>
             <div className="space-y-4">
               {STANDARD_HIERARCHY.filter(level => standardsByLevel[level]?.length > 0).map(level => (
                 <div key={level}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${STANDARD_COLORS[level]?.bg || 'bg-slate-400'}`}>
-                      {level}
-                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${STANDARD_COLORS[level]?.bg || 'bg-slate-400'}`}>{level}</span>
                     <span className="text-sm text-slate-500">{standardsByLevel[level].length} achieved</span>
                   </div>
                   <div className="grid gap-2">
@@ -848,26 +867,19 @@ export default function MeetReportGenerator({ onBack }) {
           </ExpandableSection>
         )}
 
-        {/* Stroke Breakdown */}
         <ExpandableSection title="Performance by Stroke" icon={Activity}>
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Chart */}
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={strokeChartData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                   <YAxis dataKey="name" type="category" width={80} />
-                  <Tooltip
-                    formatter={(value, name) => [name === 'Best Time %' ? `${value}%` : value, name]}
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                  />
+                  <Tooltip formatter={(value, name) => [name === 'Best Time %' ? `${value}%` : value, name]} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }} />
                   <Bar dataKey="Best Time %" fill="#10b981" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            {/* Stats Table */}
             <div className="space-y-2">
               {Object.entries(strokeStats).map(([stroke, stats]) => (
                 <div key={stroke} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
@@ -877,9 +889,7 @@ export default function MeetReportGenerator({ onBack }) {
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-emerald-600">{stats.btPercent}% BT</p>
-                    {stats.avgDrop > 0 && (
-                      <p className="text-sm text-slate-500">Avg drop: -{stats.avgDrop.toFixed(2)}s</p>
-                    )}
+                    {stats.avgDrop > 0 && <p className="text-sm text-slate-500">Avg: -{stats.avgDrop.toFixed(2)}s</p>}
                   </div>
                 </div>
               ))}
@@ -887,39 +897,27 @@ export default function MeetReportGenerator({ onBack }) {
           </div>
         </ExpandableSection>
 
-        {/* Group Performance */}
         {groupStats.length > 0 && (
           <ExpandableSection title="Performance by Group" icon={Users}>
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Chart */}
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={groupChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" />
                     <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                    <Tooltip
-                      formatter={(value, name) => [name === 'Best Time %' ? `${value}%` : value, name]}
-                      contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                    />
+                    <Tooltip formatter={(value, name) => [name === 'Best Time %' ? `${value}%` : value, name]} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }} />
                     <Bar dataKey="Best Time %" radius={[4, 4, 0, 0]}>
-                      {groupChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
+                      {groupChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-
-              {/* Stats Table */}
               <div className="space-y-2">
                 {groupStats.map((group, idx) => (
                   <div key={group.name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
-                      ></div>
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}></div>
                       <div>
                         <p className="font-semibold text-slate-800">{group.name}</p>
                         <p className="text-sm text-slate-500">{group.swimmerCount} swimmers • {group.swims} swims</p>
@@ -927,9 +925,7 @@ export default function MeetReportGenerator({ onBack }) {
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-blue-600">{group.btPercent}% BT</p>
-                      {group.avgDrop > 0 && (
-                        <p className="text-sm text-slate-500">Avg: -{group.avgDrop.toFixed(2)}s</p>
-                      )}
+                      {group.avgDrop > 0 && <p className="text-sm text-slate-500">Avg: -{group.avgDrop.toFixed(2)}s</p>}
                     </div>
                   </div>
                 ))}
@@ -938,23 +934,17 @@ export default function MeetReportGenerator({ onBack }) {
           </ExpandableSection>
         )}
 
-        {/* Biggest Movers */}
         {biggestMovers.length > 0 && (
           <ExpandableSection title="Biggest Movers (Total Time Dropped)" icon={Medal} count={biggestMovers.length}>
             <div className="space-y-2">
               {biggestMovers.map((mover, idx) => (
                 <div key={mover.swimmer.id} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
-                    idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-slate-300'
-                  }`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-slate-300'}`}>
                     {idx + 1}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-800">{mover.swimmer.name}</p>
-                    <p className="text-sm text-slate-500">
-                      {mover.bestTimes} best time{mover.bestTimes !== 1 ? 's' : ''} • 
-                      Biggest: {mover.biggestDropEvent} (-{mover.biggestDrop.toFixed(2)}s)
-                    </p>
+                    <p className="text-sm text-slate-500">{mover.bestTimes} best time{mover.bestTimes !== 1 ? 's' : ''} • Biggest: {mover.biggestDropEvent} (-{mover.biggestDrop.toFixed(2)}s)</p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-emerald-600">-{mover.totalDrop.toFixed(2)}s</p>
@@ -966,29 +956,14 @@ export default function MeetReportGenerator({ onBack }) {
           </ExpandableSection>
         )}
 
-        {/* Standards Distribution Pie Chart */}
         {standardsPieData.length > 0 && (
           <ExpandableSection title="Standards Distribution" icon={Target}>
             <div className="flex items-center justify-center h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={standardsPieData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
+                  <Pie data={standardsPieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
                     {standardsPieData.map((entry, index) => {
-                      const colors = {
-                        'AAAA': '#f43f5e',
-                        'AAA': '#a855f7',
-                        'AA': '#3b82f6',
-                        'A': '#eab308',
-                        'BB': '#94a3b8',
-                        'B': '#d97706'
-                      };
+                      const colors = { 'AAAA': '#f43f5e', 'AAA': '#a855f7', 'AA': '#3b82f6', 'A': '#eab308', 'BB': '#94a3b8', 'B': '#d97706' };
                       return <Cell key={`cell-${index}`} fill={colors[entry.name] || CHART_COLORS[index]} />;
                     })}
                   </Pie>
@@ -1000,7 +975,6 @@ export default function MeetReportGenerator({ onBack }) {
           </ExpandableSection>
         )}
 
-        {/* Footer */}
         <div className="text-center text-sm text-slate-400 pt-8 border-t">
           <p>Generated by StormTracker • {new Date().toLocaleDateString()}</p>
         </div>
