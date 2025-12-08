@@ -33,13 +33,11 @@ export default function Login() {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
         <div className="flex justify-center mb-6">
-          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white">
             <img 
     src="/team-logo.png" 
     alt="Team Logo" 
     className="h-20 w-auto object-contain" 
   />
-          </div>
         </div>
         <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">
           {isSignUp ? 'Create Account' : 'Welcome Back'}
