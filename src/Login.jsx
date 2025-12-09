@@ -34,7 +34,7 @@ export default function Login() {
       <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
         <div className="flex justify-center mb-6">
             <img 
-    src="/team-logo.png" 
+    src="/team-logo-white.png" 
     alt="Team Logo" 
     className="h-20 w-auto object-contain" 
   />
