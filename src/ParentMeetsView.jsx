@@ -614,6 +614,7 @@ export default function ParentMeetsView({ user }) {
   const [loading, setLoading] = useState(true);
   const [selectedMeet, setSelectedMeet] = useState(null);
   const [filter, setFilter] = useState('upcoming');
+  const [parentId, setParentId] = useState(null);  // Store parent table ID
 
   useEffect(() => {
     loadData();
@@ -622,13 +623,37 @@ export default function ParentMeetsView({ user }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load parent's swimmers
-      const { data: swimmersData } = await supabase
-        .from('swimmers')
-        .select('*')
-        .eq('parent_id', user.id);
+      // First get the parent record
+      const { data: parentData } = await supabase
+        .from('parents')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
       
-      setSwimmers(swimmersData || []);
+      let swimmersData = [];
+      let fetchedParentId = null;
+      
+      if (parentData) {
+        fetchedParentId = parentData.id;
+        setParentId(fetchedParentId);
+        
+        // Get linked swimmers through swimmer_parents junction table
+        const { data: swimmerLinks } = await supabase
+          .from('swimmer_parents')
+          .select(`
+            swimmer_id,
+            swimmers (*)
+          `)
+          .eq('parent_id', parentData.id);
+        
+        if (swimmerLinks) {
+          swimmersData = swimmerLinks
+            .map(link => link.swimmers)
+            .filter(Boolean);
+        }
+      }
+      
+      setSwimmers(swimmersData);
       
       // Load meets that are open or have entries
       const { data: meetsData } = await supabase
@@ -639,13 +664,17 @@ export default function ParentMeetsView({ user }) {
       
       setMeets(meetsData || []);
       
-      // Load all commitments for this parent
-      const { data: commitmentsData } = await supabase
-        .from('meet_commitments')
-        .select('*')
-        .eq('parent_id', user.id);
-      
-      setCommitments(commitmentsData || []);
+      // Load all commitments for this parent (use parent table id, not user.id)
+      if (fetchedParentId) {
+        const { data: commitmentsData } = await supabase
+          .from('meet_commitments')
+          .select('*')
+          .eq('parent_id', fetchedParentId);
+        
+        setCommitments(commitmentsData || []);
+      } else {
+        setCommitments([]);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -654,13 +683,17 @@ export default function ParentMeetsView({ user }) {
   };
 
   const handleCommit = async (meetId, swimmerId) => {
+    if (!parentId) {
+      alert('Error: Parent account not found');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('meet_commitments')
         .upsert({
           meet_id: meetId,
           swimmer_id: swimmerId,
-          parent_id: user.id,
+          parent_id: parentId,  // Use parent table ID, not user.id
           status: 'committed',
           committed_at: new Date().toISOString()
         }, { onConflict: 'meet_id,swimmer_id,parent_id' });
@@ -673,13 +706,17 @@ export default function ParentMeetsView({ user }) {
   };
 
   const handleDecline = async (meetId, swimmerId) => {
+    if (!parentId) {
+      alert('Error: Parent account not found');
+      return;
+    }
     try {
       const { error } = await supabase
         .from('meet_commitments')
         .upsert({
           meet_id: meetId,
           swimmer_id: swimmerId,
-          parent_id: user.id,
+          parent_id: parentId,  // Use parent table ID, not user.id
           status: 'declined',
           committed_at: new Date().toISOString()
         }, { onConflict: 'meet_id,swimmer_id,parent_id' });
