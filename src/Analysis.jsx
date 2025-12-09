@@ -575,7 +575,7 @@ const EditorStep = ({
   const [isMuted, setIsMuted] = useState(false);
   
   // Drawing state - redesigned for straight lines
-  const [drawingTool, setDrawingTool] = useState('none'); // 'none', 'line', 'angle';  
+  const [drawingTool, setDrawingTool] = useState('none'); 
   const [drawingColor, setDrawingColor] = useState('#ef4444');
   const [lineThickness, setLineThickness] = useState(3);
   const [isDrawing, setIsDrawing] = useState(false);
