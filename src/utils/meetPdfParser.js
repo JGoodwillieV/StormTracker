@@ -5,7 +5,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Set the worker source - adjust path based on your setup
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
 
 // ============================================
 // SHARED HELPERS
