@@ -92,7 +92,7 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
     });
   };
 
-  // Canvas rendering for annotations
+// Canvas rendering for annotations
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -105,10 +105,6 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
       // Draw visible annotations
       const visible = getVisibleAnnotations();
       visible.forEach(ann => {
-        const startX = ann.startX * canvas.width;
-        const startY = ann.startY * canvas.height;
-        const endX = ann.endX * canvas.width;
-        const endY = ann.endY * canvas.height;
         
         // Calculate opacity based on time (fade out effect)
         let opacity = 1;
@@ -127,57 +123,126 @@ export default function AnalysisResult({ data, videoUrl, onBack, title, swimmerN
         ctx.save();
         ctx.globalAlpha = opacity;
         
-        // Draw line shadow for better visibility
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.lineWidth = (ann.thickness || 3) + 4;
-        ctx.lineCap = 'round';
-        ctx.stroke();
-        
-        // Draw main line
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.strokeStyle = isSelected ? '#ffffff' : (ann.color || '#ef4444');
-        ctx.lineWidth = (ann.thickness || 3) + (isSelected ? 2 : 0);
-        ctx.lineCap = 'round';
-        ctx.stroke();
-        
-        // Draw endpoints
-        [{ x: startX, y: startY }, { x: endX, y: endY }].forEach(point => {
+        // --- ANGLE RENDERING ---
+        if (ann.type === 'angle' && ann.points && ann.points.length === 3) {
+          const p1 = { x: ann.points[0].x * canvas.width, y: ann.points[0].y * canvas.height };
+          const p2 = { x: ann.points[1].x * canvas.width, y: ann.points[1].y * canvas.height }; // Vertex
+          const p3 = { x: ann.points[2].x * canvas.width, y: ann.points[2].y * canvas.height };
+
+          // 1. Draw Lines Shadow
           ctx.beginPath();
-          ctx.arc(point.x, point.y, (ann.thickness || 3) + 2, 0, Math.PI * 2);
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = (ann.thickness || 3) + 4;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          // 2. Draw Main Lines
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.strokeStyle = isSelected ? '#ffffff' : (ann.color || '#ef4444');
+          ctx.lineWidth = (ann.thickness || 3) + (isSelected ? 2 : 0);
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          // 3. Draw Vertex Dot
+          ctx.beginPath();
+          ctx.arc(p2.x, p2.y, (ann.thickness || 3) + 2, 0, Math.PI * 2);
           ctx.fillStyle = ann.color || '#ef4444';
           ctx.fill();
           ctx.strokeStyle = 'rgba(255,255,255,0.8)';
           ctx.lineWidth = 2;
           ctx.stroke();
-        });
-        
-        // Draw label if exists
-        if (ann.label) {
-          const midX = (startX + endX) / 2;
-          const midY = (startY + endY) / 2;
+
+          // 4. Draw Angle Label (Degrees)
+          if (ann.label) {
+            ctx.font = 'bold 16px system-ui';
+            const textMetrics = ctx.measureText(ann.label);
+            const padding = 8;
+            const bgWidth = textMetrics.width + padding * 2;
+            const bgHeight = 24;
+            
+            // Position label slightly offset from vertex
+            const labelX = p2.x + 20; 
+            const labelY = p2.y - 20;
+
+            // Draw Label Background
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.beginPath();
+            ctx.roundRect(labelX, labelY - bgHeight/2, bgWidth, bgHeight, 4);
+            ctx.fill();
+            
+            // Draw Label Text
+            ctx.fillStyle = ann.color || '#ef4444';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(ann.label, labelX + bgWidth/2, labelY);
+          }
+
+        } else {
+          // --- LINE RENDERING (Default) ---
+          // Ensure we have coordinates (fallback to 0 if missing)
+          const startX = (ann.startX || 0) * canvas.width;
+          const startY = (ann.startY || 0) * canvas.height;
+          const endX = (ann.endX || 0) * canvas.width;
+          const endY = (ann.endY || 0) * canvas.height;
           
-          ctx.font = 'bold 14px system-ui';
-          const textMetrics = ctx.measureText(ann.label);
-          const padding = 6;
-          const bgWidth = textMetrics.width + padding * 2;
-          const bgHeight = 20;
-          
-          // Label background
-          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          // Draw line shadow
           ctx.beginPath();
-          ctx.roundRect(midX - bgWidth/2, midY - bgHeight/2 - 15, bgWidth, bgHeight, 4);
-          ctx.fill();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = (ann.thickness || 3) + 4;
+          ctx.lineCap = 'round';
+          ctx.stroke();
           
-          // Label text
-          ctx.fillStyle = ann.color || '#ef4444';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(ann.label, midX, midY - 15);
+          // Draw main line
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.strokeStyle = isSelected ? '#ffffff' : (ann.color || '#ef4444');
+          ctx.lineWidth = (ann.thickness || 3) + (isSelected ? 2 : 0);
+          ctx.lineCap = 'round';
+          ctx.stroke();
+          
+          // Draw endpoints
+          [{ x: startX, y: startY }, { x: endX, y: endY }].forEach(point => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, (ann.thickness || 3) + 2, 0, Math.PI * 2);
+            ctx.fillStyle = ann.color || '#ef4444';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          });
+          
+          // Draw label if exists
+          if (ann.label) {
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            
+            ctx.font = 'bold 14px system-ui';
+            const textMetrics = ctx.measureText(ann.label);
+            const padding = 6;
+            const bgWidth = textMetrics.width + padding * 2;
+            const bgHeight = 20;
+            
+            // Label background
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.beginPath();
+            ctx.roundRect(midX - bgWidth/2, midY - bgHeight/2 - 15, bgWidth, bgHeight, 4);
+            ctx.fill();
+            
+            // Label text
+            ctx.fillStyle = ann.color || '#ef4444';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(ann.label, midX, midY - 15);
+          }
         }
         
         ctx.restore();
