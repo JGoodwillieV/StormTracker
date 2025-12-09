@@ -7,7 +7,7 @@ import {
   Mic, MicOff, PenTool, Type, Check, X, Trash2, Save, Share2,
   Sparkles, Loader2, AlertCircle, Clock, User, Tag, Film,
   ChevronDown, ChevronUp, Eye, EyeOff, Edit3, MessageSquare,
-  Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2, Trianlge
+  Zap, Target, ArrowRight, RotateCcw, Download, CheckCircle2, Triangle
 } from 'lucide-react';
 
 // Video type definitions
@@ -575,7 +575,8 @@ const EditorStep = ({
   const [isMuted, setIsMuted] = useState(false);
   
   // Drawing state - redesigned for straight lines
-const [drawingTool, setDrawingTool] = useState('none'); // 'none', 'line', 'angle'  const [drawingColor, setDrawingColor] = useState('#ef4444');
+  const [drawingTool, setDrawingTool] = useState('none'); // 'none', 'line', 'angle'  
+  const [drawingColor, setDrawingColor] = useState('#ef4444');
   const [lineThickness, setLineThickness] = useState(3);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lineStart, setLineStart] = useState(null);
