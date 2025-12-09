@@ -560,6 +560,8 @@ const ProgressStep = ({ step, uploadProgress, analysisProgress, progressMessage 
 // ============================================
 // EDITOR STEP COMPONENT
 // ============================================
+// src/Analysis.jsx - EditorStep component
+
 const EditorStep = ({ 
   videoUrl, videoTitle, setVideoTitle, 
   aiAnalysis, setAiAnalysis,
@@ -582,8 +584,8 @@ const EditorStep = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [lineStart, setLineStart] = useState(null);
   const [linePreview, setLinePreview] = useState(null);
-  const [anglePath, setAnglePath] = useState([]); // Array of points [{x,y, xPercent, yPercent}];
-  const [mousePos, setMousePos] = useState(null); // Track mouse for previews;
+  const [anglePath, setAnglePath] = useState([]); // Array of points
+  const [mousePos, setMousePos] = useState(null); // Track mouse for previews
   
   // Saved annotations (lines with timestamps)
   const [annotations, setAnnotations] = useState([]);
@@ -593,7 +595,7 @@ const EditorStep = ({
   const [pendingLine, setPendingLine] = useState(null);
   
   // Display settings
-  const [annotationDuration, setAnnotationDuration] = useState(3); // seconds to show each annotation
+  const [annotationDuration, setAnnotationDuration] = useState(3);
   const [showAllAnnotations, setShowAllAnnotations] = useState(false);
   
   // Coach annotations
@@ -603,7 +605,7 @@ const EditorStep = ({
   const [isRecording, setIsRecording] = useState(false);
   
   // UI state
-  const [activePanel, setActivePanel] = useState('ai'); // ai, coach, drills, annotations
+  const [activePanel, setActivePanel] = useState('ai'); 
   const [isSaving, setIsSaving] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
@@ -690,7 +692,7 @@ const EditorStep = ({
     };
   };
 
-  // Drawing handlers for straight lines
+  // Drawing handlers
   const handleMouseDown = (e) => {
     if (drawingTool === 'none') return;
     e.preventDefault();
@@ -726,7 +728,7 @@ const EditorStep = ({
           label: `${degrees}°` // Auto-label with degrees
         });
         
-        // Reset angle path immediately so it doesn't stick on canvas
+        // Reset angle path immediately
         setAnglePath([]); 
         setShowAnnotationModal(true);
       }
@@ -743,7 +745,7 @@ const EditorStep = ({
     }
   };
   
-const handleMouseUp = (e) => {
+  const handleMouseUp = (e) => {
     if (drawingTool === 'line') {
       if (!isDrawing || !lineStart) {
         setIsDrawing(false);
@@ -759,7 +761,7 @@ const handleMouseUp = (e) => {
         if (length > 20) {
           setPendingLine({
             id: `line-${Date.now()}`,
-            type: 'line', // Mark as line
+            type: 'line',
             startX: lineStart.xPercent,
             startY: lineStart.yPercent,
             endX: endPos.xPercent,
@@ -785,7 +787,7 @@ const handleMouseUp = (e) => {
     if (pendingLine) {
       const newAnnotation = {
         ...pendingLine,
-        label: withLabel ? annotationLabel : ''
+        label: withLabel ? annotationLabel : (pendingLine.label || '')
       };
       setAnnotations(prev => [...prev, newAnnotation]);
       setPendingLine(null);
@@ -813,13 +815,12 @@ const handleMouseUp = (e) => {
     
     return annotations.filter(ann => {
       const timeDiff = currentTime - ann.timestamp;
-      const duration = ann.duration || 3;
-      return timeDiff >= 0 && timeDiff <= duration;
+      return timeDiff >= 0 && timeDiff <= (ann.duration || 3);
     });
   };
 
   // Canvas rendering
-useEffect(() => {
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -830,7 +831,6 @@ useEffect(() => {
       // 1. DRAW SAVED ANNOTATIONS
       const visible = getVisibleAnnotations();
       visible.forEach(ann => {
-        // ... (Keep existing opacity logic) ...
         let opacity = 1;
         if (!showAllAnnotations) {
            const timeDiff = currentTime - ann.timestamp;
@@ -860,7 +860,7 @@ useEffect(() => {
             ctx.fillStyle = ann.color;
             ctx.fillText(ann.label, p2.x + 15, p2.y - 15);
         } else {
-            // Draw Line (Existing logic, ensure it handles startX/endX)
+            // Draw Line
             const startX = (ann.startX || 0) * canvas.width;
             const startY = (ann.startY || 0) * canvas.height;
             const endX = (ann.endX || 0) * canvas.width;
@@ -872,7 +872,6 @@ useEffect(() => {
             ctx.strokeStyle = ann.color;
             ctx.lineWidth = ann.thickness;
             ctx.stroke();
-            // ... (draw endpoints, label logic from before) ...
         }
         ctx.restore();
       });
@@ -932,7 +931,6 @@ useEffect(() => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
-    // Also resize when video loads
     if (videoRef.current) {
       videoRef.current.addEventListener('loadeddata', resizeCanvas);
     }
@@ -977,7 +975,6 @@ useEffect(() => {
     setIsSaving(true);
     
     try {
-      // Include all metadata in json_data since the table may not have all columns
       const analysisData = {
         swimmer_id: selectedSwimmerId,
         video_url: videoUrl,
@@ -988,7 +985,7 @@ useEffect(() => {
           stroke: stroke,
           coachNotes,
           coachFeedback,
-          annotations, // Save line annotations
+          annotations, 
           savedAt: new Date().toISOString()
         }
       };
@@ -1045,7 +1042,7 @@ useEffect(() => {
         </div>
         
         <div className="flex items-center gap-3">
-{/* Drawing Tools */}
+          {/* Drawing Tools */}
           <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-600 bg-slate-700">
             {/* Line Tool Button */}
             <button
@@ -1142,11 +1139,11 @@ useEffect(() => {
               className="w-full h-full object-contain"
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
-              onClick={() => !isDrawingMode && togglePlay()}
+              onClick={() => drawingTool === 'none' && togglePlay()}
             />
             <canvas
               ref={canvasRef}
-              className={`absolute inset-0 w-full h-full ${isDrawingMode ? 'cursor-crosshair' : 'pointer-events-none'}`}
+              className={`absolute inset-0 w-full h-full ${drawingTool !== 'none' ? 'cursor-crosshair' : 'pointer-events-none'}`}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -1157,15 +1154,15 @@ useEffect(() => {
             />
             
             {/* Drawing Mode Indicator */}
-            {isDrawingMode && (
+            {drawingTool !== 'none' && (
               <div className="absolute top-4 left-4 bg-blue-500/90 backdrop-blur px-3 py-1.5 rounded-full flex items-center gap-2 text-sm font-medium">
-                <PenTool size={14} />
-                Click and drag to draw a line
+                {drawingTool === 'line' ? <PenTool size={14} /> : <Triangle size={14} />}
+                {drawingTool === 'line' ? 'Click and drag to draw a line' : 'Click three points to measure angle'}
               </div>
             )}
             
             {/* Play/Pause Overlay */}
-            {!isPlaying && !isDrawingMode && (
+            {!isPlaying && drawingTool === 'none' && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
                 <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                   <Play size={32} className="text-white ml-1" />
