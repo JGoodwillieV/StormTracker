@@ -25,6 +25,8 @@ import MeetEntriesManager from './MeetEntriesManager';
 import InviteParentModal from './InviteParentModal';
 import InviteLanding from './InviteLanding';
 import { UserPlus } from 'lucide-react';
+import MeetsManager from './MeetsManager';
+import ParentMeetsView from './ParentMeetsView';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -49,8 +51,12 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'message-square': MessageSquare,
     'megaphone': Megaphone,
     'user-plus': UserPlus,
-    'image': ImageIcon, 'camera': Camera, 'user': User
+    'image': ImageIcon, 
+    'camera': Camera, 
+    'user': User, 
+    'calendar': Calendar  
   };
+  
   const LucideIcon = icons[name] || Waves;
   return <LucideIcon size={size} className={className} />;
 };
@@ -297,6 +303,12 @@ const fetchUserRole = async () => {
               />
             </div>
           )}
+
+          {view === 'meets' && (
+            <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
+              <ParentMeetsView user={session.user} />
+            </div>
+          )}
           
           {view === 'profile' && selectedSwimmer && (
             <SwimmerProfile 
@@ -403,9 +415,15 @@ const fetchUserRole = async () => {
         )}
 
         {/* REPORTS PAGE */}
-{view === 'reports' && (
+        {view === 'reports' && (
   <Reports onBack={() => navigateTo('dashboard')} />
-)}
+        )}
+        {view === 'meets' && (
+          <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
+            <MeetsManager />
+          </div>
+        )}
+        
         {view === 'meet-entries' && (
   <MeetEntriesManager onBack={() => navigateTo('dashboard')} />
 )}
@@ -458,7 +476,7 @@ const MobileNav = ({ activeTab, setActiveTab }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
     { id: 'announcements', icon: 'megaphone', label: 'Updates' },
-    { id: 'meet-entries', icon: 'file-text', label: 'Meet Entries' },
+    { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'analysis', icon: 'video', label: 'Analyze' },
     { id: 'roster', icon: 'users', label: 'Roster' },
   ];
@@ -485,6 +503,7 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { id: 'announcements', icon: 'megaphone', label: 'Announcements' },
+    { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'meet-entries', icon: 'file-text', label: 'Meet Entries' },
     { id: 'analysis', icon: 'video', label: 'AI Analysis' },
     { id: 'roster', icon: 'users', label: 'Roster' },
@@ -521,6 +540,7 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
 const ParentMobileNav = ({ activeTab, setActiveTab }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
+    { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
   ];
 
@@ -545,6 +565,7 @@ const ParentMobileNav = ({ activeTab, setActiveTab }) => {
 const ParentSidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+    { id: 'meets', icon: 'calendar', label: 'Swim Meets' },
     { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
   ];
 
