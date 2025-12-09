@@ -3,9 +3,10 @@
 // Uses pdf.js for PDF text extraction
 
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-// Set the worker source - adjust path based on your setup
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
+// Set worker source using Vite's ?url import
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // ============================================
 // SHARED HELPERS
