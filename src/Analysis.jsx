@@ -575,8 +575,9 @@ const EditorStep = ({
   const [isMuted, setIsMuted] = useState(false);
   
   // Drawing state - redesigned for straight lines
-  const [drawingTool, setDrawingTool] = useState('none'); 
+  const [drawingTool, setDrawingTool] = useState('none'); // 'none', 'line', 'angle'
   const [drawingColor, setDrawingColor] = useState('#ef4444');
+  
   const [lineThickness, setLineThickness] = useState(3);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lineStart, setLineStart] = useState(null);
@@ -812,7 +813,8 @@ const handleMouseUp = (e) => {
     
     return annotations.filter(ann => {
       const timeDiff = currentTime - ann.timestamp;
-      return timeDiff >= 0 && timeDiff <= ann.duration;
+      const duration = ann.duration || 3;
+      return timeDiff >= 0 && timeDiff <= duration;
     });
   };
 
@@ -832,14 +834,14 @@ useEffect(() => {
         let opacity = 1;
         if (!showAllAnnotations) {
            const timeDiff = currentTime - ann.timestamp;
-           const fadeStart = ann.duration - 0.5;
+           const fadeStart = (ann.duration || 3) - 0.5;
            if (timeDiff > fadeStart) opacity = Math.max(0, 1 - (timeDiff - fadeStart) / 0.5);
         }
         
         ctx.save();
         ctx.globalAlpha = opacity;
         
-        if (ann.type === 'angle') {
+        if (ann.type === 'angle' && ann.points && ann.points.length === 3) {
             // Draw Angle
             const p1 = { x: ann.points[0].x * canvas.width, y: ann.points[0].y * canvas.height };
             const p2 = { x: ann.points[1].x * canvas.width, y: ann.points[1].y * canvas.height }; // Vertex
@@ -859,10 +861,10 @@ useEffect(() => {
             ctx.fillText(ann.label, p2.x + 15, p2.y - 15);
         } else {
             // Draw Line (Existing logic, ensure it handles startX/endX)
-            const startX = ann.startX * canvas.width;
-            const startY = ann.startY * canvas.height;
-            const endX = ann.endX * canvas.width;
-            const endY = ann.endY * canvas.height;
+            const startX = (ann.startX || 0) * canvas.width;
+            const startY = (ann.startY || 0) * canvas.height;
+            const endX = (ann.endX || 0) * canvas.width;
+            const endY = (ann.endY || 0) * canvas.height;
             
             ctx.beginPath();
             ctx.moveTo(startX, startY);
