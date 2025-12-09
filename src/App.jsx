@@ -34,7 +34,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User, Calendar
 } from 'lucide-react'
 
 
