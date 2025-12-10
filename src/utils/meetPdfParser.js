@@ -324,40 +324,63 @@ export async function parseMeetInfoPDF(file) {
 function parseEventsFromText(text) {
   const events = [];
   
-  // Look for event patterns like "1 11-12 50 Breast 2" or "Girls 13-14 200 Free Boys"
+  // Look for event patterns - multiple variations
   const eventPatterns = [
-    // Pattern: event# age-group distance stroke event#
-    /(\d+)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over|Open))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|(?:Free|Medley)\s*Relay)/gi,
-    // Pattern: Girls/Boys event description
-    /(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|(?:Free|Medley)\s*Relay)/gi
+    // Pattern: event# age-group distance stroke event# (e.g., "1 11-12 50 Breast 2")
+    /(\d+)\s+((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?|Open))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi,
+    // Pattern: Girls/Boys age-group distance stroke
+    /(Girls?|Boys?)\s+((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi,
+    // Pattern: age-group distance stroke (without event number)
+    /^((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gim
   ];
   
-  // Also look for session headers
-  const sessionMatches = text.matchAll(/Session\s*(\d+)|(\w+day)\s+(?:Prelims?|Finals?|Distance)/gi);
-  let currentSession = 1;
+  let eventCounter = 1;
   
   for (const pattern of eventPatterns) {
     let match;
     while ((match = pattern.exec(text)) !== null) {
+      let eventNumber, ageGroup, distance, stroke;
+      
+      // Determine which capture groups to use based on pattern
+      if (match[0].toLowerCase().includes('girl') || match[0].toLowerCase().includes('boy')) {
+        // Gender pattern
+        ageGroup = match[2];
+        distance = parseInt(match[3]);
+        stroke = match[4];
+        eventNumber = eventCounter++;
+      } else if (!isNaN(parseInt(match[1])) && parseInt(match[1]) < 200) {
+        // Event number pattern (event numbers are typically < 200)
+        eventNumber = parseInt(match[1]);
+        ageGroup = match[2];
+        distance = parseInt(match[3]);
+        stroke = match[4];
+      } else {
+        // No event number pattern
+        ageGroup = match[1];
+        distance = parseInt(match[2]);
+        stroke = match[3];
+        eventNumber = eventCounter++;
+      }
+      
       const event = {
-        eventNumber: parseInt(match[1]) || events.length + 1,
-        ageGroup: normalizeAgeGroup(match[2]),
-        distance: parseInt(match[3]),
-        stroke: normalizeStroke(match[4]),
+        eventNumber: eventNumber,
+        ageGroup: normalizeAgeGroup(ageGroup),
+        distance: distance,
+        stroke: normalizeStroke(stroke),
         gender: match[0].toLowerCase().includes('girl') ? 'Girls' : 
                 match[0].toLowerCase().includes('boy') ? 'Boys' : 'Mixed',
-        isRelay: /relay/i.test(match[4]),
-        sessionNumber: currentSession
+        isRelay: /relay/i.test(stroke),
+        sessionNumber: 1
       };
       
       // Avoid duplicates
       const exists = events.some(e => 
         e.eventNumber === event.eventNumber && 
         e.ageGroup === event.ageGroup && 
-        e.gender === event.gender
+        e.stroke === event.stroke
       );
       
-      if (!exists) {
+      if (!exists && event.distance && event.stroke) {
         events.push(event);
       }
     }
@@ -374,10 +397,20 @@ function normalizeAgeGroup(ageGroup) {
   
   const ag = ageGroup.toLowerCase().replace(/\s+/g, ' ').trim();
   
-  if (/10\s*&?\s*under/.test(ag)) return '10 & Under';
+  // Handle various "10 & Under" formats
+  if (/10\s*&?\s*u(nder)?/.test(ag)) return '10 & Under';
+  if (/8\s*&?\s*u(nder)?/.test(ag)) return '8 & Under';
+  
+  // Handle specific age groups
   if (/11-12/.test(ag) || /11\s*-\s*12/.test(ag)) return '11-12';
   if (/13-14/.test(ag)) return '13-14';
-  if (/15\s*&?\s*over/.test(ag) || /15-18/.test(ag) || /senior/.test(ag)) return '15 & Over';
+  if (/15-16/.test(ag)) return '15-16';
+  if (/17-18/.test(ag)) return '17-18';
+  
+  // Handle "& Over" formats  
+  if (/15\s*&?\s*o(ver)?/.test(ag) || /senior/.test(ag)) return '15 & Over';
+  if (/13\s*&?\s*o(ver)?/.test(ag)) return '13 & Over';
+  if (/open/i.test(ag)) return 'Open';
   if (/13\s*&?\s*over/.test(ag)) return '13 & Over';
   if (/12\s*&?\s*under/.test(ag)) return '12 & Under';
   if (/8\s*&?\s*under/.test(ag)) return '8 & Under';
