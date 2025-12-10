@@ -418,7 +418,7 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
                       <div className="text-right">
                         <div className="text-sm text-slate-500">Seed</div>
                         <div className="font-mono text-lg font-semibold text-slate-800">
-                          {entry.seed_time || 'NT'}
+                          {entry.seed_time_display || 'NT'}
                         </div>
                       </div>
                     </div>
