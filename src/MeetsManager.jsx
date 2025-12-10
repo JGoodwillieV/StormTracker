@@ -439,6 +439,123 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
 };
 
 // ============================================
+// EVENT ROW - With inline editing
+// ============================================
+
+const EventRow = ({ event, onUpdate, onDelete }) => {
+  const [editing, setEditing] = useState(false);
+  const [editValues, setEditValues] = useState({
+    event_number: event.event_number,
+    event_name: event.event_name
+  });
+
+  const handleSave = async () => {
+    try {
+      const { error } = await supabase
+        .from('meet_events')
+        .update({
+          event_number: parseInt(editValues.event_number),
+          event_name: editValues.event_name
+        })
+        .eq('id', event.id);
+      
+      if (error) throw error;
+      setEditing(false);
+      onUpdate();
+    } catch (error) {
+      alert('Error updating event: ' + error.message);
+    }
+  };
+
+  if (editing) {
+    return (
+      <tr className="bg-blue-50">
+        <td className="px-4 py-2">
+          <input
+            type="number"
+            value={editValues.event_number}
+            onChange={e => setEditValues(prev => ({ ...prev, event_number: e.target.value }))}
+            className="w-16 border rounded px-2 py-1 text-sm"
+            autoFocus
+          />
+        </td>
+        <td className="px-4 py-2">
+          <input
+            type="text"
+            value={editValues.event_name}
+            onChange={e => setEditValues(prev => ({ ...prev, event_name: e.target.value }))}
+            className="w-full border rounded px-2 py-1 text-sm"
+          />
+        </td>
+        <td className="px-4 py-2 text-slate-600">{event.age_group}</td>
+        <td className="px-4 py-2 text-slate-600">{event.distance}</td>
+        <td className="px-4 py-2 text-slate-600">{event.stroke}</td>
+        <td className="px-4 py-2 text-right">
+          <div className="flex gap-1 justify-end">
+            <button
+              onClick={handleSave}
+              className="p-1 text-green-600 hover:bg-green-50 rounded"
+            >
+              <Check size={16} />
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="hover:bg-slate-50 group">
+      <td className="px-4 py-3 font-medium text-slate-800">
+        <span 
+          onClick={() => setEditing(true)}
+          className="cursor-pointer hover:text-blue-600"
+          title="Click to edit"
+        >
+          {event.event_number}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-slate-700">
+        <span 
+          onClick={() => setEditing(true)}
+          className="cursor-pointer hover:text-blue-600"
+          title="Click to edit"
+        >
+          {event.event_name}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-slate-600">{event.age_group}</td>
+      <td className="px-4 py-3 text-slate-600">{event.distance}</td>
+      <td className="px-4 py-3 text-slate-600">{event.stroke}</td>
+      <td className="px-4 py-3 text-right">
+        <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => setEditing(true)}
+            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+            title="Edit"
+          >
+            <Edit2 size={16} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+            title="Delete"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+};
+
+// ============================================
 // EVENTS TAB - Manage meet events
 // ============================================
 
@@ -641,21 +758,12 @@ const EventsTab = ({ meet, onRefresh }) => {
             </thead>
             <tbody className="divide-y">
               {events.map(evt => (
-                <tr key={evt.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-800">{evt.event_number}</td>
-                  <td className="px-4 py-3 text-slate-700">{evt.event_name}</td>
-                  <td className="px-4 py-3 text-slate-600">{evt.age_group}</td>
-                  <td className="px-4 py-3 text-slate-600">{evt.distance}</td>
-                  <td className="px-4 py-3 text-slate-600">{evt.stroke}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => handleDeleteEvent(evt.id)}
-                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </td>
-                </tr>
+                <EventRow 
+                  key={evt.id} 
+                  event={evt} 
+                  onUpdate={loadEvents}
+                  onDelete={() => handleDeleteEvent(evt.id)}
+                />
               ))}
             </tbody>
           </table>
