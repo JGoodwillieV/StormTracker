@@ -180,7 +180,23 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
     
     setLoading(true);
     try {
-      const { _parsedEvents, ...meetData } = formData;
+      const { _parsedEvents, ...rawMeetData } = formData;
+      
+      // Clean up data - convert empty strings to null for optional fields
+      const meetData = {
+        ...rawMeetData,
+        end_date: rawMeetData.end_date || null,
+        entry_deadline: rawMeetData.entry_deadline || null,
+        location_name: rawMeetData.location_name || null,
+        location_address: rawMeetData.location_address || null,
+        sanction_number: rawMeetData.sanction_number || null,
+        host_team: rawMeetData.host_team || null,
+        meet_director_name: rawMeetData.meet_director_name || null,
+        meet_director_email: rawMeetData.meet_director_email || null,
+        entry_fee_individual: rawMeetData.entry_fee_individual || null,
+        entry_fee_relay: rawMeetData.entry_fee_relay || null,
+        entry_fee_surcharge: rawMeetData.entry_fee_surcharge || null,
+      };
       
       if (meet?.id) {
         // Update existing
