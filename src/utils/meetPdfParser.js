@@ -609,32 +609,29 @@ function normalizeStroke(stroke) {
 export async function parseTimelinePDF(file) {
   const { fullText, pages } = await extractTextFromPDF(file);
   
+  console.log('Timeline text sample:', fullText.substring(0, 800));
+  
   const result = {
     sessions: [],
     events: []
   };
   
-  // Split by sessions
-  const sessionBlocks = fullText.split(/Session:\s*(\d+)\s+/i);
+  // Split by "Session:" to get each session block
+  const sessionParts = fullText.split(/Session:\s*/i);
   
-  for (let i = 1; i < sessionBlocks.length; i += 2) {
-    const sessionNum = parseInt(sessionBlocks[i]);
-    const sessionText = sessionBlocks[i + 1] || '';
+  for (let i = 1; i < sessionParts.length; i++) {
+    const sessionText = sessionParts[i];
     
-    // Parse session header
+    // Parse session header: "1 Friday Prelims Day of Meet: 1 Starts at 09:00 AM Heat Interval: 30 Seconds"
+    const headerMatch = sessionText.match(/^(\d+)\s+([A-Za-z]+\s+(?:Prelims?|Finals?))/i);
+    
     const sessionInfo = {
-      sessionNumber: sessionNum,
-      name: null,
+      sessionNumber: headerMatch ? parseInt(headerMatch[1]) : i,
+      name: headerMatch ? headerMatch[2].trim() : `Session ${i}`,
       dayOfMeet: null,
       startTime: null,
       heatInterval: 30
     };
-    
-    // Extract session name
-    const nameMatch = sessionText.match(/^([^\n]+)/);
-    if (nameMatch) {
-      sessionInfo.name = nameMatch[1].trim();
-    }
     
     // Extract day of meet
     const dayMatch = sessionText.match(/Day\s*of\s*Meet:\s*(\d+)/i);
@@ -645,7 +642,7 @@ export async function parseTimelinePDF(file) {
     // Extract start time
     const startMatch = sessionText.match(/Starts\s*at\s*(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i);
     if (startMatch) {
-      sessionInfo.startTime = parseTimeString(startMatch[1]);
+      sessionInfo.startTime = startMatch[1].trim();
     }
     
     // Extract heat interval
@@ -654,55 +651,53 @@ export async function parseTimelinePDF(file) {
       sessionInfo.heatInterval = parseInt(intervalMatch[1]);
     }
     
+    console.log('Parsed session:', sessionInfo);
     result.sessions.push(sessionInfo);
     
     // Parse events in this session
-    // Pattern: "Prelims 1 Girls 11-12 50 Breaststroke 14 2 09:00 AM"
-    const eventPattern = /(Prelims?|Finals?(?:-\d)?|Finals-S)\s+(\d+)\s+(.+?)\s+(\d+)\s+(\d+)\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
+    // Normalize the text first to handle split numbers
+    const normalizedText = sessionText
+      .replace(/(\d)\s+(\d)/g, '$1$2')  // Fix "1 4" -> "14"
+      .replace(/\s+/g, ' ');
+    
+    // Pattern for event lines: "Prelims 4 Boys 10 & Under 50 Breaststroke 27 4 09:12 AM"
+    // Format: Round EventNum Gender AgeGroup Distance Stroke Entries Heats StartTime
+    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
     
     let match;
-    while ((match = eventPattern.exec(sessionText)) !== null) {
-      const eventType = match[1].toLowerCase();
+    while ((match = eventPattern.exec(normalizedText)) !== null) {
+      const roundType = match[1].toLowerCase();
       const eventNumber = parseInt(match[2]);
-      const eventName = match[3].trim();
-      const entryCount = parseInt(match[4]);
-      const heatCount = parseInt(match[5]);
-      const startTime = match[6];
+      const gender = match[3].toLowerCase().includes('girl') ? 'Girls' : 'Boys';
+      const ageGroup = normalizeAgeGroup(match[4]);
+      const distance = parseInt(match[5]);
+      const stroke = normalizeStroke(match[6].trim());
+      const entryCount = parseInt(match[7]);
+      const heatCount = parseInt(match[8]);
+      const startTime = match[9].trim();
       
-      // Parse event name to extract details
-      const eventDetails = parseEventName(eventName);
+      const eventName = `${gender} ${ageGroup} ${distance} ${stroke}`;
       
       result.events.push({
-        sessionNumber: sessionNum,
+        sessionNumber: sessionInfo.sessionNumber,
         eventNumber,
         eventName,
-        ...eventDetails,
-        roundType: eventType.includes('final') ? 'finals' : 'prelims',
+        gender,
+        ageGroup,
+        distance,
+        stroke,
+        isRelay: /relay/i.test(stroke),
+        roundType: roundType.includes('final') ? 'finals' : 'prelims',
         entryCount,
         heatCount,
-        estimatedStartTime: startTime,
-        estimatedStartTimeString: parseTimeString(startTime)
+        estimatedStartTime: startTime
       });
+      
+      console.log(`Event ${eventNumber}: ${eventName} at ${startTime}`);
     }
   }
   
-  // If no sessions found, try parsing as a flat list
-  if (result.events.length === 0) {
-    const flatPattern = /(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+(?:Yard\s+)?(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|(?:Free|Medley)\s*Relay)/gi;
-    
-    let match;
-    while ((match = flatPattern.exec(fullText)) !== null) {
-      result.events.push({
-        eventNumber: parseInt(match[1]),
-        gender: match[2].includes('irl') ? 'Girls' : 'Boys',
-        ageGroup: normalizeAgeGroup(match[3]),
-        distance: parseInt(match[4]),
-        stroke: normalizeStroke(match[5]),
-        isRelay: /relay/i.test(match[5])
-      });
-    }
-  }
-  
+  console.log(`Parsed ${result.sessions.length} sessions and ${result.events.length} events`);
   return result;
 }
 
@@ -752,6 +747,8 @@ function parseEventName(name) {
 export async function parseHeatSheetPDF(file) {
   const { fullText, pages } = await extractTextFromPDF(file);
   
+  console.log('Heat sheet text sample:', fullText.substring(0, 500));
+  
   const result = {
     meetName: null,
     meetDates: null,
@@ -766,71 +763,73 @@ export async function parseHeatSheetPDF(file) {
     result.meetDates = meetMatch[2];
   }
   
-  // Extract session name
-  const sessionMatch = fullText.match(/Meet\s*Program\s*[-–]\s*(.+?)$/m);
+  // Extract session name (e.g., "Meet Program - Friday Prelims")
+  const sessionMatch = fullText.match(/Meet\s*Program\s*[-–]\s*(.+?)(?:\n|$)/m);
   if (sessionMatch) {
     result.sessionName = sessionMatch[1].trim();
   }
-  
-  // Parse events and entries
-  // Pattern for event header: "#1 Girls 11-12 50 Yard Breaststroke"
-  const eventHeaderPattern = /#(\d+)\s+(Girls?|Boys?|Mixed)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+(?:Yard|Meter)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|(?:Free|Medley)\s*Relay)/gi;
-  
-  // Pattern for heat header: "Heat 1 of 2 Prelims Starts at 09:00 AM"
-  const heatHeaderPattern = /Heat\s+(\d+)\s+of\s+(\d+)\s+(Prelims?|Finals?)\s+Starts\s+at\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
-  
-  // Pattern for swimmer entry: "1 Traner, Sadie M 12 RAYS-VA NT"
-  // Lane, Name, Age, Team, Seed Time
-  const swimmerPattern = /^(\d+)\s+([A-Za-z]+,\s*[A-Za-z]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z]{3,5}-[A-Z]{2})\s+([\d:.]+|NT)/gm;
   
   let currentEvent = null;
   let currentHeat = null;
   let currentHeatStart = null;
   
-  // Process line by line for better context
-  const lines = fullText.split('\n');
+  // Normalize text - handle spaces in numbers
+  const normalizedText = fullText
+    .replace(/(\d)\s+(\d)/g, '$1$2')  // Fix split numbers
+    .replace(/\s+/g, ' ');  // Normalize whitespace
   
-  for (const line of lines) {
-    // Check for event header
-    const eventMatch = line.match(/#(\d+)\s+(Girls?|Boys?|Mixed)\s+(.+)/i);
+  // Split into lines
+  const lines = normalizedText.split(/(?=#\d+|Heat\s+\d+)/);
+  
+  for (const segment of lines) {
+    // Check for event header: "#4 Boys 10 & Under 50 Yard Breaststroke"
+    const eventMatch = segment.match(/#(\d+)\s+(Girls?|Boys?|Mixed)\s+(.+?)(?=Lane|Heat|$)/i);
     if (eventMatch) {
       currentEvent = {
         eventNumber: parseInt(eventMatch[1]),
-        gender: eventMatch[2].includes('irl') ? 'Girls' : 'Boys',
+        gender: eventMatch[2].toLowerCase().includes('girl') ? 'Girls' : 'Boys',
         eventName: eventMatch[3].trim()
       };
-      continue;
+      console.log('Found event:', currentEvent);
     }
     
-    // Check for heat header
-    const heatMatch = line.match(/Heat\s+(\d+)\s+of\s+(\d+).*?Starts\s+at\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i);
+    // Check for heat header: "Heat 1 of 3 Prelims Starts at 09:12 AM"
+    const heatMatch = segment.match(/Heat\s+(\d+)\s+of\s+(\d+).*?(?:Starts\s+at\s+)?(\d{1,2}:\d{2}\s*(?:AM|PM)?)?/i);
     if (heatMatch) {
       currentHeat = parseInt(heatMatch[1]);
-      currentHeatStart = heatMatch[3];
-      continue;
+      currentHeatStart = heatMatch[3] || null;
+      console.log('Found heat:', currentHeat, 'start:', currentHeatStart);
     }
     
-    // Check for swimmer entry
-    const swimmerMatch = line.match(/^(\d+)\s+([A-Za-z'-]+,\s*[A-Za-z'-]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)/i);
-    if (swimmerMatch && currentEvent) {
-      const entry = {
-        eventNumber: currentEvent.eventNumber,
-        eventName: currentEvent.eventName,
-        gender: currentEvent.gender,
-        lane: parseInt(swimmerMatch[1]),
-        swimmerName: swimmerMatch[2].trim(),
-        age: parseInt(swimmerMatch[3]),
-        teamCode: swimmerMatch[4],
-        seedTime: swimmerMatch[5],
-        seedTimeSeconds: parseTimeToSeconds(swimmerMatch[5]),
-        heat: currentHeat,
-        heatStartTime: currentHeatStart
-      };
-      
-      result.entries.push(entry);
+    // Look for swimmer entries in this segment
+    // Format: "5 Goodwillie, James G 9 HNVR-VA 47.43" (lane, name, age, team, time)
+    // More flexible pattern to handle variations
+    const swimmerPattern = /\b(\d)\s+([A-Za-z'-]+,\s*[A-Za-z'-]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\b/gi;
+    
+    let swimmerMatch;
+    while ((swimmerMatch = swimmerPattern.exec(segment)) !== null) {
+      if (currentEvent) {
+        const entry = {
+          eventNumber: currentEvent.eventNumber,
+          eventName: currentEvent.eventName,
+          gender: currentEvent.gender,
+          lane: parseInt(swimmerMatch[1]),
+          swimmerName: swimmerMatch[2].trim(),
+          age: parseInt(swimmerMatch[3]),
+          teamCode: swimmerMatch[4],
+          seedTime: swimmerMatch[5],
+          seedTimeSeconds: parseTimeToSeconds(swimmerMatch[5]),
+          heat: currentHeat,
+          heatStartTime: currentHeatStart
+        };
+        
+        result.entries.push(entry);
+        console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat);
+      }
     }
   }
   
+  console.log(`Parsed ${result.entries.length} entries from heat sheet`);
   return result;
 }
 
@@ -839,28 +838,51 @@ export async function parseHeatSheetPDF(file) {
  * Returns entries with matched swimmer_id where found
  */
 export function matchHeatSheetEntries(entries, dbSwimmers, teamCode) {
+  console.log(`Matching ${entries.length} entries against ${dbSwimmers.length} swimmers, team: ${teamCode}`);
+  
   return entries.map(entry => {
-    // Skip entries that don't match our team code
-    if (teamCode && !entry.teamCode.startsWith(teamCode)) {
+    // Skip entries that don't match our team code (if specified)
+    if (teamCode && !entry.teamCode.toUpperCase().startsWith(teamCode.toUpperCase())) {
       return { ...entry, matched: false, matchReason: 'different_team' };
     }
     
-    // Try to match by name
+    // Parse entry name: "Goodwillie, James G" -> lastName="Goodwillie", firstName="James"
     const entryNameParts = entry.swimmerName.split(',').map(p => p.trim());
-    const lastName = entryNameParts[0]?.toLowerCase();
-    const firstName = entryNameParts[1]?.split(' ')[0]?.toLowerCase();
+    const lastName = entryNameParts[0]?.toLowerCase() || '';
+    const firstNamePart = entryNameParts[1]?.trim() || '';
+    const firstName = firstNamePart.split(/\s+/)[0]?.toLowerCase() || '';
+    
+    console.log(`Trying to match: "${entry.swimmerName}" -> last="${lastName}", first="${firstName}"`);
     
     const match = dbSwimmers.find(swimmer => {
       const swimmerName = swimmer.name.toLowerCase();
-      const swimmerParts = swimmerName.split(' ');
+      
+      // Try different matching strategies
+      // Strategy 1: Full name contains both first and last
+      if (swimmerName.includes(firstName) && swimmerName.includes(lastName)) {
+        return true;
+      }
+      
+      // Strategy 2: Parse swimmer name as "First Middle Last"
+      const swimmerParts = swimmerName.split(/\s+/);
       const swimmerFirst = swimmerParts[0];
       const swimmerLast = swimmerParts[swimmerParts.length - 1];
       
-      // Match if first and last names match
-      return swimmerFirst === firstName && swimmerLast === lastName;
+      if (swimmerFirst === firstName && swimmerLast === lastName) {
+        return true;
+      }
+      
+      // Strategy 3: Just match last name + first initial
+      const firstInitial = firstName[0];
+      if (swimmerLast === lastName && swimmerFirst.startsWith(firstInitial)) {
+        return true;
+      }
+      
+      return false;
     });
     
     if (match) {
+      console.log(`  Matched "${entry.swimmerName}" to "${match.name}" (ID: ${match.id})`);
       return {
         ...entry,
         matched: true,
@@ -869,6 +891,7 @@ export function matchHeatSheetEntries(entries, dbSwimmers, teamCode) {
       };
     }
     
+    console.log(`  No match found for "${entry.swimmerName}"`);
     return { ...entry, matched: false, matchReason: 'no_match' };
   });
 }
