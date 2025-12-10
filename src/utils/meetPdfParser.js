@@ -264,44 +264,43 @@ export async function parseMeetInfoPDF(file) {
   
   // ---- Extract Entry Deadline ----
   // PDF text extraction can be inconsistent with spacing
-  // "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 25, 2025"
-  // "DEADLINE FOR THE RECEIPT OF ENTRIES IS TUESDAY November 4th, 2025"
+  // Search for ENTRIES section first to narrow down
+  const entriesSection = text.match(/ENTRIES:?\s*([\s\S]*?)(?=FEES|SEEDING|DECK)/i);
+  const deadlineSearchText = entriesSection ? entriesSection[1] : text;
+  
+  console.log('Searching for deadline...');
+  if (entriesSection) {
+    console.log('ENTRIES section found, first 300 chars:', deadlineSearchText.substring(0, 300));
+  }
+  
   const deadlinePatterns = [
-    // Standard format with optional day of week
-    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(?:\w+day,?\s+)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i,
-    // Day of week followed by month
-    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(\w+day,?\s+\w+\s+\d{1,2},?\s+\d{4})/i,
+    // Standard format: "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
+    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+\w+day,?\s+(\w+\s+\d{1,2},?\s+\d{4})/i,
+    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(\w+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i,
     // Entry Deadline: format
     /Entry\s+Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
-    // More flexible - look for ENTRIES IS followed by date
-    /ENTRIES\s+IS\s+(?:\w+day)?\s*,?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
-    // Very flexible - DEADLINE followed by any month name
-    /DEADLINE[^•]*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i
+    // Just look for DEADLINE followed by date in the entries section
+    /DEADLINE[^.]*?(\w+\s+\d{1,2},?\s+\d{4})/i,
   ];
   
-  console.log('Searching for deadline in text...');
-  
-  for (const pattern of deadlinePatterns) {
-    const deadlineMatch = text.match(pattern);
-    if (deadlineMatch) {
-      let dateStr;
-      // Check if this is the pattern with separate month/day/year groups
-      if (deadlineMatch[3]) {
-        // Pattern captured month, day, year separately
-        dateStr = `${deadlineMatch[1]} ${deadlineMatch[2]}, ${deadlineMatch[3]}`;
-      } else {
-        // Pattern captured full date string
-        dateStr = deadlineMatch[1]
+  // Search in entries section first, then full text
+  for (const searchText of [deadlineSearchText, text]) {
+    for (const pattern of deadlinePatterns) {
+      const deadlineMatch = searchText.match(pattern);
+      if (deadlineMatch) {
+        let dateStr = deadlineMatch[1]
           .replace(/(\d+)(st|nd|rd|th)/i, '$1')  // Remove ordinal suffixes
-          .replace(/^\w+day,?\s*/i, '');  // Remove day of week
-      }
-      console.log('Deadline date string:', dateStr);
-      result.entryDeadline = parseDate(dateStr);
-      if (result.entryDeadline) {
-        console.log('Deadline parsed successfully:', result.entryDeadline);
-        break;
+          .replace(/^\w+day,?\s*/i, '');  // Remove day of week if at start
+        console.log('Deadline match found:', deadlineMatch[0]);
+        console.log('Deadline date string:', dateStr);
+        result.entryDeadline = parseDate(dateStr);
+        if (result.entryDeadline) {
+          console.log('Deadline parsed successfully:', result.entryDeadline);
+          break;
+        }
       }
     }
+    if (result.entryDeadline) break;
   }
   
   // ---- Extract Event Limits ----
@@ -324,13 +323,15 @@ export async function parseMeetInfoPDF(file) {
   
   // Debug: Log fees section for troubleshooting
   console.log('Fees section found:', feesSection ? 'Yes' : 'No');
+  if (feesSection) {
+    console.log('Fees text (first 500 chars):', feesText.substring(0, 500));
+  }
   
-  // Individual fee patterns - very flexible with spacing
+  // Individual fee patterns - MUST have $ directly before the number
   // "Individual events: $12.00", "Individual events: $9.50/per Swim"
   const individualPatterns = [
-    /Individual\s*events?\s*:?\s*\$\s*([\d.]+)/i,
-    /Individual\s*:?\s*\$\s*([\d.]+)/i,
-    /\$\s*([\d.]+)\s*\/?\s*(?:per\s*)?(?:individual|swim|event)/i
+    /Individual\s*events?\s*:?\s*\$([\d]+\.[\d]{2})/i,  // $12.00 format
+    /Individual\s*events?\s*:?\s*\$([\d]+)/i,           // $12 format
   ];
   for (const pattern of individualPatterns) {
     const match = feesText.match(pattern);
@@ -341,10 +342,10 @@ export async function parseMeetInfoPDF(file) {
     }
   }
   
-  // Relay fee patterns
+  // Relay fee patterns - MUST have $ directly before number
   const relayPatterns = [
-    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$\s*([\d.]+)/i,
-    /\$\s*([\d.]+)\s*\/?\s*Relay/i
+    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d]+\.[\d]{2})/i,
+    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d]+)/i,
   ];
   for (const pattern of relayPatterns) {
     const match = feesText.match(pattern);
@@ -355,11 +356,11 @@ export async function parseMeetInfoPDF(file) {
     }
   }
   
-  // Surcharge patterns - very flexible
+  // Surcharge patterns - MUST have $ directly before number
   const surchargePatterns = [
-    /Swimmer\s*surcharge\s*:?\s*\$\s*([\d.]+)/i,
-    /surcharge\s*:?\s*\$\s*([\d.]+)/i,
-    /\$\s*([\d.]+)\s*per\s*(?:person|swimmer|athlete)/i
+    /Swimmer\s*surcharge\s*:?\s*\$([\d]+\.[\d]{2})/i,
+    /surcharge\s*:?\s*\$([\d]+\.[\d]{2})/i,
+    /\$([\d]+\.[\d]{2})\s*per\s*(?:person|swimmer|athlete)/i
   ];
   for (const pattern of surchargePatterns) {
     const match = feesText.match(pattern);
@@ -419,6 +420,12 @@ function parseEventsFromText(text) {
   // First, try to find the ORDER OF EVENTS section
   const orderSection = text.match(/ORDER\s*OF\s*EVENTS[\s\S]*$/i);
   const searchText = orderSection ? orderSection[0] : text;
+  
+  console.log('ORDER OF EVENTS section found:', orderSection ? 'Yes' : 'No');
+  if (orderSection) {
+    console.log('Events section length:', searchText.length);
+    console.log('First 500 chars of events section:', searchText.substring(0, 500));
+  }
   
   // Age group pattern - captures all common formats:
   // 13&O, 8&U, 10&U, 13 & Over, 8 & under, 9-12, 11-12, 13-14, 11 &12, 12 & Under
