@@ -1198,7 +1198,7 @@ const EntriesTab = ({ meet, onRefresh }) => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-mono text-slate-800">{entry.seed_time || 'NT'}</div>
+                      <div className="font-mono text-slate-800">{entry.seed_time_display || 'NT'}</div>
                       {entry.estimated_start_time && (
                         <div className="text-xs text-slate-500">
                           ~{formatTime(entry.estimated_start_time)}
@@ -1356,7 +1356,8 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
 
         // Get best time from history if available
         const history = eventHistory[eventId];
-        const seedTime = history?.[0]?.time_display || null;
+        const seedTimeDisplay = history?.[0]?.time_display || null;
+        const seedTimeSeconds = history?.[0]?.time_seconds || null;
 
         const entryData = {
           meet_id: meet.id,
@@ -1364,7 +1365,8 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
           meet_event_id: eventId,
           event_number: evt.event_number,
           event_name: evt.event_name || `${evt.gender || ''} ${evt.age_group || ''} ${evt.distance} ${evt.stroke}`.trim(),
-          seed_time: seedTime,
+          seed_time_display: seedTimeDisplay,
+          seed_time_seconds: seedTimeSeconds,
           session_number: evt.session_number || null
         };
         
@@ -1467,21 +1469,48 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
 
   // Group events by session/day
   const eventsByDay = useMemo(() => {
+    // Calculate meet duration in days
+    const startDate = meet.start_date ? new Date(meet.start_date) : null;
+    const endDate = meet.end_date ? new Date(meet.end_date) : startDate;
+    
+    let numDays = 1;
+    if (startDate && endDate) {
+      numDays = Math.max(1, Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
+    }
+    
+    // Get all event numbers sorted
+    const sortedEvents = [...eligibleEvents].sort((a, b) => a.event_number - b.event_number);
+    const maxEventNum = sortedEvents.length > 0 ? Math.max(...sortedEvents.map(e => e.event_number)) : 0;
+    
+    // Create day boundaries based on event number ranges
+    // Typically events are distributed roughly evenly across days
+    const eventsPerDay = Math.ceil(maxEventNum / numDays);
+    
     const groups = {};
+    
     eligibleEvents.forEach(evt => {
-      // Use session_date, session_name, or event_number ranges to group by day
-      let dayKey = 'Day 1';
-      let dayName = 'Day 1';
+      let dayKey, dayName;
       
+      // First check if event has explicit session info
       if (evt.session_date) {
         dayKey = evt.session_date;
         dayName = new Date(evt.session_date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-      } else if (evt.session_name) {
+      } else if (evt.session_name && evt.session_name !== 'Session 0' && evt.session_name !== 'Session TBD') {
         dayKey = evt.session_name;
         dayName = evt.session_name;
-      } else if (evt.session_number) {
-        dayKey = `session-${evt.session_number}`;
-        dayName = `Session ${evt.session_number}`;
+      } else {
+        // Infer day from event number
+        const dayIndex = Math.min(Math.floor((evt.event_number - 1) / eventsPerDay), numDays - 1);
+        
+        if (startDate) {
+          const dayDate = new Date(startDate);
+          dayDate.setDate(dayDate.getDate() + dayIndex);
+          dayKey = dayDate.toISOString().split('T')[0];
+          dayName = dayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        } else {
+          dayKey = `day-${dayIndex + 1}`;
+          dayName = `Day ${dayIndex + 1}`;
+        }
       }
       
       if (!groups[dayKey]) {
@@ -1499,8 +1528,9 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
       g.events.sort((a, b) => a.event_number - b.event_number);
     });
     
-    return Object.values(groups);
-  }, [eligibleEvents]);
+    // Sort days by key (date or day number)
+    return Object.values(groups).sort((a, b) => a.key.localeCompare(b.key));
+  }, [eligibleEvents, meet.start_date, meet.end_date]);
 
   // Calculate per-day selection counts
   const perDaySelections = useMemo(() => {
@@ -2042,7 +2072,7 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
                       </div>
                     </div>
                     <div className="font-mono text-slate-600">
-                      {entry.heat_seed_time || entry.seed_time || 'NT'}
+                      {entry.heat_seed_time || entry.seed_time_display || 'NT'}
                     </div>
                   </div>
                 ))}
