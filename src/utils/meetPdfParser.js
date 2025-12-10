@@ -443,14 +443,20 @@ function parseEventsFromText(text) {
     .replace(/(\d)\s+&\s*([UuOo])/g, '$1&$2')  // "10 & U" → "10&U"
     .replace(/(\d)\s+-\s+(\d)/g, '$1-$2')  // "11 - 12" → "11-12"
     .replace(/Med\s*ley/gi, 'Medley')  // "Med ley" → "Medley"
-    .replace(/Free\s*style/gi, 'Freestyle');  // "Free style" → "Freestyle"
+    .replace(/Free\s*style/gi, 'Freestyle')  // "Free style" → "Freestyle"
+    // Fix potential spaces in 2-digit event numbers (e.g., "6 1" → "61", "5 3" → "53")
+    .replace(/\b(\d)\s+(\d)\s+((?:10&U|11-12|\d{1,2}&[UuOo]|\d{1,2}-\d{1,2}))/g, '$1$2 $3');
   
-  console.log('Normalized events text (first 800 chars):', normalizedText.substring(0, 800));
+  console.log('Normalized events text (first 1200 chars):', normalizedText.substring(0, 1200));
+  
+  // Also log the last part where Sunday events are
+  console.log('Normalized events text (last 600 chars):', normalizedText.substring(normalizedText.length - 600));
   
   // Pattern to match event entries
   // Format: EventNum AgeGroup Distance Stroke [EventNum]
   // Examples after normalization: "1 11-12 50 Breast 2", "17 10&U 200 Free Relay 18"
-  const eventPattern = /\b(\d{1,3})\s+((?:\d{1,2}&[UuOo](?:nder|ver)?|\d{1,2}-\d{1,2}|Open))\s+(\d{2,4})\s+(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Fly|Butterfly|I\.?M\.?|IM|Medley\s*Relay|Free\s*Relay)\s*[*#]?\s*(\d{1,3})?\b/gi;
+  // IMPORTANT: Put longer options FIRST in alternation (Free Relay before Free, etc.)
+  const eventPattern = /\b(\d{1,3})\s+((?:\d{1,2}&[UuOo](?:nder|ver)?|\d{1,2}-\d{1,2}|Open))\s+(\d{2,4})\s+(Free\s*Relay|Medley\s*Relay|Freestyle|Backstroke|Breaststroke|Butterfly|Free|Back|Breast|Fly|I\.?M\.?|IM)\s*[*#]?\s*(\d{1,3})?\b/gi;
   
   let match;
   let matchCount = 0;
@@ -462,8 +468,8 @@ function parseEventsFromText(text) {
     const strokeRaw = match[4];
     const boysEventNum = match[5] ? parseInt(match[5]) : null;
     
-    // Debug: log first few matches
-    if (matchCount <= 5 || /relay/i.test(strokeRaw)) {
+    // Debug: log first few matches, relays, and any events > 40
+    if (matchCount <= 5 || /relay/i.test(strokeRaw) || girlsEventNum > 40) {
       console.log(`Match ${matchCount}: Event ${girlsEventNum}, Age: ${ageGroupRaw}, Dist: ${distance}, Stroke: ${strokeRaw}, Boys: ${boysEventNum}`);
     }
     
@@ -514,7 +520,20 @@ function parseEventsFromText(text) {
     }
   }
   
-  console.log(`Events parsed: ${events.length} unique events`);
+  console.log(`Events parsed: ${events.length} unique events from ${matchCount} regex matches`);
+  
+  // Log any gaps in event numbers
+  const eventNums = events.map(e => e.eventNumber).sort((a, b) => a - b);
+  const maxEvent = Math.max(...eventNums);
+  const missingEvents = [];
+  for (let i = 1; i <= maxEvent; i++) {
+    if (!eventNums.includes(i)) {
+      missingEvents.push(i);
+    }
+  }
+  if (missingEvents.length > 0) {
+    console.log('Missing event numbers:', missingEvents.join(', '));
+  }
   
   return events.sort((a, b) => a.eventNumber - b.eventNumber);
 }
