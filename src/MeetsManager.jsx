@@ -1325,7 +1325,7 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
           .eq('swimmer_id', swimmer.id)
           .ilike('event', `%${evt.distance}%${strokeTerm}%`)
           .order('date', { ascending: false })
-          .limit(3);
+          .limit(10);  // Get more results so we can find the best
         
         if (error) {
           console.error('Error fetching results for event:', evt.event_name, error);
@@ -1333,14 +1333,21 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
         }
         
         if (data?.length > 0) {
-          // Map 'time' field to what the UI expects
-          history[evt.id] = data.map(r => ({
+          // Map 'time' field and calculate seconds
+          const mappedResults = data.map(r => ({
             time_display: r.time,
             time_seconds: parseTimeToSeconds(r.time),
             date: r.date,
             video_url: r.video_url
-          }));
-          console.log(`Found ${data.length} results for ${evt.distance} ${evt.stroke}:`, data);
+          })).filter(r => r.time_seconds !== null);
+          
+          // Sort by time_seconds (fastest first) to get best time
+          mappedResults.sort((a, b) => a.time_seconds - b.time_seconds);
+          
+          // Take top 3 fastest times
+          history[evt.id] = mappedResults.slice(0, 3);
+          
+          console.log(`Found ${data.length} results for ${evt.distance} ${evt.stroke}, best: ${mappedResults[0]?.time_display}`);
         }
       }
       setEventHistory(history);
