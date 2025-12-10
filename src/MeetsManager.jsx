@@ -1359,6 +1359,18 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
         const seedTimeDisplay = history?.[0]?.time_display || null;
         const seedTimeSeconds = history?.[0]?.time_seconds || null;
 
+        // Generate event code like "50FR", "100BK", "200IM"
+        const strokeCodes = {
+          'Freestyle': 'FR', 'Free': 'FR', 'Free Relay': 'FR-R',
+          'Backstroke': 'BK', 'Back': 'BK',
+          'Breaststroke': 'BR', 'Breast': 'BR',
+          'Butterfly': 'FL', 'Fly': 'FL',
+          'IM': 'IM', 'Individual Medley': 'IM',
+          'Medley Relay': 'MR', 'Free Relay': 'FR-R'
+        };
+        const strokeCode = strokeCodes[evt.stroke] || evt.stroke?.substring(0, 2).toUpperCase() || 'UN';
+        const eventCode = `${evt.distance}${strokeCode}`;
+
         const entryData = {
           meet_id: meet.id,
           swimmer_id: swimmer.id,
@@ -1366,6 +1378,7 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
           meet_event_id: eventId,
           event_number: evt.event_number,
           event_name: evt.event_name || `${evt.gender || ''} ${evt.age_group || ''} ${evt.distance} ${evt.stroke}`.trim(),
+          event_code: eventCode,
           seed_time_display: seedTimeDisplay,
           seed_time_seconds: seedTimeSeconds,
           session_number: evt.session_number || null
