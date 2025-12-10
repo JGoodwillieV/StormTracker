@@ -1362,6 +1362,7 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
         const entryData = {
           meet_id: meet.id,
           swimmer_id: swimmer.id,
+          swimmer_name: swimmer.name,
           meet_event_id: eventId,
           event_number: evt.event_number,
           event_name: evt.event_name || `${evt.gender || ''} ${evt.age_group || ''} ${evt.distance} ${evt.stroke}`.trim(),
