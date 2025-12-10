@@ -191,52 +191,47 @@ export async function parseMeetInfoPDF(file) {
   };
   
   // ---- Extract Meet Name ----
-  // Usually in the first few lines, often has specific keywords
+  // The meet name is typically at the very start, before dates
+  // Patterns: "The Duck Bowl Invitational", "RAYS NUTCRACKER CLASSIC", "2025 WAC Fall Classic"
   const namePatterns = [
-    // Match "The Something Something" at start of text
-    /^(The\s+[\w\s]+?)(?=\n|November|December|January|February|March|April|May|June|July|August|September|October|\d{4})/im,
-    // Match ALL CAPS with meet keywords
-    /^([A-Z][A-Z\s]+(?:CLASSIC|INVITATIONAL|MEET|CHAMPIONSHIP|OPEN|GAUNTLET|SPLASH|SPRINT|SHOWDOWN))/m,
-    // Match year + name pattern
-    /^(\d{4}\s+[\w\s]+(?:Classic|Invitational|Meet|Gauntlet))/im,
-    // Match "Name" followed by date line
-    /^([\w\s]+?(?:Classic|Invitational|Meet|Gauntlet|Championship|Open))\s*\n/im
+    // "The Something Invitational/Classic/etc" before a date
+    /(The\s+[\w\s]+?(?:Invitational|Classic|Meet|Championship|Open|Gauntlet|Bowl))\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)/i,
+    // "RAYS NUTCRACKER CLASSIC Invitational" - ALL CAPS team name + meet name
+    /([A-Z]+\s+[A-Z]+\s+(?:CLASSIC|INVITATIONAL|MEET|CHAMPIONSHIP))\s*(?:Invitational)?/,
+    // "2025 Team Name Fall/Spring Classic" - Year + name
+    /(\d{4}\s+[\w\s]+?(?:Fall|Spring|Summer|Winter)?\s*(?:Classic|Invitational|Meet|Championship))/i,
+    // Generic pattern - text before date pattern
+    /([\w\s]+?(?:Classic|Invitational|Meet|Championship|Gauntlet|Bowl))\s*(?:A\/BB\/B\/C)?\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)/i
   ];
   
   for (const pattern of namePatterns) {
     const match = text.match(pattern);
-    if (match && match[1].trim().length > 3) {
-      result.name = match[1].trim();
+    if (match && match[1].trim().length > 5) {
+      result.name = match[1].trim().replace(/\s+/g, ' ');
       break;
     }
   }
   
   // ---- Extract Sanction Number ----
-  const sanctionMatch = text.match(/SANCTION\s*(?:NO\.?|NUMBER)?:?\s*([A-Z]{2}-\d{2}-\d{3})/i);
+  // Formats: "VS-26-062", "VS26-035", "VS-26-043"
+  const sanctionMatch = text.match(/SANCTION\s*NO\.?\s*:?\s*([A-Z]{2}-?\d{2}-?\d{2,3})/i);
   if (sanctionMatch) {
     result.sanctionNumber = sanctionMatch[1];
   }
   
   // ---- Extract Dates ----
-  const datePatterns = [
-    /(\w+\s+\d{1,2}-\d{1,2},?\s+\d{4})/i,
-    /(\w+\s+\d{1,2},?\s+\d{4})\s*[-–to]+\s*(\w+\s+\d{1,2},?\s+\d{4})/i
-  ];
-  
-  for (const pattern of datePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const dates = parseDateRange(match[0]);
-      result.startDate = dates.start;
-      result.endDate = dates.end;
-      break;
-    }
+  // Formats: "January 17-18, 2026", "December 4-7, 2025", "November 15-16, 2025"
+  const dateMatch = text.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\s*-\s*(\d{1,2}),?\s*(\d{4})/i);
+  if (dateMatch) {
+    const dates = parseDateRange(dateMatch[0]);
+    result.startDate = dates.start;
+    result.endDate = dates.end;
   }
   
   // ---- Extract Location ----
-  const locationMatch = text.match(/LOCATION:?\s*[•\-]?\s*(.+?)(?=\n|FACILITY|MEET)/is);
+  const locationMatch = text.match(/LOCATION:?\s*[•\-]?\s*(.+?)(?=\s*(?:Phone|FACILITY|MEET))/is);
   if (locationMatch) {
-    const locText = locationMatch[1].trim();
+    const locText = locationMatch[1].trim().replace(/\s+/g, ' ');
     // Try to split name and address
     const addressMatch = locText.match(/(.+?),\s*(\d+.+)/);
     if (addressMatch) {
@@ -248,11 +243,11 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Meet Director ----
-  const directorSection = text.match(/MEET\s*DIRECTOR:?\s*(.+?)(?=ELIGIBILITY|DISABILITY|FORMAT)/is);
+  const directorSection = text.match(/MEET\s*DIRECTOR:?\s*([\s\S]*?)(?=ELIGIBILITY|DISABILITY|FORMAT)/i);
   if (directorSection) {
     const dirText = directorSection[1];
     
-    const nameMatch = dirText.match(/Name:?\s*(.+?)(?=\n|Email|Phone)/i);
+    const nameMatch = dirText.match(/Name:?\s*(.+?)(?=\s*Email|\s*Phone|\s*$)/i);
     if (nameMatch) result.meetDirector.name = nameMatch[1].trim();
     
     const emailMatch = dirText.match(/Email:?\s*([\w.+-]+@[\w.-]+\.\w+)/i);
@@ -263,24 +258,23 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Entry Deadline ----
-  // Multiple patterns for deadline extraction
+  // "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 25, 2025"
+  // "DEADLINE FOR THE RECEIPT OF ENTRIES IS TUESDAY November 4th, 2025"
   const deadlinePatterns = [
-    // "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
-    /DEADLINE\s*(?:FOR\s*(?:THE\s*)?RECEIPT\s*OF\s*ENTRIES\s*IS)\s*(\w+day,?\s+\w+\s+\d{1,2},?\s+\d{4})/i,
-    /DEADLINE\s*(?:FOR\s*(?:THE\s*)?RECEIPT\s*OF\s*ENTRIES\s*IS)\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
-    // "Entry Deadline: November 4, 2025"
-    /Entry\s*Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
-    // "Entries due by November 4, 2025"
-    /Entries?\s*(?:due|must\s*be\s*received)\s*(?:by|before)\s*(\w+\s+\d{1,2},?\s+\d{4})/i
+    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(?:\w+day,?\s+)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i,
+    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(\w+day,?\s+\w+\s+\d{1,2},?\s+\d{4})/i,
+    /Entry\s+Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i
   ];
   
   for (const pattern of deadlinePatterns) {
     const deadlineMatch = text.match(pattern);
     if (deadlineMatch) {
-      // Remove day of week if present for cleaner parsing
-      const dateStr = deadlineMatch[1].replace(/^\w+day,?\s*/i, '');
-      result.entryDeadline = parseDate(dateStr) || parseDate(deadlineMatch[1]);
-      break;
+      // Clean up the date string
+      let dateStr = deadlineMatch[1]
+        .replace(/(\d+)(st|nd|rd|th)/i, '$1')  // Remove ordinal suffixes
+        .replace(/^\w+day,?\s*/i, '');  // Remove day of week
+      result.entryDeadline = parseDate(dateStr);
+      if (result.entryDeadline) break;
     }
   }
   
@@ -290,56 +284,68 @@ export async function parseMeetInfoPDF(file) {
     result.eventsPerDayLimit = parseInt(eventLimitMatch[1]);
   }
   
-  const totalLimitMatch = text.match(/no\s*more\s*than\s*(\d+)\s*events?\s*(?:for\s*the\s*meet|total)/i);
+  // Check for total event limit
+  const totalLimitMatch = text.match(/no\s*more\s*than\s*(\d+)\s*events?\s*for\s*the\s*meet/i);
   if (totalLimitMatch) {
     result.maxEventsTotal = parseInt(totalLimitMatch[1]);
   }
   
   // ---- Extract Fees ----
-  // Look for FEES section first, then extract individual fees
-  const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|MEET\s*RULES)/i);
+  // Look for FEES: section and extract individual, relay, surcharge
+  const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|LAYOUT)/i);
   const feesText = feesSection ? feesSection[1] : text;
   
-  // Individual event fee: "$12.00" or "Individual events: $12.00"
-  const individualFeeMatch = feesText.match(/Individual\s*events?:?\s*\$?([\d.]+)/i);
-  if (individualFeeMatch) {
-    result.fees.individual = parseFloat(individualFeeMatch[1]);
+  // Individual fee patterns: "$12.00", "$9.50/per Swim", "$12.50"
+  const individualPatterns = [
+    /Individual\s*events?:?\s*\$?([\d.]+)/i,
+    /Individual\s*events?:?\s*\$?([\d.]+)\s*\/?\s*(?:per\s*)?(?:swim|event)?/i
+  ];
+  for (const pattern of individualPatterns) {
+    const match = feesText.match(pattern);
+    if (match) {
+      result.fees.individual = parseFloat(match[1]);
+      break;
+    }
   }
   
-  // Relay event fee
-  const relayFeeMatch = feesText.match(/Relay\s*events?:?\s*\$?([\d.]+)/i);
-  if (relayFeeMatch) {
-    result.fees.relay = parseFloat(relayFeeMatch[1]);
+  // Relay fee patterns: "$20.00", "$25.00", "$14.00/Relay"
+  const relayPatterns = [
+    /Relay\s*(?:events?|Fees)?:?\s*\$?([\d.]+)/i
+  ];
+  for (const pattern of relayPatterns) {
+    const match = feesText.match(pattern);
+    if (match) {
+      result.fees.relay = parseFloat(match[1]);
+      break;
+    }
   }
   
-  // Surcharge - multiple patterns
+  // Surcharge patterns: "$2.50 per person", "Swimmer surcharge: $2.50"
   const surchargePatterns = [
     /Swimmer\s*surcharge:?\s*\$?([\d.]+)/i,
-    /surcharge:?\s*\$?([\d.]+)\s*per\s*(?:person|swimmer|athlete)/i,
-    /\$?([\d.]+)\s*per\s*(?:person|swimmer|athlete).*surcharge/i
+    /surcharge:?\s*\$?([\d.]+)\s*per\s*(?:person|swimmer)/i
   ];
-  
   for (const pattern of surchargePatterns) {
-    const surchargeMatch = feesText.match(pattern);
-    if (surchargeMatch) {
-      result.fees.surcharge = parseFloat(surchargeMatch[1]);
+    const match = feesText.match(pattern);
+    if (match) {
+      result.fees.surcharge = parseFloat(match[1]);
       break;
     }
   }
   
   // ---- Determine Meet Type ----
-  if (/prelims?\s*\/?\s*finals/i.test(text)) {
+  if (/prelims?\s*[\/&]?\s*finals/i.test(text)) {
     result.meetType = 'prelims_finals';
   } else if (/timed\s*finals/i.test(text)) {
     result.meetType = 'timed_finals';
   }
   
   // ---- Determine Course ----
-  if (/25\s*(?:yard|yd)/i.test(text) || /SCY/i.test(text)) {
+  if (/25\s*(?:yard|yd)/i.test(text) || /SCY/i.test(text) || /Short\s*Course\s*Yard/i.test(text)) {
     result.course = 'SCY';
-  } else if (/25\s*(?:meter|m)/i.test(text) || /SCM/i.test(text)) {
+  } else if (/25\s*(?:meter|m)\b/i.test(text) || /SCM/i.test(text)) {
     result.course = 'SCM';
-  } else if (/50\s*(?:meter|m)/i.test(text) || /LCM/i.test(text)) {
+  } else if (/50\s*(?:meter|m)\b/i.test(text) || /LCM/i.test(text)) {
     result.course = 'LCM';
   }
   
@@ -350,7 +356,9 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Events from Order of Events Table ----
-  result.events = parseEventsFromText(text);
+  // Use the last page(s) which typically contain the event table
+  const lastPages = pages.slice(-2).join('\n');
+  result.events = parseEventsFromText(lastPages.length > 500 ? lastPages : text);
   
   return result;
 }
@@ -366,10 +374,24 @@ function parseEventsFromText(text) {
   const orderSection = text.match(/ORDER\s*OF\s*EVENTS[\s\S]*$/i);
   const searchText = orderSection ? orderSection[0] : text;
   
-  // Pattern for table format: "1 11-12 50 Breast 2" or "3 10&U 50 Breast 4"
-  // Girls event# on left, Boys event# on right
-  // Age group can be: 10&U, 11-12, 10&Under, etc.
-  const tablePattern = /(\d+)\s+((?:10|11|12|13|14|15|16|17|18|8)\s*&?\s*(?:U|O|Under|Over)?|\d+-\d+|Open)\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)\s*(?:\*|#)?\s*(\d+)?/gi;
+  // Age group pattern - captures all common formats:
+  // 13&O, 8&U, 10&U, 13 & Over, 8 & under, 9-12, 11-12, 13-14, 11 &12, 12 & Under
+  const ageGroupPattern = '(\\d{1,2}\\s*&\\s*[UuOo](?:nder|ver)?|\\d{1,2}\\s*-\\s*\\d{1,2}|\\d{1,2}\\s*&\\s*(?:Under|Over|under|over)|Open)';
+  
+  // Stroke pattern
+  const strokePattern = '(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|I\\.?M\\.?|Individual\\s*Medley|(?:Free|Medley)\\s*Relay)';
+  
+  // Main pattern: EventNum AgeGroup Distance Stroke [EventNum]
+  // Examples: "1 13&O 400 IM 2", "17 9-12 200 Free 18", "1 8 & under 25 Fly 2"
+  const tablePattern = new RegExp(
+    '(\\d{1,3})\\s+' +           // Girls event number
+    ageGroupPattern + '\\s+' +   // Age group
+    '(\\d{2,4})\\s+' +           // Distance (25-1650)
+    strokePattern +             // Stroke
+    '(?:\\s*[*#])?\\s*' +        // Optional timed final marker
+    '(\\d{1,3})?',              // Optional boys event number
+    'gi'
+  );
   
   let match;
   
@@ -378,12 +400,16 @@ function parseEventsFromText(text) {
     const ageGroup = normalizeAgeGroup(match[2]);
     const distance = parseInt(match[3]);
     const stroke = normalizeStroke(match[4]);
-    const boysEventNum = match[5] ? parseInt(match[5]) : girlsEventNum + 1;
+    const boysEventNum = match[5] ? parseInt(match[5]) : null;
     const isRelay = /relay/i.test(match[4]);
+    
+    // Skip invalid matches
+    if (!ageGroup || !distance || !stroke) continue;
+    if (distance < 25 || distance > 1650) continue;
     
     // Add girls event
     const girlsKey = `${girlsEventNum}-${ageGroup}-${distance}-${stroke}-Girls`;
-    if (!seenEvents.has(girlsKey) && ageGroup && distance && stroke) {
+    if (!seenEvents.has(girlsKey)) {
       seenEvents.add(girlsKey);
       events.push({
         eventNumber: girlsEventNum,
@@ -396,49 +422,61 @@ function parseEventsFromText(text) {
       });
     }
     
-    // Add boys event (if different event number)
-    const boysKey = `${boysEventNum}-${ageGroup}-${distance}-${stroke}-Boys`;
-    if (!seenEvents.has(boysKey) && boysEventNum !== girlsEventNum && ageGroup && distance && stroke) {
-      seenEvents.add(boysKey);
-      events.push({
-        eventNumber: boysEventNum,
-        ageGroup: ageGroup,
-        distance: distance,
-        stroke: stroke,
-        gender: 'Boys',
-        isRelay: isRelay,
-        eventName: `Boys ${ageGroup} ${distance} ${stroke}`
-      });
-    }
-  }
-  
-  // If table pattern didn't find events, try alternate patterns
-  if (events.length < 5) {
-    // Pattern: "Girls 11-12 200 Free" or "Boys 10&U 50 Back"
-    const altPattern = /(Girls?|Boys?|Mixed)\s+((?:10|11|12|13|14|15|16|17|18|8)\s*&?\s*(?:U|O|Under|Over)?|\d+-\d+|Open)\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi;
-    
-    while ((match = altPattern.exec(searchText)) !== null) {
-      const gender = match[1].toLowerCase().includes('girl') ? 'Girls' : 
-                     match[1].toLowerCase().includes('boy') ? 'Boys' : 'Mixed';
-      const ageGroup = normalizeAgeGroup(match[2]);
-      const distance = parseInt(match[3]);
-      const stroke = normalizeStroke(match[4]);
-      const isRelay = /relay/i.test(match[4]);
-      const eventNumber = events.length + 1;
-      
-      const key = `${eventNumber}-${ageGroup}-${distance}-${stroke}-${gender}`;
-      if (!seenEvents.has(key) && ageGroup && distance && stroke) {
-        seenEvents.add(key);
+    // Add boys event (if we have a different event number)
+    if (boysEventNum && boysEventNum !== girlsEventNum) {
+      const boysKey = `${boysEventNum}-${ageGroup}-${distance}-${stroke}-Boys`;
+      if (!seenEvents.has(boysKey)) {
+        seenEvents.add(boysKey);
         events.push({
-          eventNumber: eventNumber,
+          eventNumber: boysEventNum,
           ageGroup: ageGroup,
           distance: distance,
           stroke: stroke,
-          gender: gender,
+          gender: 'Boys',
           isRelay: isRelay,
-          eventName: `${gender} ${ageGroup} ${distance} ${stroke}`
+          eventName: `Boys ${ageGroup} ${distance} ${stroke}`
         });
       }
+    }
+  }
+  
+  // If we found events, return them sorted
+  if (events.length >= 5) {
+    return events.sort((a, b) => a.eventNumber - b.eventNumber);
+  }
+  
+  // Fallback: Try simpler patterns if main pattern didn't work
+  // Pattern: "Girls 11-12 200 Free" or "Boys 10&U 50 Back"
+  const altPattern = new RegExp(
+    '(Girls?|Boys?)\\s+' +
+    ageGroupPattern + '\\s+' +
+    '(\\d{2,4})\\s+' +
+    strokePattern,
+    'gi'
+  );
+  
+  while ((match = altPattern.exec(searchText)) !== null) {
+    const gender = match[1].toLowerCase().includes('girl') ? 'Girls' : 'Boys';
+    const ageGroup = normalizeAgeGroup(match[2]);
+    const distance = parseInt(match[3]);
+    const stroke = normalizeStroke(match[4]);
+    const isRelay = /relay/i.test(match[4]);
+    const eventNumber = events.length + 1;
+    
+    if (!ageGroup || !distance || !stroke) continue;
+    
+    const key = `${eventNumber}-${ageGroup}-${distance}-${stroke}-${gender}`;
+    if (!seenEvents.has(key)) {
+      seenEvents.add(key);
+      events.push({
+        eventNumber: eventNumber,
+        ageGroup: ageGroup,
+        distance: distance,
+        stroke: stroke,
+        gender: gender,
+        isRelay: isRelay,
+        eventName: `${gender} ${ageGroup} ${distance} ${stroke}`
+      });
     }
   }
   
@@ -453,26 +491,34 @@ function normalizeAgeGroup(ageGroup) {
   
   const ag = ageGroup.toLowerCase().replace(/\s+/g, ' ').trim();
   
-  // Handle various "10 & Under" formats
-  if (/10\s*&?\s*u(nder)?/.test(ag)) return '10 & Under';
-  if (/8\s*&?\s*u(nder)?/.test(ag)) return '8 & Under';
+  // Handle "& Under" formats: 8&U, 8 & Under, 8 &under, 10&U, etc.
+  if (/^6\s*&?\s*u(nder)?$/i.test(ag)) return '6 & Under';
+  if (/^8\s*&?\s*u(nder)?$/i.test(ag)) return '8 & Under';
+  if (/^9\s*&?\s*u(nder)?$/i.test(ag)) return '9 & Under';
+  if (/^10\s*&?\s*u(nder)?$/i.test(ag)) return '10 & Under';
+  if (/^11\s*&?\s*u(nder)?$/i.test(ag)) return '11 & Under';
+  if (/^12\s*&?\s*u(nder)?$/i.test(ag)) return '12 & Under';
   
-  // Handle specific age groups
-  if (/11-12/.test(ag) || /11\s*-\s*12/.test(ag)) return '11-12';
-  if (/13-14/.test(ag)) return '13-14';
-  if (/15-16/.test(ag)) return '15-16';
-  if (/17-18/.test(ag)) return '17-18';
+  // Handle "& Over" formats: 13&O, 13 & Over, 15&O, etc.
+  if (/^13\s*&?\s*o(ver)?$/i.test(ag)) return '13 & Over';
+  if (/^15\s*&?\s*o(ver)?$/i.test(ag)) return '15 & Over';
+  if (/senior/i.test(ag)) return '15 & Over';
   
-  // Handle "& Over" formats  
-  if (/15\s*&?\s*o(ver)?/.test(ag) || /senior/.test(ag)) return '15 & Over';
-  if (/13\s*&?\s*o(ver)?/.test(ag)) return '13 & Over';
+  // Handle hyphenated age groups: 9-10, 11-12, 13-14, etc.
+  // Also handles "11 &12" as "11-12"
+  if (/^9\s*[-&]\s*10$/i.test(ag)) return '9-10';
+  if (/^9\s*[-&]\s*12$/i.test(ag)) return '9-12';
+  if (/^11\s*[-&]\s*12$/i.test(ag)) return '11-12';
+  if (/^13\s*[-&]\s*14$/i.test(ag)) return '13-14';
+  if (/^15\s*[-&]\s*16$/i.test(ag)) return '15-16';
+  if (/^17\s*[-&]\s*18$/i.test(ag)) return '17-18';
+  if (/^7\s*[-&]\s*8$/i.test(ag)) return '7-8';
+  
+  // Handle Open
   if (/open/i.test(ag)) return 'Open';
-  if (/13\s*&?\s*over/.test(ag)) return '13 & Over';
-  if (/12\s*&?\s*under/.test(ag)) return '12 & Under';
-  if (/8\s*&?\s*under/.test(ag)) return '8 & Under';
-  if (/9-10/.test(ag)) return '9-10';
   
-  return ageGroup;
+  // Return cleaned up version of original
+  return ageGroup.trim();
 }
 
 /**
@@ -481,14 +527,14 @@ function normalizeAgeGroup(ageGroup) {
 function normalizeStroke(stroke) {
   if (!stroke) return null;
   
-  const s = stroke.toLowerCase();
+  const s = stroke.toLowerCase().replace(/\./g, '');
   
   if (/free(?:style)?/.test(s) && !/relay/.test(s)) return 'Freestyle';
   if (/back(?:stroke)?/.test(s)) return 'Backstroke';
   if (/breast(?:stroke)?/.test(s)) return 'Breaststroke';
   if (/fly|butterfly/.test(s)) return 'Butterfly';
-  if (/im|individual\s*medley/.test(s)) return 'IM';
-  if (/medley\s*relay/.test(s)) return 'Medley Relay';
+  if (/^im$|individual\s*medley/.test(s)) return 'IM';
+  if (/medley\s*relay|med\s*relay/.test(s)) return 'Medley Relay';
   if (/free\s*relay/.test(s)) return 'Free Relay';
   
   return stroke;
