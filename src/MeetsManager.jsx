@@ -216,18 +216,44 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
         
         // Insert parsed events if any
         if (_parsedEvents?.length > 0) {
-          const eventsToInsert = _parsedEvents.map(evt => ({
+          // Log all parsed events for debugging
+          console.log('All parsed events:', _parsedEvents.map(e => `#${e.eventNumber} ${e.gender} ${e.ageGroup} ${e.distance} ${e.stroke}`));
+          
+          // Deduplicate events by event_number (keep first occurrence)
+          const seenEventNumbers = new Set();
+          const uniqueEvents = _parsedEvents.filter(evt => {
+            const key = evt.eventNumber;
+            if (seenEventNumbers.has(key)) {
+              console.log(`Skipping duplicate event #${key}`);
+              return false;
+            }
+            seenEventNumbers.add(key);
+            return true;
+          });
+          
+          console.log(`Inserting ${uniqueEvents.length} unique events (${_parsedEvents.length} total parsed)`);
+          
+          const eventsToInsert = uniqueEvents.map(evt => ({
             meet_id: data.id,
             event_number: evt.eventNumber,
-            event_name: `${evt.gender || ''} ${evt.ageGroup || ''} ${evt.distance || ''} ${evt.stroke || ''}`.trim(),
+            event_name: evt.eventName || `${evt.gender || ''} ${evt.ageGroup || ''} ${evt.distance || ''} ${evt.stroke || ''}`.trim(),
             age_group: evt.ageGroup,
             gender: evt.gender,
             distance: evt.distance,
             stroke: evt.stroke,
-            is_relay: evt.isRelay
+            is_relay: evt.isRelay || false
           }));
           
-          await supabase.from('meet_events').insert(eventsToInsert);
+          // Insert in batches to avoid issues
+          const batchSize = 50;
+          for (let i = 0; i < eventsToInsert.length; i += batchSize) {
+            const batch = eventsToInsert.slice(i, i + batchSize);
+            const { error: eventsError } = await supabase.from('meet_events').insert(batch);
+            if (eventsError) {
+              console.error(`Error inserting events batch ${i}-${i+batch.length}:`, eventsError);
+              // Continue with other batches
+            }
+          }
         }
       }
       
