@@ -161,6 +161,11 @@ export async function parseMeetInfoPDF(file) {
   const { fullText, pages } = await extractTextFromPDF(file);
   const text = fullText;
   
+  // Debug: Log first part of extracted text to console
+  console.log('=== PDF TEXT EXTRACTED ===');
+  console.log('First 2000 chars:', text.substring(0, 2000));
+  console.log('=========================');
+  
   const result = {
     name: null,
     startDate: null,
@@ -258,23 +263,44 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Entry Deadline ----
+  // PDF text extraction can be inconsistent with spacing
   // "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 25, 2025"
   // "DEADLINE FOR THE RECEIPT OF ENTRIES IS TUESDAY November 4th, 2025"
   const deadlinePatterns = [
+    // Standard format with optional day of week
     /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(?:\w+day,?\s+)?(\w+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i,
+    // Day of week followed by month
     /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(\w+day,?\s+\w+\s+\d{1,2},?\s+\d{4})/i,
-    /Entry\s+Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i
+    // Entry Deadline: format
+    /Entry\s+Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
+    // More flexible - look for ENTRIES IS followed by date
+    /ENTRIES\s+IS\s+(?:\w+day)?\s*,?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
+    // Very flexible - DEADLINE followed by any month name
+    /DEADLINE[^•]*?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i
   ];
+  
+  console.log('Searching for deadline in text...');
   
   for (const pattern of deadlinePatterns) {
     const deadlineMatch = text.match(pattern);
     if (deadlineMatch) {
-      // Clean up the date string
-      let dateStr = deadlineMatch[1]
-        .replace(/(\d+)(st|nd|rd|th)/i, '$1')  // Remove ordinal suffixes
-        .replace(/^\w+day,?\s*/i, '');  // Remove day of week
+      let dateStr;
+      // Check if this is the pattern with separate month/day/year groups
+      if (deadlineMatch[3]) {
+        // Pattern captured month, day, year separately
+        dateStr = `${deadlineMatch[1]} ${deadlineMatch[2]}, ${deadlineMatch[3]}`;
+      } else {
+        // Pattern captured full date string
+        dateStr = deadlineMatch[1]
+          .replace(/(\d+)(st|nd|rd|th)/i, '$1')  // Remove ordinal suffixes
+          .replace(/^\w+day,?\s*/i, '');  // Remove day of week
+      }
+      console.log('Deadline date string:', dateStr);
       result.entryDeadline = parseDate(dateStr);
-      if (result.entryDeadline) break;
+      if (result.entryDeadline) {
+        console.log('Deadline parsed successfully:', result.entryDeadline);
+        break;
+      }
     }
   }
   
@@ -292,43 +318,54 @@ export async function parseMeetInfoPDF(file) {
   
   // ---- Extract Fees ----
   // Look for FEES: section and extract individual, relay, surcharge
-  const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|LAYOUT)/i);
+  // PDF text may have irregular spacing, so be flexible
+  const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|LAYOUT|GENERAL)/i);
   const feesText = feesSection ? feesSection[1] : text;
   
-  // Individual fee patterns: "$12.00", "$9.50/per Swim", "$12.50"
+  // Debug: Log fees section for troubleshooting
+  console.log('Fees section found:', feesSection ? 'Yes' : 'No');
+  
+  // Individual fee patterns - very flexible with spacing
+  // "Individual events: $12.00", "Individual events: $9.50/per Swim"
   const individualPatterns = [
-    /Individual\s*events?:?\s*\$?([\d.]+)/i,
-    /Individual\s*events?:?\s*\$?([\d.]+)\s*\/?\s*(?:per\s*)?(?:swim|event)?/i
+    /Individual\s*events?\s*:?\s*\$\s*([\d.]+)/i,
+    /Individual\s*:?\s*\$\s*([\d.]+)/i,
+    /\$\s*([\d.]+)\s*\/?\s*(?:per\s*)?(?:individual|swim|event)/i
   ];
   for (const pattern of individualPatterns) {
     const match = feesText.match(pattern);
     if (match) {
       result.fees.individual = parseFloat(match[1]);
+      console.log('Individual fee found:', result.fees.individual);
       break;
     }
   }
   
-  // Relay fee patterns: "$20.00", "$25.00", "$14.00/Relay"
+  // Relay fee patterns
   const relayPatterns = [
-    /Relay\s*(?:events?|Fees)?:?\s*\$?([\d.]+)/i
+    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$\s*([\d.]+)/i,
+    /\$\s*([\d.]+)\s*\/?\s*Relay/i
   ];
   for (const pattern of relayPatterns) {
     const match = feesText.match(pattern);
     if (match) {
       result.fees.relay = parseFloat(match[1]);
+      console.log('Relay fee found:', result.fees.relay);
       break;
     }
   }
   
-  // Surcharge patterns: "$2.50 per person", "Swimmer surcharge: $2.50"
+  // Surcharge patterns - very flexible
   const surchargePatterns = [
-    /Swimmer\s*surcharge:?\s*\$?([\d.]+)/i,
-    /surcharge:?\s*\$?([\d.]+)\s*per\s*(?:person|swimmer)/i
+    /Swimmer\s*surcharge\s*:?\s*\$\s*([\d.]+)/i,
+    /surcharge\s*:?\s*\$\s*([\d.]+)/i,
+    /\$\s*([\d.]+)\s*per\s*(?:person|swimmer|athlete)/i
   ];
   for (const pattern of surchargePatterns) {
     const match = feesText.match(pattern);
     if (match) {
       result.fees.surcharge = parseFloat(match[1]);
+      console.log('Surcharge found:', result.fees.surcharge);
       break;
     }
   }
@@ -359,6 +396,15 @@ export async function parseMeetInfoPDF(file) {
   // Use the last page(s) which typically contain the event table
   const lastPages = pages.slice(-2).join('\n');
   result.events = parseEventsFromText(lastPages.length > 500 ? lastPages : text);
+  
+  // Debug: Log parsing summary
+  console.log('=== PDF PARSING RESULTS ===');
+  console.log('Name:', result.name);
+  console.log('Dates:', result.startDate, '-', result.endDate);
+  console.log('Entry Deadline:', result.entryDeadline);
+  console.log('Fees:', result.fees);
+  console.log('Events found:', result.events?.length || 0);
+  console.log('===========================');
   
   return result;
 }
