@@ -1239,7 +1239,8 @@ const EntriesTab = ({ meet, onRefresh }) => {
                           name: s.swimmer_name, 
                           group_name: s.group_name,
                           age: s.swimmer_age,
-                          gender: s.swimmer_gender
+                          gender: s.swimmer_gender,
+                          usa_swimming_id: s.swimmer_usa_id
                         });
                         setShowAddEntry(false);
                       }}
@@ -1300,17 +1301,46 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
     try {
       // Load historical times for events this swimmer might enter
       const history = {};
+      
+      // Map stroke names to what appears in results
+      const strokeSearchTerms = {
+        'Freestyle': 'Free',
+        'Backstroke': 'Back',
+        'Breaststroke': 'Breast',
+        'Butterfly': 'Fly',
+        'IM': 'IM',
+        'Individual Medley': 'IM',
+        'Free Relay': 'Free Relay',
+        'Medley Relay': 'Medley Relay'
+      };
+      
       for (const evt of meetEvents) {
-        const { data } = await supabase
+        const strokeTerm = strokeSearchTerms[evt.stroke] || evt.stroke;
+        
+        // Results event format: "Female (10 & Under) 100 Free (Prelim)"
+        // Search for distance and stroke term
+        const { data, error } = await supabase
           .from('results')
-          .select('time_seconds, time_display, date, video_url, meet_name')
+          .select('time, date, video_url')
           .eq('swimmer_id', swimmer.id)
-          .ilike('event', `%${evt.distance}%${evt.stroke?.replace(' Relay', '')}%`)
+          .ilike('event', `%${evt.distance}%${strokeTerm}%`)
           .order('date', { ascending: false })
           .limit(3);
         
+        if (error) {
+          console.error('Error fetching results for event:', evt.event_name, error);
+          continue;
+        }
+        
         if (data?.length > 0) {
-          history[evt.id] = data;
+          // Map 'time' field to what the UI expects
+          history[evt.id] = data.map(r => ({
+            time_display: r.time,
+            time_seconds: parseTimeToSeconds(r.time),
+            date: r.date,
+            video_url: r.video_url
+          }));
+          console.log(`Found ${data.length} results for ${evt.distance} ${evt.stroke}:`, data);
         }
       }
       setEventHistory(history);
@@ -1319,6 +1349,22 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to parse time string like "1:37.87Y" to seconds
+  const parseTimeToSeconds = (timeStr) => {
+    if (!timeStr) return null;
+    // Remove course indicator (Y, L, S)
+    const cleaned = timeStr.replace(/[YLS]$/i, '').trim();
+    const parts = cleaned.split(':');
+    if (parts.length === 2) {
+      // MM:SS.ss format
+      return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+    } else if (parts.length === 1) {
+      // SS.ss format
+      return parseFloat(parts[0]);
+    }
+    return null;
   };
 
   const toggleEvent = (eventId) => {
@@ -1375,6 +1421,7 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
           meet_id: meet.id,
           swimmer_id: swimmer.id,
           swimmer_name: swimmer.name,
+          usa_swimming_id: swimmer.usa_swimming_id || null,
           meet_event_id: eventId,
           event_number: evt.event_number,
           event_name: evt.event_name || `${evt.gender || ''} ${evt.age_group || ''} ${evt.distance} ${evt.stroke}`.trim(),
