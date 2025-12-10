@@ -8,7 +8,7 @@ import {
   Calendar, MapPin, Clock, Users, ChevronLeft, ChevronRight,
   Upload, FileText, Plus, Search, Filter, Edit2, Trash2,
   Check, X, AlertCircle, Loader2, Download, Eye,
-  DollarSign, Award, Timer, Play, Video, ExternalLink
+  DollarSign, Award, Timer, Play, Video, ExternalLink, List
 } from 'lucide-react';
 import { parseMeetInfoPDF, parseTimelinePDF, parseHeatSheetPDF, matchHeatSheetEntries } from './utils/meetPdfParser';
 
@@ -434,6 +434,348 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
           </div>
         </form>
       </div>
+    </div>
+  );
+};
+
+// ============================================
+// EVENTS TAB - Manage meet events
+// ============================================
+
+const EventsTab = ({ meet, onRefresh }) => {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newEvent, setNewEvent] = useState({
+    event_number: '',
+    event_name: '',
+    age_group: '11-12',
+    gender: 'Mixed',
+    distance: '',
+    stroke: 'Freestyle',
+    is_relay: false
+  });
+
+  useEffect(() => {
+    loadEvents();
+  }, [meet.id]);
+
+  const loadEvents = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase
+        .from('meet_events')
+        .select('*')
+        .eq('meet_id', meet.id)
+        .order('event_number');
+      setEvents(data || []);
+    } catch (error) {
+      console.error('Error loading events:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddEvent = async () => {
+    if (!newEvent.event_number || !newEvent.distance || !newEvent.stroke) {
+      alert('Please fill in event number, distance, and stroke');
+      return;
+    }
+
+    try {
+      const eventName = newEvent.event_name || 
+        `${newEvent.gender} ${newEvent.age_group} ${newEvent.distance} ${newEvent.stroke}`;
+      
+      const { error } = await supabase
+        .from('meet_events')
+        .insert({
+          meet_id: meet.id,
+          event_number: parseInt(newEvent.event_number),
+          event_name: eventName,
+          age_group: newEvent.age_group,
+          gender: newEvent.gender,
+          distance: parseInt(newEvent.distance),
+          stroke: newEvent.stroke,
+          is_relay: newEvent.is_relay
+        });
+
+      if (error) throw error;
+      
+      setShowAddModal(false);
+      setNewEvent({
+        event_number: '',
+        event_name: '',
+        age_group: '11-12',
+        gender: 'Mixed',
+        distance: '',
+        stroke: 'Freestyle',
+        is_relay: false
+      });
+      loadEvents();
+      onRefresh();
+    } catch (error) {
+      alert('Error adding event: ' + error.message);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId) => {
+    if (!confirm('Delete this event?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('meet_events')
+        .delete()
+        .eq('id', eventId);
+      
+      if (error) throw error;
+      loadEvents();
+      onRefresh();
+    } catch (error) {
+      alert('Error deleting event: ' + error.message);
+    }
+  };
+
+  const addStandardEvents = async (ageGroup) => {
+    const standardEvents = [
+      { distance: 50, stroke: 'Freestyle' },
+      { distance: 100, stroke: 'Freestyle' },
+      { distance: 200, stroke: 'Freestyle' },
+      { distance: 500, stroke: 'Freestyle' },
+      { distance: 50, stroke: 'Backstroke' },
+      { distance: 100, stroke: 'Backstroke' },
+      { distance: 50, stroke: 'Breaststroke' },
+      { distance: 100, stroke: 'Breaststroke' },
+      { distance: 50, stroke: 'Butterfly' },
+      { distance: 100, stroke: 'Butterfly' },
+      { distance: 100, stroke: 'IM' },
+      { distance: 200, stroke: 'IM' },
+    ];
+
+    // Get next event number
+    const maxEventNum = events.length > 0 
+      ? Math.max(...events.map(e => e.event_number || 0)) 
+      : 0;
+
+    const newEvents = standardEvents.map((evt, idx) => ({
+      meet_id: meet.id,
+      event_number: maxEventNum + idx + 1,
+      event_name: `${ageGroup} ${evt.distance} ${evt.stroke}`,
+      age_group: ageGroup,
+      gender: 'Mixed',
+      distance: evt.distance,
+      stroke: evt.stroke,
+      is_relay: false
+    }));
+
+    try {
+      const { error } = await supabase
+        .from('meet_events')
+        .insert(newEvents);
+      
+      if (error) throw error;
+      loadEvents();
+      onRefresh();
+    } catch (error) {
+      alert('Error adding events: ' + error.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <span className="text-lg font-semibold text-slate-800">{events.length} Events</span>
+        </div>
+        <div className="flex gap-2">
+          <div className="relative group">
+            <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">
+              <Plus size={16} />
+              Add Standard Set
+            </button>
+            <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <button onClick={() => addStandardEvents('10 & Under')} className="w-full px-4 py-2 text-left hover:bg-slate-50 text-sm">10 & Under Events</button>
+              <button onClick={() => addStandardEvents('11-12')} className="w-full px-4 py-2 text-left hover:bg-slate-50 text-sm">11-12 Events</button>
+              <button onClick={() => addStandardEvents('13-14')} className="w-full px-4 py-2 text-left hover:bg-slate-50 text-sm">13-14 Events</button>
+              <button onClick={() => addStandardEvents('15 & Over')} className="w-full px-4 py-2 text-left hover:bg-slate-50 text-sm">15 & Over Events</button>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            Add Single Event
+          </button>
+        </div>
+      </div>
+
+      {/* Events list */}
+      {events.length === 0 ? (
+        <div className="text-center py-12 bg-slate-50 rounded-xl">
+          <Award size={48} className="mx-auto mb-4 text-slate-300" />
+          <p className="text-slate-600 font-medium">No events added yet</p>
+          <p className="text-sm text-slate-500 mt-1">Add events so swimmers can be entered</p>
+          <p className="text-sm text-slate-500">Use "Add Standard Set" for quick setup</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-left text-sm text-slate-600">
+              <tr>
+                <th className="px-4 py-3 font-medium">#</th>
+                <th className="px-4 py-3 font-medium">Event</th>
+                <th className="px-4 py-3 font-medium">Age Group</th>
+                <th className="px-4 py-3 font-medium">Distance</th>
+                <th className="px-4 py-3 font-medium">Stroke</th>
+                <th className="px-4 py-3 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {events.map(evt => (
+                <tr key={evt.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium text-slate-800">{evt.event_number}</td>
+                  <td className="px-4 py-3 text-slate-700">{evt.event_name}</td>
+                  <td className="px-4 py-3 text-slate-600">{evt.age_group}</td>
+                  <td className="px-4 py-3 text-slate-600">{evt.distance}</td>
+                  <td className="px-4 py-3 text-slate-600">{evt.stroke}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => handleDeleteEvent(evt.id)}
+                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add Single Event Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold mb-4">Add Event</h3>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Event #</label>
+                  <input
+                    type="number"
+                    value={newEvent.event_number}
+                    onChange={e => setNewEvent(prev => ({ ...prev, event_number: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Age Group</label>
+                  <select
+                    value={newEvent.age_group}
+                    onChange={e => setNewEvent(prev => ({ ...prev, age_group: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="8 & Under">8 & Under</option>
+                    <option value="10 & Under">10 & Under</option>
+                    <option value="11-12">11-12</option>
+                    <option value="13-14">13-14</option>
+                    <option value="15-16">15-16</option>
+                    <option value="15 & Over">15 & Over</option>
+                    <option value="Open">Open</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Distance</label>
+                  <select
+                    value={newEvent.distance}
+                    onChange={e => setNewEvent(prev => ({ ...prev, distance: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="">Select...</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="400">400</option>
+                    <option value="500">500</option>
+                    <option value="800">800</option>
+                    <option value="1000">1000</option>
+                    <option value="1500">1500</option>
+                    <option value="1650">1650</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Stroke</label>
+                  <select
+                    value={newEvent.stroke}
+                    onChange={e => setNewEvent(prev => ({ ...prev, stroke: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="Freestyle">Freestyle</option>
+                    <option value="Backstroke">Backstroke</option>
+                    <option value="Breaststroke">Breaststroke</option>
+                    <option value="Butterfly">Butterfly</option>
+                    <option value="IM">IM</option>
+                    <option value="Free Relay">Free Relay</option>
+                    <option value="Medley Relay">Medley Relay</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Event Name (optional)</label>
+                <input
+                  type="text"
+                  value={newEvent.event_name}
+                  onChange={e => setNewEvent(prev => ({ ...prev, event_name: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Auto-generated if blank"
+                />
+              </div>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newEvent.is_relay}
+                  onChange={e => setNewEvent(prev => ({ ...prev, is_relay: e.target.checked }))}
+                  className="rounded"
+                />
+                <span className="text-sm text-slate-700">This is a relay event</span>
+              </label>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddEvent}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Add Event
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1496,6 +1838,7 @@ const MeetDetailView = ({ meet, onBack, onUpdate }) => {
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Eye },
+    { id: 'events', label: 'Events', icon: List },
     { id: 'commitments', label: 'Commitments', icon: Users },
     { id: 'entries', label: 'Entries', icon: FileText },
     { id: 'timeline', label: 'Timeline', icon: Clock },
@@ -1690,6 +2033,10 @@ const MeetDetailView = ({ meet, onBack, onUpdate }) => {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'events' && (
+          <EventsTab meet={meetData} onRefresh={handleRefresh} />
         )}
 
         {activeTab === 'commitments' && (
