@@ -116,6 +116,7 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
     location_name: meet?.location_name || '',
     location_address: meet?.location_address || '',
     sanction_number: meet?.sanction_number || '',
+    team_code: meet?.team_code || 'HNVR',
     meet_type: meet?.meet_type || 'timed_finals',
     course: meet?.course || 'SCY',
     events_per_day_limit: meet?.events_per_day_limit || 3,
@@ -346,6 +347,18 @@ const MeetFormModal = ({ meet, onSave, onClose }) => {
                 placeholder="e.g., VA-24-123"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Your Team Code</label>
+              <input
+                type="text"
+                value={formData.team_code}
+                onChange={(e) => setFormData({ ...formData, team_code: e.target.value.toUpperCase() })}
+                placeholder="e.g., HNVR, RAYS"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-slate-500 mt-1">Used for matching heat sheets to your swimmers</p>
             </div>
           </div>
           
@@ -1807,42 +1820,87 @@ const TimelineTab = ({ meet, onRefresh }) => {
     try {
       const parsed = await parseTimelinePDF(file);
       
+      console.log('Parsed timeline:', parsed);
+      
+      // Calculate actual session dates based on meet start date and day of meet
+      const meetStartDate = meet.start_date ? new Date(meet.start_date) : null;
+      
       // Insert/update sessions
       if (parsed.sessions?.length > 0) {
         for (const session of parsed.sessions) {
-          await supabase.from('meet_sessions').upsert({
+          // Calculate session date from day of meet
+          let sessionDate = meet.start_date;
+          if (meetStartDate && session.dayOfMeet) {
+            const date = new Date(meetStartDate);
+            date.setDate(date.getDate() + session.dayOfMeet - 1);
+            sessionDate = date.toISOString().split('T')[0];
+          }
+          
+          const sessionData = {
             meet_id: meet.id,
             session_number: session.sessionNumber,
             session_name: session.name,
-            session_date: meet.start_date, // Could be smarter about this
-            warmup_time: session.warmupTime,
+            session_date: sessionDate,
             start_time: session.startTime,
-            heat_interval_seconds: session.heatInterval || 30
-          }, { onConflict: 'meet_id,session_number' });
+            heat_interval_seconds: session.heatInterval || 30,
+            session_type: session.name?.toLowerCase().includes('final') ? 'finals' : 'prelims'
+          };
+          
+          console.log('Upserting session:', sessionData);
+          
+          const { error } = await supabase.from('meet_sessions').upsert(sessionData, { 
+            onConflict: 'meet_id,session_number' 
+          });
+          
+          if (error) {
+            console.error('Error upserting session:', error);
+          }
         }
       }
       
-      // Update events with timeline data
+      // Update meet_events with timeline data
+      let eventsUpdated = 0;
       if (parsed.events?.length > 0) {
         for (const evt of parsed.events) {
-          await supabase.from('meet_events')
+          const { error, data } = await supabase.from('meet_events')
             .update({
               entry_count: evt.entryCount,
               heat_count: evt.heatCount,
-              estimated_start_time: evt.estimatedStartTimeString,
+              estimated_start_time: evt.estimatedStartTime,
               session_number: evt.sessionNumber
             })
             .eq('meet_id', meet.id)
-            .eq('event_number', evt.eventNumber);
+            .eq('event_number', evt.eventNumber)
+            .select();
+          
+          if (!error && data?.length > 0) {
+            eventsUpdated++;
+          }
         }
       }
       
-      // Update meet with timeline PDF URL (would normally upload file first)
+      // Update meet_entries with estimated start times from events
+      let entriesUpdated = 0;
+      for (const evt of parsed.events) {
+        if (evt.estimatedStartTime) {
+          const { data } = await supabase.from('meet_entries')
+            .update({ estimated_start_time: evt.estimatedStartTime })
+            .eq('meet_id', meet.id)
+            .eq('event_number', evt.eventNumber)
+            .select();
+          
+          if (data?.length > 0) {
+            entriesUpdated += data.length;
+          }
+        }
+      }
+      
+      // Update meet with timeline PDF URL
       await supabase.from('meets').update({ 
-        timeline_pdf_url: 'uploaded' // Placeholder - would be actual URL
+        timeline_pdf_url: 'uploaded'
       }).eq('id', meet.id);
       
-      alert(`Timeline uploaded! Found ${parsed.sessions?.length || 0} sessions and ${parsed.events?.length || 0} events`);
+      alert(`Timeline uploaded!\n• ${parsed.sessions?.length || 0} sessions\n• ${eventsUpdated} events updated\n• ${entriesUpdated} entries updated with start times`);
       loadTimeline();
       onRefresh();
     } catch (error) {
@@ -2007,24 +2065,40 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
     try {
       const parsed = await parseHeatSheetPDF(file);
       
+      console.log('Parsed heat sheet:', parsed);
+      console.log(`Found ${parsed.entries.length} total entries in heat sheet`);
+      
       // Get swimmers to match
       const { data: swimmers } = await supabase
         .from('swimmers')
         .select('id, name');
       
+      console.log(`Found ${swimmers?.length || 0} swimmers in database`);
+      
+      // Get team code from meet or default to HNVR (could be made configurable)
+      const teamCode = meet.team_code || 'HNVR';
+      
       // Match entries to our swimmers
-      const matched = matchHeatSheetEntries(parsed.entries, swimmers || [], 'RAYS'); // Replace with actual team code
+      const matched = matchHeatSheetEntries(parsed.entries, swimmers || [], teamCode);
+      
+      const matchedEntries = matched.filter(e => e.matched);
+      const ourTeamEntries = matched.filter(e => e.matchReason !== 'different_team');
+      
+      console.log(`Matched ${matchedEntries.length} entries out of ${ourTeamEntries.length} for our team`);
       
       setParseResult({
         totalEntries: parsed.entries.length,
-        matchedEntries: matched.filter(e => e.matched).length,
+        ourTeamEntries: ourTeamEntries.length,
+        matchedEntries: matchedEntries.length,
         matched
       });
       
       // Update entries with heat/lane data
       let updatedCount = 0;
-      for (const entry of matched.filter(e => e.matched)) {
-        const { error } = await supabase
+      for (const entry of matchedEntries) {
+        console.log('Updating entry:', entry.swimmer_id, 'event:', entry.eventNumber, 'heat:', entry.heat, 'lane:', entry.lane);
+        
+        const { error, data } = await supabase
           .from('meet_entries')
           .update({
             heat_number: entry.heat,
@@ -2033,9 +2107,17 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
           })
           .eq('meet_id', meet.id)
           .eq('swimmer_id', entry.swimmer_id)
-          .ilike('event_name', `%${entry.eventNumber}%`);
+          .eq('event_number', entry.eventNumber)
+          .select();
         
-        if (!error) updatedCount++;
+        if (error) {
+          console.error('Error updating entry:', error);
+        } else if (data?.length > 0) {
+          updatedCount++;
+          console.log('Updated entry:', data[0]);
+        } else {
+          console.log('No entry found for swimmer:', entry.swimmer_id, 'event:', entry.eventNumber);
+        }
       }
       
       // Update meet record
@@ -2043,7 +2125,7 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
         heat_sheet_pdf_url: 'uploaded'
       }).eq('id', meet.id);
       
-      alert(`Heat sheet processed! Matched ${updatedCount} entries`);
+      alert(`Heat sheet processed!\n• ${parsed.entries.length} total entries in PDF\n• ${ourTeamEntries.length} entries for ${teamCode}\n• ${matchedEntries.length} swimmers matched\n• ${updatedCount} entries updated`);
       loadEntries();
       onRefresh();
     } catch (error) {
