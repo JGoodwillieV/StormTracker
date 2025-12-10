@@ -1227,14 +1227,20 @@ const EntriesTab = ({ meet, onRefresh }) => {
             {swimmers.length === 0 ? (
               <p className="text-slate-500 py-4">No committed swimmers yet. Swimmers must commit to the meet first.</p>
             ) : (
-              <div className="space-y-4">
+                <div className="space-y-4">
                 <p className="text-sm text-slate-600">Select a swimmer to add events:</p>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {swimmers.map(s => (
                     <button
                       key={s.swimmer_id}
                       onClick={() => {
-                        setSelectedSwimmer({ id: s.swimmer_id, name: s.swimmer_name, group_name: s.group_name });
+                        setSelectedSwimmer({ 
+                          id: s.swimmer_id, 
+                          name: s.swimmer_name, 
+                          group_name: s.group_name,
+                          age: s.swimmer_age,
+                          gender: s.swimmer_gender
+                        });
                         setShowAddEntry(false);
                       }}
                       className="w-full p-3 text-left bg-slate-50 rounded-lg hover:bg-slate-100 flex justify-between items-center"
@@ -1280,7 +1286,7 @@ const EntriesTab = ({ meet, onRefresh }) => {
 // ============================================
 
 const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose, onSave }) => {
-  const [selectedEvents, setSelectedEvents] = useState(new Set(existingEntries.map(e => e.meet_event_id || e.event_name)));
+  const [selectedEvents, setSelectedEvents] = useState(new Set(existingEntries.map(e => e.meet_event_id)));
   const [eventHistory, setEventHistory] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1292,15 +1298,14 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
   const loadEventHistory = async () => {
     setLoading(true);
     try {
-      // Load historical times for all events this swimmer might enter
+      // Load historical times for events this swimmer might enter
       const history = {};
       for (const evt of meetEvents) {
-        const eventKey = `${evt.distance} ${evt.stroke}`;
         const { data } = await supabase
           .from('results')
           .select('time_seconds, time_display, date, video_url, meet_name')
           .eq('swimmer_id', swimmer.id)
-          .or(`event.ilike.%${evt.stroke}%,event.ilike.%${evt.distance}%`)
+          .ilike('event', `%${evt.distance}%${evt.stroke?.replace(' Relay', '')}%`)
           .order('date', { ascending: false })
           .limit(3);
         
@@ -1332,41 +1337,58 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
     setSaving(true);
     try {
       // Get existing entry IDs for this swimmer
-      const existingIds = new Set(existingEntries.map(e => e.meet_event_id || e.event_name));
+      const existingIds = new Set(existingEntries.map(e => e.meet_event_id));
       
       // Events to add
       const toAdd = [...selectedEvents].filter(id => !existingIds.has(id));
       // Events to remove  
       const toRemove = [...existingIds].filter(id => !selectedEvents.has(id));
 
+      console.log('Saving entries:', { toAdd, toRemove, selectedEvents: [...selectedEvents] });
+
       // Add new entries
       for (const eventId of toAdd) {
         const evt = meetEvents.find(e => e.id === eventId);
-        if (!evt) continue;
+        if (!evt) {
+          console.log('Event not found:', eventId);
+          continue;
+        }
 
         // Get best time from history if available
         const history = eventHistory[eventId];
         const seedTime = history?.[0]?.time_display || null;
 
-        await supabase.from('meet_entries').insert({
+        const entryData = {
           meet_id: meet.id,
           swimmer_id: swimmer.id,
           meet_event_id: eventId,
           event_number: evt.event_number,
           event_name: evt.event_name || `${evt.gender || ''} ${evt.age_group || ''} ${evt.distance} ${evt.stroke}`.trim(),
           seed_time: seedTime,
-          session_number: evt.session_number
-        });
+          session_number: evt.session_number || null
+        };
+        
+        console.log('Inserting entry:', entryData);
+        
+        const { error } = await supabase.from('meet_entries').insert(entryData);
+        if (error) {
+          console.error('Error inserting entry:', error);
+          throw error;
+        }
       }
 
       // Remove deselected entries
       for (const eventId of toRemove) {
-        await supabase
+        const { error } = await supabase
           .from('meet_entries')
           .delete()
           .eq('meet_id', meet.id)
           .eq('swimmer_id', swimmer.id)
           .eq('meet_event_id', eventId);
+        
+        if (error) {
+          console.error('Error deleting entry:', error);
+        }
       }
 
       onSave();
@@ -1378,34 +1400,122 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
     }
   };
 
-  // Filter events by swimmer's gender/age if available
+  // Helper to determine swimmer's age group based on age
+  const getSwimmerAgeGroups = (age) => {
+    if (!age) return null;
+    const ageGroups = [];
+    
+    // Determine which age groups this swimmer can compete in
+    if (age <= 6) ageGroups.push('6 & Under');
+    if (age <= 8) ageGroups.push('8 & Under');
+    if (age <= 9) ageGroups.push('9 & Under');
+    if (age <= 10) ageGroups.push('10 & Under');
+    if (age >= 9 && age <= 10) ageGroups.push('9-10');
+    if (age >= 11 && age <= 12) ageGroups.push('11-12');
+    if (age >= 13 && age <= 14) ageGroups.push('13-14');
+    if (age >= 15 && age <= 18) ageGroups.push('15-18');
+    if (age >= 13) ageGroups.push('13 & Over');
+    if (age >= 15) ageGroups.push('15 & Over');
+    if (age <= 12) ageGroups.push('12 & Under');
+    ageGroups.push('Open'); // Open is always eligible
+    
+    return ageGroups;
+  };
+
+  // Map swimmer gender to event gender
+  const getEventGender = (swimmerGender) => {
+    if (!swimmerGender) return null;
+    const g = swimmerGender.toLowerCase();
+    if (g === 'male' || g === 'm' || g === 'boy' || g === 'boys') return 'Boys';
+    if (g === 'female' || g === 'f' || g === 'girl' || g === 'girls') return 'Girls';
+    return null;
+  };
+
+  // Filter events by swimmer's gender/age
   const eligibleEvents = useMemo(() => {
+    const swimmerAgeGroups = getSwimmerAgeGroups(swimmer.age);
+    const swimmerEventGender = getEventGender(swimmer.gender);
+    
+    console.log('Filtering events for:', { 
+      swimmerAge: swimmer.age, 
+      swimmerGender: swimmer.gender,
+      swimmerAgeGroups, 
+      swimmerEventGender 
+    });
+    
     return meetEvents.filter(evt => {
-      // Skip relays for now
+      // Skip relays for individual entry
       if (evt.is_relay) return false;
-      // Could add age/gender filtering here
+      
+      // Filter by gender if swimmer has gender set
+      if (swimmerEventGender && evt.gender) {
+        if (evt.gender !== swimmerEventGender && evt.gender !== 'Mixed') {
+          return false;
+        }
+      }
+      
+      // Filter by age group if swimmer has age set
+      if (swimmerAgeGroups && evt.age_group) {
+        if (!swimmerAgeGroups.includes(evt.age_group)) {
+          return false;
+        }
+      }
+      
       return true;
     });
   }, [meetEvents, swimmer]);
 
-  // Group events by session
-  const eventsBySession = useMemo(() => {
+  // Group events by session/day
+  const eventsByDay = useMemo(() => {
     const groups = {};
     eligibleEvents.forEach(evt => {
-      const session = evt.session_number || 0;
-      if (!groups[session]) {
-        groups[session] = {
-          name: evt.session_name || `Session ${session || 'TBD'}`,
+      // Use session_date, session_name, or event_number ranges to group by day
+      let dayKey = 'Day 1';
+      let dayName = 'Day 1';
+      
+      if (evt.session_date) {
+        dayKey = evt.session_date;
+        dayName = new Date(evt.session_date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      } else if (evt.session_name) {
+        dayKey = evt.session_name;
+        dayName = evt.session_name;
+      } else if (evt.session_number) {
+        dayKey = `session-${evt.session_number}`;
+        dayName = `Session ${evt.session_number}`;
+      }
+      
+      if (!groups[dayKey]) {
+        groups[dayKey] = {
+          key: dayKey,
+          name: dayName,
           events: []
         };
       }
-      groups[session].events.push(evt);
+      groups[dayKey].events.push(evt);
     });
+    
+    // Sort events within each day by event number
+    Object.values(groups).forEach(g => {
+      g.events.sort((a, b) => a.event_number - b.event_number);
+    });
+    
     return Object.values(groups);
   }, [eligibleEvents]);
 
-  const selectedCount = selectedEvents.size;
+  // Calculate per-day selection counts
+  const perDaySelections = useMemo(() => {
+    const counts = {};
+    eventsByDay.forEach(day => {
+      counts[day.key] = day.events.filter(evt => selectedEvents.has(evt.id)).length;
+    });
+    return counts;
+  }, [eventsByDay, selectedEvents]);
+
+  const totalSelected = selectedEvents.size;
   const eventsPerDay = meet.events_per_day_limit || 3;
+  
+  // Check if any day exceeds limit
+  const daysOverLimit = Object.entries(perDaySelections).filter(([_, count]) => count > eventsPerDay);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1414,18 +1524,27 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
         <div className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
             <h3 className="text-lg font-bold">{swimmer.name}</h3>
-            <p className="text-sm text-slate-500">Select events for this meet</p>
+            <p className="text-sm text-slate-500">
+              {swimmer.age ? `${swimmer.age} year old` : ''} 
+              {swimmer.gender ? ` ${swimmer.gender}` : ''} 
+              {swimmer.group_name ? ` • ${swimmer.group_name}` : ''}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
             <X size={20} />
           </button>
         </div>
 
-        {/* Event count warning */}
-        {selectedCount > eventsPerDay && (
+        {/* Per-day warning */}
+        {daysOverLimit.length > 0 && (
           <div className="mx-6 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
             <AlertCircle size={16} />
-            {selectedCount} events selected (limit is {eventsPerDay}/day)
+            <div>
+              <strong>Event limit exceeded:</strong>
+              {daysOverLimit.map(([day, count]) => (
+                <span key={day} className="ml-2">{day}: {count}/{eventsPerDay}</span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1438,103 +1557,103 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
           ) : eligibleEvents.length === 0 ? (
             <div className="text-center py-8 text-slate-500">
               <AlertCircle size={32} className="mx-auto mb-2 opacity-50" />
-              <p>No events available</p>
-              <p className="text-sm">Add events from meet info or timeline first</p>
+              <p>No eligible events found</p>
+              <p className="text-sm">No events match this swimmer's age ({swimmer.age}) and gender ({swimmer.gender})</p>
             </div>
           ) : (
             <div className="space-y-6">
-              {eventsBySession.map((session, idx) => (
-                <div key={idx}>
-                  <div className="text-sm font-medium text-slate-500 mb-2">{session.name}</div>
-                  <div className="space-y-2">
-                    {session.events.map(evt => {
-                      const isSelected = selectedEvents.has(evt.id);
-                      const history = eventHistory[evt.id] || [];
-                      const bestTime = history[0]?.time_display;
-                      
-                      return (
-                        <div
-                          key={evt.id}
-                          onClick={() => toggleEvent(evt.id)}
-                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                            isSelected 
-                              ? 'bg-blue-50 border-blue-300' 
-                              : 'bg-white border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${
-                                isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-300'
-                              }`}>
-                                {isSelected && <Check size={14} className="text-white" />}
-                              </div>
-                              <div>
-                                <div className="font-medium text-slate-800">
-                                  #{evt.event_number} {evt.event_name || `${evt.distance} ${evt.stroke}`}
+              {eventsByDay.map((day) => {
+                const dayCount = perDaySelections[day.key] || 0;
+                const isOverLimit = dayCount > eventsPerDay;
+                
+                return (
+                  <div key={day.key}>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-sm font-medium text-slate-700">{day.name}</div>
+                      <div className={`text-sm ${isOverLimit ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>
+                        {dayCount}/{eventsPerDay} events
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {day.events.map(evt => {
+                        const isSelected = selectedEvents.has(evt.id);
+                        const history = eventHistory[evt.id] || [];
+                        const bestTime = history[0]?.time_display;
+                        
+                        return (
+                          <div
+                            key={evt.id}
+                            onClick={() => toggleEvent(evt.id)}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'bg-blue-50 border-blue-300' 
+                                : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${
+                                  isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-300'
+                                }`}>
+                                  {isSelected && <Check size={14} className="text-white" />}
                                 </div>
-                                {evt.age_group && (
+                                <div>
+                                  <div className="font-medium text-slate-800">
+                                    #{evt.event_number} {evt.distance} {evt.stroke}
+                                  </div>
                                   <div className="text-xs text-slate-500">{evt.age_group}</div>
-                                )}
+                                </div>
                               </div>
+                              {bestTime && (
+                                <div className="text-right">
+                                  <div className="font-mono text-sm text-slate-700">{bestTime}</div>
+                                  <div className="text-xs text-slate-400">best</div>
+                                </div>
+                              )}
                             </div>
-                            {bestTime && (
-                              <div className="text-right">
-                                <div className="font-mono text-sm text-slate-700">{bestTime}</div>
-                                <div className="text-xs text-slate-400">best</div>
+                            
+                            {/* Show history when selected */}
+                            {isSelected && history.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-slate-200">
+                                <div className="text-xs text-slate-500 mb-1">Recent times:</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {history.map((h, i) => (
+                                    <div key={i} className="flex items-center gap-1 text-xs bg-slate-100 px-2 py-1 rounded">
+                                      <span className="font-mono">{h.time_display}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
-                          
-                          {/* Show history when selected */}
-                          {isSelected && history.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-slate-200">
-                              <div className="text-xs text-slate-500 mb-1">Recent times:</div>
-                              <div className="flex flex-wrap gap-2">
-                                {history.map((h, i) => (
-                                  <div key={i} className="flex items-center gap-1 text-xs bg-slate-100 px-2 py-1 rounded">
-                                    <span className="font-mono">{h.time_display}</span>
-                                    {h.video_url && (
-                                      <a 
-                                        href={h.video_url} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="text-blue-600"
-                                      >
-                                        <Video size={12} />
-                                      </a>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-200 flex justify-between items-center">
-          <div className="text-sm text-slate-500">
-            {selectedCount} event{selectedCount !== 1 ? 's' : ''} selected
+        <div className="p-4 border-t border-slate-200 flex justify-between items-center">
+          <div className="text-sm text-slate-600">
+            {totalSelected} event{totalSelected !== 1 ? 's' : ''} selected
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">
+            <button 
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
             >
-              {saving && <Loader2 size={16} className="animate-spin" />}
+              {saving && <Loader2 className="animate-spin" size={16} />}
               Save Entries
             </button>
           </div>
