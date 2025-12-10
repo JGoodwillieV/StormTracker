@@ -191,16 +191,21 @@ export async function parseMeetInfoPDF(file) {
   };
   
   // ---- Extract Meet Name ----
-  // Usually in the first few lines, often in all caps or with specific formatting
+  // Usually in the first few lines, often has specific keywords
   const namePatterns = [
-    /^([A-Z][A-Z\s]+(?:CLASSIC|INVITATIONAL|MEET|CHAMPIONSHIP|OPEN))/m,
-    /^(The\s+[\w\s]+)/m,
-    /^(\d{4}\s+[\w\s]+(?:Classic|Invitational|Meet))/im
+    // Match "The Something Something" at start of text
+    /^(The\s+[\w\s]+?)(?=\n|November|December|January|February|March|April|May|June|July|August|September|October|\d{4})/im,
+    // Match ALL CAPS with meet keywords
+    /^([A-Z][A-Z\s]+(?:CLASSIC|INVITATIONAL|MEET|CHAMPIONSHIP|OPEN|GAUNTLET|SPLASH|SPRINT|SHOWDOWN))/m,
+    // Match year + name pattern
+    /^(\d{4}\s+[\w\s]+(?:Classic|Invitational|Meet|Gauntlet))/im,
+    // Match "Name" followed by date line
+    /^([\w\s]+?(?:Classic|Invitational|Meet|Gauntlet|Championship|Open))\s*\n/im
   ];
   
   for (const pattern of namePatterns) {
     const match = text.match(pattern);
-    if (match) {
+    if (match && match[1].trim().length > 3) {
       result.name = match[1].trim();
       break;
     }
@@ -258,9 +263,25 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Entry Deadline ----
-  const deadlineMatch = text.match(/DEADLINE\s*(?:FOR\s*(?:THE\s*)?RECEIPT\s*OF\s*ENTRIES\s*IS)?\s*:?\s*(\w+(?:day)?,?\s*\w+\s+\d{1,2},?\s+\d{4})/i);
-  if (deadlineMatch) {
-    result.entryDeadline = parseDate(deadlineMatch[1]);
+  // Multiple patterns for deadline extraction
+  const deadlinePatterns = [
+    // "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
+    /DEADLINE\s*(?:FOR\s*(?:THE\s*)?RECEIPT\s*OF\s*ENTRIES\s*IS)\s*(\w+day,?\s+\w+\s+\d{1,2},?\s+\d{4})/i,
+    /DEADLINE\s*(?:FOR\s*(?:THE\s*)?RECEIPT\s*OF\s*ENTRIES\s*IS)\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
+    // "Entry Deadline: November 4, 2025"
+    /Entry\s*Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
+    // "Entries due by November 4, 2025"
+    /Entries?\s*(?:due|must\s*be\s*received)\s*(?:by|before)\s*(\w+\s+\d{1,2},?\s+\d{4})/i
+  ];
+  
+  for (const pattern of deadlinePatterns) {
+    const deadlineMatch = text.match(pattern);
+    if (deadlineMatch) {
+      // Remove day of week if present for cleaner parsing
+      const dateStr = deadlineMatch[1].replace(/^\w+day,?\s*/i, '');
+      result.entryDeadline = parseDate(dateStr) || parseDate(deadlineMatch[1]);
+      break;
+    }
   }
   
   // ---- Extract Event Limits ----
@@ -275,19 +296,35 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Fees ----
-  const individualFeeMatch = text.match(/Individual\s*events?:?\s*\$?([\d.]+)/i);
+  // Look for FEES section first, then extract individual fees
+  const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|MEET\s*RULES)/i);
+  const feesText = feesSection ? feesSection[1] : text;
+  
+  // Individual event fee: "$12.00" or "Individual events: $12.00"
+  const individualFeeMatch = feesText.match(/Individual\s*events?:?\s*\$?([\d.]+)/i);
   if (individualFeeMatch) {
     result.fees.individual = parseFloat(individualFeeMatch[1]);
   }
   
-  const relayFeeMatch = text.match(/Relay\s*events?:?\s*\$?([\d.]+)/i);
+  // Relay event fee
+  const relayFeeMatch = feesText.match(/Relay\s*events?:?\s*\$?([\d.]+)/i);
   if (relayFeeMatch) {
     result.fees.relay = parseFloat(relayFeeMatch[1]);
   }
   
-  const surchargeMatch = text.match(/(?:Swimmer\s*)?surcharge:?\s*\$?([\d.]+)/i);
-  if (surchargeMatch) {
-    result.fees.surcharge = parseFloat(surchargeMatch[1]);
+  // Surcharge - multiple patterns
+  const surchargePatterns = [
+    /Swimmer\s*surcharge:?\s*\$?([\d.]+)/i,
+    /surcharge:?\s*\$?([\d.]+)\s*per\s*(?:person|swimmer|athlete)/i,
+    /\$?([\d.]+)\s*per\s*(?:person|swimmer|athlete).*surcharge/i
+  ];
+  
+  for (const pattern of surchargePatterns) {
+    const surchargeMatch = feesText.match(pattern);
+    if (surchargeMatch) {
+      result.fees.surcharge = parseFloat(surchargeMatch[1]);
+      break;
+    }
   }
   
   // ---- Determine Meet Type ----
@@ -323,65 +360,84 @@ export async function parseMeetInfoPDF(file) {
  */
 function parseEventsFromText(text) {
   const events = [];
+  const seenEvents = new Set();
   
-  // Look for event patterns - multiple variations
-  const eventPatterns = [
-    // Pattern: event# age-group distance stroke event# (e.g., "1 11-12 50 Breast 2")
-    /(\d+)\s+((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?|Open))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi,
-    // Pattern: Girls/Boys age-group distance stroke
-    /(Girls?|Boys?)\s+((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi,
-    // Pattern: age-group distance stroke (without event number)
-    /^((?:\d+\s*&?\s*U(?:nder)?|\d+-\d+|\d+\s*&?\s*O(?:ver)?))\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gim
-  ];
+  // First, try to find the ORDER OF EVENTS section
+  const orderSection = text.match(/ORDER\s*OF\s*EVENTS[\s\S]*$/i);
+  const searchText = orderSection ? orderSection[0] : text;
   
-  let eventCounter = 1;
+  // Pattern for table format: "1 11-12 50 Breast 2" or "3 10&U 50 Breast 4"
+  // Girls event# on left, Boys event# on right
+  // Age group can be: 10&U, 11-12, 10&Under, etc.
+  const tablePattern = /(\d+)\s+((?:10|11|12|13|14|15|16|17|18|8)\s*&?\s*(?:U|O|Under|Over)?|\d+-\d+|Open)\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)\s*(?:\*|#)?\s*(\d+)?/gi;
   
-  for (const pattern of eventPatterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      let eventNumber, ageGroup, distance, stroke;
-      
-      // Determine which capture groups to use based on pattern
-      if (match[0].toLowerCase().includes('girl') || match[0].toLowerCase().includes('boy')) {
-        // Gender pattern
-        ageGroup = match[2];
-        distance = parseInt(match[3]);
-        stroke = match[4];
-        eventNumber = eventCounter++;
-      } else if (!isNaN(parseInt(match[1])) && parseInt(match[1]) < 200) {
-        // Event number pattern (event numbers are typically < 200)
-        eventNumber = parseInt(match[1]);
-        ageGroup = match[2];
-        distance = parseInt(match[3]);
-        stroke = match[4];
-      } else {
-        // No event number pattern
-        ageGroup = match[1];
-        distance = parseInt(match[2]);
-        stroke = match[3];
-        eventNumber = eventCounter++;
-      }
-      
-      const event = {
-        eventNumber: eventNumber,
-        ageGroup: normalizeAgeGroup(ageGroup),
+  let match;
+  
+  while ((match = tablePattern.exec(searchText)) !== null) {
+    const girlsEventNum = parseInt(match[1]);
+    const ageGroup = normalizeAgeGroup(match[2]);
+    const distance = parseInt(match[3]);
+    const stroke = normalizeStroke(match[4]);
+    const boysEventNum = match[5] ? parseInt(match[5]) : girlsEventNum + 1;
+    const isRelay = /relay/i.test(match[4]);
+    
+    // Add girls event
+    const girlsKey = `${girlsEventNum}-${ageGroup}-${distance}-${stroke}-Girls`;
+    if (!seenEvents.has(girlsKey) && ageGroup && distance && stroke) {
+      seenEvents.add(girlsKey);
+      events.push({
+        eventNumber: girlsEventNum,
+        ageGroup: ageGroup,
         distance: distance,
-        stroke: normalizeStroke(stroke),
-        gender: match[0].toLowerCase().includes('girl') ? 'Girls' : 
-                match[0].toLowerCase().includes('boy') ? 'Boys' : 'Mixed',
-        isRelay: /relay/i.test(stroke),
-        sessionNumber: 1
-      };
+        stroke: stroke,
+        gender: 'Girls',
+        isRelay: isRelay,
+        eventName: `Girls ${ageGroup} ${distance} ${stroke}`
+      });
+    }
+    
+    // Add boys event (if different event number)
+    const boysKey = `${boysEventNum}-${ageGroup}-${distance}-${stroke}-Boys`;
+    if (!seenEvents.has(boysKey) && boysEventNum !== girlsEventNum && ageGroup && distance && stroke) {
+      seenEvents.add(boysKey);
+      events.push({
+        eventNumber: boysEventNum,
+        ageGroup: ageGroup,
+        distance: distance,
+        stroke: stroke,
+        gender: 'Boys',
+        isRelay: isRelay,
+        eventName: `Boys ${ageGroup} ${distance} ${stroke}`
+      });
+    }
+  }
+  
+  // If table pattern didn't find events, try alternate patterns
+  if (events.length < 5) {
+    // Pattern: "Girls 11-12 200 Free" or "Boys 10&U 50 Back"
+    const altPattern = /(Girls?|Boys?|Mixed)\s+((?:10|11|12|13|14|15|16|17|18|8)\s*&?\s*(?:U|O|Under|Over)?|\d+-\d+|Open)\s+(\d+)\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|IM|Individual\s*Medley|(?:Free|Medley)\s*Relay)/gi;
+    
+    while ((match = altPattern.exec(searchText)) !== null) {
+      const gender = match[1].toLowerCase().includes('girl') ? 'Girls' : 
+                     match[1].toLowerCase().includes('boy') ? 'Boys' : 'Mixed';
+      const ageGroup = normalizeAgeGroup(match[2]);
+      const distance = parseInt(match[3]);
+      const stroke = normalizeStroke(match[4]);
+      const isRelay = /relay/i.test(match[4]);
+      const eventNumber = events.length + 1;
       
-      // Avoid duplicates
-      const exists = events.some(e => 
-        e.eventNumber === event.eventNumber && 
-        e.ageGroup === event.ageGroup && 
-        e.stroke === event.stroke
-      );
-      
-      if (!exists && event.distance && event.stroke) {
-        events.push(event);
+      const key = `${eventNumber}-${ageGroup}-${distance}-${stroke}-${gender}`;
+      if (!seenEvents.has(key) && ageGroup && distance && stroke) {
+        seenEvents.add(key);
+        events.push({
+          eventNumber: eventNumber,
+          ageGroup: ageGroup,
+          distance: distance,
+          stroke: stroke,
+          gender: gender,
+          isRelay: isRelay,
+          eventName: `${gender} ${ageGroup} ${distance} ${stroke}`
+        });
       }
     }
   }
