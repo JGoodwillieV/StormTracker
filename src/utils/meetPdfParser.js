@@ -263,44 +263,34 @@ export async function parseMeetInfoPDF(file) {
   }
   
   // ---- Extract Entry Deadline ----
-  // PDF text extraction can be inconsistent with spacing
-  // Search for ENTRIES section first to narrow down
-  const entriesSection = text.match(/ENTRIES:?\s*([\s\S]*?)(?=FEES|SEEDING|DECK)/i);
-  const deadlineSearchText = entriesSection ? entriesSection[1] : text;
+  // Look for the actual "DEADLINE FOR" text anywhere in the document
+  // Format: "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
+  // Note: PDF may have spaces in dates like "November 4 , 2025"
   
   console.log('Searching for deadline...');
-  if (entriesSection) {
-    console.log('ENTRIES section found, first 300 chars:', deadlineSearchText.substring(0, 300));
-  }
   
-  const deadlinePatterns = [
-    // Standard format: "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
-    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+\w+day,?\s+(\w+\s+\d{1,2},?\s+\d{4})/i,
-    /DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+(\w+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i,
-    // Entry Deadline: format
-    /Entry\s+Deadline:?\s*(\w+\s+\d{1,2},?\s+\d{4})/i,
-    // Just look for DEADLINE followed by date in the entries section
-    /DEADLINE[^.]*?(\w+\s+\d{1,2},?\s+\d{4})/i,
-  ];
+  // First, find text containing "DEADLINE FOR"
+  const deadlineArea = text.match(/DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+([^•\n]{10,60})/i);
   
-  // Search in entries section first, then full text
-  for (const searchText of [deadlineSearchText, text]) {
-    for (const pattern of deadlinePatterns) {
-      const deadlineMatch = searchText.match(pattern);
-      if (deadlineMatch) {
-        let dateStr = deadlineMatch[1]
-          .replace(/(\d+)(st|nd|rd|th)/i, '$1')  // Remove ordinal suffixes
-          .replace(/^\w+day,?\s*/i, '');  // Remove day of week if at start
-        console.log('Deadline match found:', deadlineMatch[0]);
-        console.log('Deadline date string:', dateStr);
-        result.entryDeadline = parseDate(dateStr);
-        if (result.entryDeadline) {
-          console.log('Deadline parsed successfully:', result.entryDeadline);
-          break;
-        }
+  if (deadlineArea) {
+    console.log('Deadline area found:', deadlineArea[1]);
+    // Extract date from the matched text - handle spaces within date
+    // "Tuesday, November 4, 2025" or "Tuesday , November 4 , 2025"
+    const dateText = deadlineArea[1];
+    
+    // Try to find month name followed by day and year
+    const monthMatch = dateText.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s*,?\s*(\d{1,2})\s*(?:st|nd|rd|th)?\s*,?\s*(\d{4})/i);
+    
+    if (monthMatch) {
+      const dateStr = `${monthMatch[1]} ${monthMatch[2]}, ${monthMatch[3]}`;
+      console.log('Deadline date extracted:', dateStr);
+      result.entryDeadline = parseDate(dateStr);
+      if (result.entryDeadline) {
+        console.log('Deadline parsed successfully:', result.entryDeadline);
       }
     }
-    if (result.entryDeadline) break;
+  } else {
+    console.log('No DEADLINE FOR text found');
   }
   
   // ---- Extract Event Limits ----
@@ -317,9 +307,9 @@ export async function parseMeetInfoPDF(file) {
   
   // ---- Extract Fees ----
   // Look for FEES: section and extract individual, relay, surcharge
-  // PDF text may have irregular spacing, so be flexible
+  // PDF text may have irregular spacing - even within numbers like "$1 2 .00" for "$12.00"
   const feesSection = text.match(/FEES:?\s*([\s\S]*?)(?=SEEDING|AWARDS|PENALTIES|LAYOUT|GENERAL)/i);
-  const feesText = feesSection ? feesSection[1] : text;
+  let feesText = feesSection ? feesSection[1] : text;
   
   // Debug: Log fees section for troubleshooting
   console.log('Fees section found:', feesSection ? 'Yes' : 'No');
@@ -327,45 +317,52 @@ export async function parseMeetInfoPDF(file) {
     console.log('Fees text (first 500 chars):', feesText.substring(0, 500));
   }
   
-  // Individual fee patterns - MUST have $ directly before the number
-  // "Individual events: $12.00", "Individual events: $9.50/per Swim"
-  const individualPatterns = [
-    /Individual\s*events?\s*:?\s*\$([\d]+\.[\d]{2})/i,  // $12.00 format
-    /Individual\s*events?\s*:?\s*\$([\d]+)/i,           // $12 format
-  ];
-  for (const pattern of individualPatterns) {
-    const match = feesText.match(pattern);
+  // Helper to extract dollar amount, handling spaces within numbers
+  // "$1 2 .00" → 12.00, "$9.50" → 9.50
+  const extractDollarAmount = (text, pattern) => {
+    const match = text.match(pattern);
     if (match) {
-      result.fees.individual = parseFloat(match[1]);
+      // Get everything after the $ up to reasonable end (space + letter, or end of line)
+      const afterDollar = match[1];
+      // Remove all spaces and normalize
+      const cleanedNum = afterDollar.replace(/\s+/g, '');
+      const parsed = parseFloat(cleanedNum);
+      if (!isNaN(parsed) && parsed > 0 && parsed < 1000) {
+        return parsed;
+      }
+    }
+    return null;
+  };
+  
+  // Individual fee - capture everything after $ until we hit something that's not number/space/dot
+  const indivMatch = feesText.match(/Individual\s*events?\s*:?\s*\$([\d\s.]+)/i);
+  if (indivMatch) {
+    const amount = extractDollarAmount(feesText, /Individual\s*events?\s*:?\s*\$([\d\s.]+)/i);
+    if (amount) {
+      result.fees.individual = amount;
       console.log('Individual fee found:', result.fees.individual);
-      break;
     }
   }
   
-  // Relay fee patterns - MUST have $ directly before number
-  const relayPatterns = [
-    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d]+\.[\d]{2})/i,
-    /Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d]+)/i,
-  ];
-  for (const pattern of relayPatterns) {
-    const match = feesText.match(pattern);
-    if (match) {
-      result.fees.relay = parseFloat(match[1]);
+  // Relay fee
+  const relayMatch = feesText.match(/Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d\s.]+)/i);
+  if (relayMatch) {
+    const amount = extractDollarAmount(feesText, /Relay\s*(?:events?|Fees?)?\s*:?\s*\$([\d\s.]+)/i);
+    if (amount) {
+      result.fees.relay = amount;
       console.log('Relay fee found:', result.fees.relay);
-      break;
     }
   }
   
-  // Surcharge patterns - MUST have $ directly before number
+  // Surcharge
   const surchargePatterns = [
-    /Swimmer\s*surcharge\s*:?\s*\$([\d]+\.[\d]{2})/i,
-    /surcharge\s*:?\s*\$([\d]+\.[\d]{2})/i,
-    /\$([\d]+\.[\d]{2})\s*per\s*(?:person|swimmer|athlete)/i
+    /Swimmer\s*surcharge\s*:?\s*\$([\d\s.]+)/i,
+    /surcharge\s*:?\s*\$([\d\s.]+)/i,
   ];
   for (const pattern of surchargePatterns) {
-    const match = feesText.match(pattern);
-    if (match) {
-      result.fees.surcharge = parseFloat(match[1]);
+    const amount = extractDollarAmount(feesText, pattern);
+    if (amount) {
+      result.fees.surcharge = amount;
       console.log('Surcharge found:', result.fees.surcharge);
       break;
     }
@@ -415,7 +412,7 @@ export async function parseMeetInfoPDF(file) {
  */
 function parseEventsFromText(text) {
   const events = [];
-  const seenEvents = new Set();
+  const seenEventNumbers = new Set();
   
   // First, try to find the ORDER OF EVENTS section
   const orderSection = text.match(/ORDER\s*OF\s*EVENTS[\s\S]*$/i);
@@ -427,111 +424,86 @@ function parseEventsFromText(text) {
     console.log('First 500 chars of events section:', searchText.substring(0, 500));
   }
   
-  // Age group pattern - captures all common formats:
-  // 13&O, 8&U, 10&U, 13 & Over, 8 & under, 9-12, 11-12, 13-14, 11 &12, 12 & Under
-  const ageGroupPattern = '(\\d{1,2}\\s*&\\s*[UuOo](?:nder|ver)?|\\d{1,2}\\s*-\\s*\\d{1,2}|\\d{1,2}\\s*&\\s*(?:Under|Over|under|over)|Open)';
+  // Try to extract session dates from the events section
+  // Look for patterns like "Friday November 14, 2025" or "Saturday November 15, 2025"
+  const sessionDates = {};
+  const dateMatches = searchText.matchAll(/(Friday|Saturday|Sunday|Thursday)\s*,?\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s*(\d{1,2})\s*,?\s*(\d{4})/gi);
+  for (const match of dateMatches) {
+    const dayName = match[1];
+    const dateStr = `${match[2]} ${match[3]}, ${match[4]}`;
+    sessionDates[dayName.toLowerCase()] = parseDate(dateStr);
+    console.log(`Session date found: ${dayName} = ${dateStr}`);
+  }
   
-  // Stroke pattern
-  const strokePattern = '(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|I\\.?M\\.?|Individual\\s*Medley|(?:Free|Medley)\\s*Relay)';
+  // Normalize the text - collapse multiple spaces but preserve structure
+  const normalizedText = searchText
+    .replace(/\s+/g, ' ')  // Collapse whitespace
+    .replace(/(\d)\s+&\s*([UuOo])/g, '$1&$2')  // "10 & U" → "10&U"
+    .replace(/(\d)\s+-\s+(\d)/g, '$1-$2');  // "11 - 12" → "11-12"
   
-  // Main pattern: EventNum AgeGroup Distance Stroke [EventNum]
-  // Examples: "1 13&O 400 IM 2", "17 9-12 200 Free 18", "1 8 & under 25 Fly 2"
-  const tablePattern = new RegExp(
-    '(\\d{1,3})\\s+' +           // Girls event number
-    ageGroupPattern + '\\s+' +   // Age group
-    '(\\d{2,4})\\s+' +           // Distance (25-1650)
-    strokePattern +             // Stroke
-    '(?:\\s*[*#])?\\s*' +        // Optional timed final marker
-    '(\\d{1,3})?',              // Optional boys event number
-    'gi'
-  );
+  // Pattern to match event entries
+  // Format: EventNum AgeGroup Distance Stroke [EventNum]
+  // Examples after normalization: "1 11-12 50 Breast 2", "17 10&U 200 Free Relay 18"
+  const eventPattern = /\b(\d{1,3})\s+((?:\d{1,2}&[UuOo](?:nder|ver)?|\d{1,2}-\d{1,2}|Open))\s+(\d{2,4})\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|I\.?M\.?|(?:Free|Medley)\s*Relay)\s*[*#]?\s*(\d{1,3})?\b/gi;
   
   let match;
-  
-  while ((match = tablePattern.exec(searchText)) !== null) {
+  while ((match = eventPattern.exec(normalizedText)) !== null) {
     const girlsEventNum = parseInt(match[1]);
-    const ageGroup = normalizeAgeGroup(match[2]);
+    const ageGroupRaw = match[2];
     const distance = parseInt(match[3]);
-    const stroke = normalizeStroke(match[4]);
+    const strokeRaw = match[4];
     const boysEventNum = match[5] ? parseInt(match[5]) : null;
-    const isRelay = /relay/i.test(match[4]);
     
-    // Skip invalid matches
-    if (!ageGroup || !distance || !stroke) continue;
+    // Validate: boys event should be girls event + 1 (typical pattern)
+    // Or boysEventNum should be null (single gender event or relay)
+    const isValidPair = !boysEventNum || boysEventNum === girlsEventNum + 1;
+    
+    // Skip if event number seems wrong (too high gap from boys number)
+    if (boysEventNum && Math.abs(boysEventNum - girlsEventNum) > 1) {
+      // This is likely a column merge issue - two adjacent events from different columns
+      // Only use the girls event
+      console.log(`Skipping mismatched pair: ${girlsEventNum} / ${boysEventNum}`);
+    }
+    
+    // Validate distance
     if (distance < 25 || distance > 1650) continue;
     
-    // Add girls event
-    const girlsKey = `${girlsEventNum}-${ageGroup}-${distance}-${stroke}-Girls`;
-    if (!seenEvents.has(girlsKey)) {
-      seenEvents.add(girlsKey);
+    const ageGroup = normalizeAgeGroup(ageGroupRaw);
+    const stroke = normalizeStroke(strokeRaw);
+    const isRelay = /relay/i.test(strokeRaw);
+    
+    if (!ageGroup || !stroke) continue;
+    
+    // Add girls event (or mixed for relays)
+    if (!seenEventNumbers.has(girlsEventNum)) {
+      seenEventNumbers.add(girlsEventNum);
       events.push({
         eventNumber: girlsEventNum,
         ageGroup: ageGroup,
         distance: distance,
         stroke: stroke,
-        gender: 'Girls',
+        gender: isRelay ? 'Mixed' : 'Girls',
         isRelay: isRelay,
-        eventName: `Girls ${ageGroup} ${distance} ${stroke}`
+        eventName: `${isRelay ? '' : 'Girls '}${ageGroup} ${distance} ${stroke}`
       });
     }
     
-    // Add boys event (if we have a different event number)
-    if (boysEventNum && boysEventNum !== girlsEventNum) {
-      const boysKey = `${boysEventNum}-${ageGroup}-${distance}-${stroke}-Boys`;
-      if (!seenEvents.has(boysKey)) {
-        seenEvents.add(boysKey);
-        events.push({
-          eventNumber: boysEventNum,
-          ageGroup: ageGroup,
-          distance: distance,
-          stroke: stroke,
-          gender: 'Boys',
-          isRelay: isRelay,
-          eventName: `Boys ${ageGroup} ${distance} ${stroke}`
-        });
-      }
-    }
-  }
-  
-  // If we found events, return them sorted
-  if (events.length >= 5) {
-    return events.sort((a, b) => a.eventNumber - b.eventNumber);
-  }
-  
-  // Fallback: Try simpler patterns if main pattern didn't work
-  // Pattern: "Girls 11-12 200 Free" or "Boys 10&U 50 Back"
-  const altPattern = new RegExp(
-    '(Girls?|Boys?)\\s+' +
-    ageGroupPattern + '\\s+' +
-    '(\\d{2,4})\\s+' +
-    strokePattern,
-    'gi'
-  );
-  
-  while ((match = altPattern.exec(searchText)) !== null) {
-    const gender = match[1].toLowerCase().includes('girl') ? 'Girls' : 'Boys';
-    const ageGroup = normalizeAgeGroup(match[2]);
-    const distance = parseInt(match[3]);
-    const stroke = normalizeStroke(match[4]);
-    const isRelay = /relay/i.test(match[4]);
-    const eventNumber = events.length + 1;
-    
-    if (!ageGroup || !distance || !stroke) continue;
-    
-    const key = `${eventNumber}-${ageGroup}-${distance}-${stroke}-${gender}`;
-    if (!seenEvents.has(key)) {
-      seenEvents.add(key);
+    // Add boys event if valid pair
+    if (boysEventNum && isValidPair && !seenEventNumbers.has(boysEventNum)) {
+      seenEventNumbers.add(boysEventNum);
       events.push({
-        eventNumber: eventNumber,
+        eventNumber: boysEventNum,
         ageGroup: ageGroup,
         distance: distance,
         stroke: stroke,
-        gender: gender,
+        gender: isRelay ? 'Mixed' : 'Boys',
         isRelay: isRelay,
-        eventName: `${gender} ${ageGroup} ${distance} ${stroke}`
+        eventName: `${isRelay ? '' : 'Boys '}${ageGroup} ${distance} ${stroke}`
       });
     }
   }
+  
+  console.log(`Events parsed: ${events.length} unique events`);
   
   return events.sort((a, b) => a.eventNumber - b.eventNumber);
 }
