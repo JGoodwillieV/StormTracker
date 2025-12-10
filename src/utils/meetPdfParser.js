@@ -265,24 +265,26 @@ export async function parseMeetInfoPDF(file) {
   // ---- Extract Entry Deadline ----
   // Look for the actual "DEADLINE FOR" text anywhere in the document
   // Format: "DEADLINE FOR THE RECEIPT OF ENTRIES IS Tuesday, November 4, 2025"
-  // Note: PDF may have spaces in dates like "November 4 , 2025"
+  // Note: PDF may have spaces in dates like "November 4 , 202 5"
   
   console.log('Searching for deadline...');
   
   // First, find text containing "DEADLINE FOR"
-  const deadlineArea = text.match(/DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+([^•\n]{10,60})/i);
+  const deadlineArea = text.match(/DEADLINE\s+FOR\s+(?:THE\s+)?RECEIPT\s+OF\s+ENTRIES\s+IS\s+([^•\n]{10,80})/i);
   
   if (deadlineArea) {
     console.log('Deadline area found:', deadlineArea[1]);
     // Extract date from the matched text - handle spaces within date
-    // "Tuesday, November 4, 2025" or "Tuesday , November 4 , 2025"
+    // "Tuesday, November 4, 2025" or "Tuesday , November 4 , 202 5"
     const dateText = deadlineArea[1];
     
-    // Try to find month name followed by day and year
-    const monthMatch = dateText.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s*,?\s*(\d{1,2})\s*(?:st|nd|rd|th)?\s*,?\s*(\d{4})/i);
+    // Try to find month name followed by day and year (year may have spaces: "202 5")
+    const monthMatch = dateText.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s*,?\s*(\d{1,2})\s*(?:st|nd|rd|th)?\s*,?\s*(\d[\d\s]{2,6})/i);
     
     if (monthMatch) {
-      const dateStr = `${monthMatch[1]} ${monthMatch[2]}, ${monthMatch[3]}`;
+      // Clean up the year - remove spaces: "202 5" -> "2025"
+      const cleanYear = monthMatch[3].replace(/\s+/g, '');
+      const dateStr = `${monthMatch[1]} ${monthMatch[2]}, ${cleanYear}`;
       console.log('Deadline date extracted:', dateStr);
       result.entryDeadline = parseDate(dateStr);
       if (result.entryDeadline) {
@@ -436,33 +438,33 @@ function parseEventsFromText(text) {
   }
   
   // Normalize the text - collapse multiple spaces but preserve structure
-  const normalizedText = searchText
+  let normalizedText = searchText
     .replace(/\s+/g, ' ')  // Collapse whitespace
     .replace(/(\d)\s+&\s*([UuOo])/g, '$1&$2')  // "10 & U" → "10&U"
-    .replace(/(\d)\s+-\s+(\d)/g, '$1-$2');  // "11 - 12" → "11-12"
+    .replace(/(\d)\s+-\s+(\d)/g, '$1-$2')  // "11 - 12" → "11-12"
+    .replace(/Med\s*ley/gi, 'Medley')  // "Med ley" → "Medley"
+    .replace(/Free\s*style/gi, 'Freestyle');  // "Free style" → "Freestyle"
+  
+  console.log('Normalized events text (first 800 chars):', normalizedText.substring(0, 800));
   
   // Pattern to match event entries
   // Format: EventNum AgeGroup Distance Stroke [EventNum]
   // Examples after normalization: "1 11-12 50 Breast 2", "17 10&U 200 Free Relay 18"
-  const eventPattern = /\b(\d{1,3})\s+((?:\d{1,2}&[UuOo](?:nder|ver)?|\d{1,2}-\d{1,2}|Open))\s+(\d{2,4})\s+(Free(?:style)?|Back(?:stroke)?|Breast(?:stroke)?|Fly|Butterfly|I\.?M\.?|(?:Free|Medley)\s*Relay)\s*[*#]?\s*(\d{1,3})?\b/gi;
+  const eventPattern = /\b(\d{1,3})\s+((?:\d{1,2}&[UuOo](?:nder|ver)?|\d{1,2}-\d{1,2}|Open))\s+(\d{2,4})\s+(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Fly|Butterfly|I\.?M\.?|IM|Medley\s*Relay|Free\s*Relay)\s*[*#]?\s*(\d{1,3})?\b/gi;
   
   let match;
+  let matchCount = 0;
   while ((match = eventPattern.exec(normalizedText)) !== null) {
+    matchCount++;
     const girlsEventNum = parseInt(match[1]);
     const ageGroupRaw = match[2];
     const distance = parseInt(match[3]);
     const strokeRaw = match[4];
     const boysEventNum = match[5] ? parseInt(match[5]) : null;
     
-    // Validate: boys event should be girls event + 1 (typical pattern)
-    // Or boysEventNum should be null (single gender event or relay)
-    const isValidPair = !boysEventNum || boysEventNum === girlsEventNum + 1;
-    
-    // Skip if event number seems wrong (too high gap from boys number)
-    if (boysEventNum && Math.abs(boysEventNum - girlsEventNum) > 1) {
-      // This is likely a column merge issue - two adjacent events from different columns
-      // Only use the girls event
-      console.log(`Skipping mismatched pair: ${girlsEventNum} / ${boysEventNum}`);
+    // Debug: log first few matches
+    if (matchCount <= 5 || /relay/i.test(strokeRaw)) {
+      console.log(`Match ${matchCount}: Event ${girlsEventNum}, Age: ${ageGroupRaw}, Dist: ${distance}, Stroke: ${strokeRaw}, Boys: ${boysEventNum}`);
     }
     
     // Validate distance
@@ -473,6 +475,15 @@ function parseEventsFromText(text) {
     const isRelay = /relay/i.test(strokeRaw);
     
     if (!ageGroup || !stroke) continue;
+    
+    // Check if this looks like a valid pair (boys = girls + 1)
+    const isValidPair = boysEventNum && boysEventNum === girlsEventNum + 1;
+    
+    // If there's a boys number but it's not girls+1, this is likely a column merge issue
+    // We'll still add the girls event, but not add the mismatched "boys" event
+    if (boysEventNum && !isValidPair) {
+      console.log(`Column merge detected: ${girlsEventNum} / ${boysEventNum} - adding girls only`);
+    }
     
     // Add girls event (or mixed for relays)
     if (!seenEventNumbers.has(girlsEventNum)) {
@@ -488,8 +499,8 @@ function parseEventsFromText(text) {
       });
     }
     
-    // Add boys event if valid pair
-    if (boysEventNum && isValidPair && !seenEventNumbers.has(boysEventNum)) {
+    // Add boys event only if valid pair (boys = girls + 1)
+    if (isValidPair && !seenEventNumbers.has(boysEventNum)) {
       seenEventNumbers.add(boysEventNum);
       events.push({
         eventNumber: boysEventNum,
