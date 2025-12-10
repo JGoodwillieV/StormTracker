@@ -444,7 +444,10 @@ function parseEventsFromText(text) {
     .replace(/(\d)\s+-\s+(\d)/g, '$1-$2')  // "11 - 12" → "11-12"
     .replace(/Med\s*ley/gi, 'Medley')  // "Med ley" → "Medley"
     .replace(/Free\s*style/gi, 'Freestyle')  // "Free style" → "Freestyle"
-    // Fix potential spaces in 2-digit event numbers (e.g., "6 1" → "61", "5 3" → "53")
+    // Fix split 2-digit event numbers: "5 2" → "52", "6 0" → "60", "6 4" → "64"
+    // These appear after strokes/relay markers at end of lines
+    .replace(/(\b(?:Free|Back|Breast|Fly|IM|Relay)\s*[*#]?\s*)(\d)\s+(\d)\b/gi, '$1$2$3')
+    // Also fix at start of lines (before age groups)
     .replace(/\b(\d)\s+(\d)\s+((?:10&U|11-12|\d{1,2}&[UuOo]|\d{1,2}-\d{1,2}))/g, '$1$2 $3');
   
   console.log('Normalized events text (first 1200 chars):', normalizedText.substring(0, 1200));
@@ -491,7 +494,7 @@ function parseEventsFromText(text) {
       console.log(`Column merge detected: ${girlsEventNum} / ${boysEventNum} - adding girls only`);
     }
     
-    // Add girls event (or mixed for relays)
+    // Add girls event
     if (!seenEventNumbers.has(girlsEventNum)) {
       seenEventNumbers.add(girlsEventNum);
       events.push({
@@ -499,9 +502,9 @@ function parseEventsFromText(text) {
         ageGroup: ageGroup,
         distance: distance,
         stroke: stroke,
-        gender: isRelay ? 'Mixed' : 'Girls',
+        gender: 'Girls',
         isRelay: isRelay,
-        eventName: `${isRelay ? '' : 'Girls '}${ageGroup} ${distance} ${stroke}`
+        eventName: `Girls ${ageGroup} ${distance} ${stroke}`
       });
     }
     
@@ -513,9 +516,9 @@ function parseEventsFromText(text) {
         ageGroup: ageGroup,
         distance: distance,
         stroke: stroke,
-        gender: isRelay ? 'Mixed' : 'Boys',
+        gender: 'Boys',
         isRelay: isRelay,
-        eventName: `${isRelay ? '' : 'Boys '}${ageGroup} ${distance} ${stroke}`
+        eventName: `Boys ${ageGroup} ${distance} ${stroke}`
       });
     }
   }
