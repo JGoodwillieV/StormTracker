@@ -802,7 +802,8 @@ function parseEventName(name) {
 export async function parseHeatSheetPDF(file) {
   const { fullText, pages } = await extractTextFromPDF(file);
   
-  console.log('Heat sheet text sample:', fullText.substring(0, 500));
+  console.log('Heat sheet text sample:', fullText.substring(0, 800));
+  console.log('Heat sheet full length:', fullText.length, 'chars');
   
   const result = {
     meetName: null,
@@ -836,6 +837,8 @@ export async function parseHeatSheetPDF(file) {
   // Split into lines
   const lines = normalizedText.split(/(?=#\d+|Heat\s+\d+)/);
   
+  console.log(`Processing ${lines.length} segments from heat sheet`);
+  
   for (const segment of lines) {
     // Check for event header: "#4 Boys 10 & Under 50 Yard Breaststroke"
     const eventMatch = segment.match(/#(\d+)\s+(Girls?|Boys?|Mixed)\s+(.+?)(?=Lane|Heat|$)/i);
@@ -846,6 +849,11 @@ export async function parseHeatSheetPDF(file) {
         eventName: eventMatch[3].trim()
       };
       console.log('Found event:', currentEvent);
+      
+      // Debug: Log segment for events 4, 8, 12 (James's events)
+      if ([4, 8, 12].includes(currentEvent.eventNumber)) {
+        console.log(`Event ${currentEvent.eventNumber} segment (first 500 chars):`, segment.substring(0, 500));
+      }
     }
     
     // Check for heat header: "Heat 1 of 3 Prelims Starts at 09:12 AM"
@@ -858,28 +866,37 @@ export async function parseHeatSheetPDF(file) {
     
     // Look for swimmer entries in this segment
     // Format: "5 Goodwillie, James G 9 HNVR-VA 47.43" (lane, name, age, team, time)
-    // More flexible pattern to handle variations
-    const swimmerPattern = /\b(\d)\s+([A-Za-z'-]+,\s*[A-Za-z'-]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\b/gi;
+    // Try multiple patterns to handle different PDF extractions
     
-    let swimmerMatch;
-    while ((swimmerMatch = swimmerPattern.exec(segment)) !== null) {
-      if (currentEvent) {
-        const entry = {
-          eventNumber: currentEvent.eventNumber,
-          eventName: currentEvent.eventName,
-          gender: currentEvent.gender,
-          lane: parseInt(swimmerMatch[1]),
-          swimmerName: swimmerMatch[2].trim(),
-          age: parseInt(swimmerMatch[3]),
-          teamCode: swimmerMatch[4],
-          seedTime: swimmerMatch[5],
-          seedTimeSeconds: parseTimeToSeconds(swimmerMatch[5]),
-          heat: currentHeat,
-          heatStartTime: currentHeatStart
-        };
-        
-        result.entries.push(entry);
-        console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat);
+    // Pattern 1: Standard format with single-digit lane
+    const swimmerPattern1 = /\b(\d)\s+([A-Za-z][A-Za-z'-]+,\s*[A-Za-z'-]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\b/gi;
+    
+    // Pattern 2: More flexible with optional spaces
+    const swimmerPattern2 = /(\d)\s+([A-Za-z][A-Za-z'\s-]+,\s*[A-Za-z][A-Za-z'\s-]+)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)/gi;
+    
+    const patterns = [swimmerPattern1, swimmerPattern2];
+    
+    for (const pattern of patterns) {
+      let swimmerMatch;
+      while ((swimmerMatch = pattern.exec(segment)) !== null) {
+        if (currentEvent) {
+          const entry = {
+            eventNumber: currentEvent.eventNumber,
+            eventName: currentEvent.eventName,
+            gender: currentEvent.gender,
+            lane: parseInt(swimmerMatch[1]),
+            swimmerName: swimmerMatch[2].trim(),
+            age: parseInt(swimmerMatch[3]),
+            teamCode: swimmerMatch[4],
+            seedTime: swimmerMatch[5],
+            seedTimeSeconds: parseTimeToSeconds(swimmerMatch[5]),
+            heat: currentHeat,
+            heatStartTime: currentHeatStart
+          };
+          
+          result.entries.push(entry);
+          console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat);
+        }
       }
     }
   }
