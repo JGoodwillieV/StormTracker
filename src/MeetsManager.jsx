@@ -1896,17 +1896,16 @@ const TimelineTab = ({ meet, onRefresh }) => {
         }
       });
       
+      // Filter to only prelims events (skip finals)
+      const prelimsEvents = parsed.events?.filter(evt => 
+        prelimsSessionNumbers.has(evt.sessionNumber)
+      ) || [];
+      
+      console.log(`Processing ${prelimsEvents.length} prelims events (skipping ${(parsed.events?.length || 0) - prelimsEvents.length} finals events)`);
+      
       // Update meet_events with timeline data
-      // Only process events from PRELIMS sessions (skip finals)
       let eventsUpdated = 0;
-      if (parsed.events?.length > 0) {
-        // Filter to only prelims events
-        const prelimsEvents = parsed.events.filter(evt => 
-          prelimsSessionNumbers.has(evt.sessionNumber)
-        );
-        
-        console.log(`Processing ${prelimsEvents.length} prelims events (skipping ${parsed.events.length - prelimsEvents.length} finals events)`);
-        
+      if (prelimsEvents.length > 0) {
         for (const evt of prelimsEvents) {
           const time24h = convertTo24Hour(evt.estimatedStartTime);
           const sessionDate = sessionDateMap[evt.sessionNumber] || meet.start_date;
@@ -1964,7 +1963,8 @@ const TimelineTab = ({ meet, onRefresh }) => {
       }).eq('id', meet.id);
       
       const prelimsSessions = parsed.sessions?.filter(s => s.name?.toLowerCase().includes('prelim')) || [];
-      alert(`Timeline uploaded!\n• ${prelimsSessions.length} prelims sessions\n• ${eventsUpdated} events updated with start times\n• ${entriesUpdated} entries updated\n• Skipped ${parsed.events.length - prelimsEvents.length} finals events`);
+      const totalEvents = parsed.events?.length || 0;
+      alert(`Timeline uploaded!\n• ${prelimsSessions.length} prelims sessions\n• ${eventsUpdated} events updated with start times\n• ${entriesUpdated} entries updated\n• Skipped ${totalEvents - prelimsEvents.length} finals events`);
       loadTimeline();
       onRefresh();
     } catch (error) {
