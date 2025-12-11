@@ -1383,12 +1383,16 @@ export default function MeetReportGenerator({ onBack }) {
   // ============================================
   // DEFAULT: No matching step
   // ============================================
-  
-  if (false) { // OLD CONTENT DISABLED - using DynamicMeetReport instead
-    // This block contains the old hardcoded report view
-    // Keeping temporarily for reference, will be removed after testing
-    const x = topTimeDrops && topTimeDrops.length > 0 && (
-          <ExpandableSection title="Biggest Time Drops" icon={Flame} count={topTimeDrops.length}>
+
+  return null;
+}
+
+// Removed old hardcoded report JSX - the following comment marks where old code was
+/* OLD REPORT CODE REMOVED - Now using DynamicMeetReport component
+function oldReportCode() {
+  // This function is never called, just preserves the old code structure for reference
+  const removed = () => (
+          <ExpandableSection title="Biggest Time Drops" icon={Flame} count={null}>
             <div className="space-y-3">
               {topTimeDrops.map((drop, idx) => (
                 <div key={idx} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl">
@@ -1550,7 +1554,6 @@ export default function MeetReportGenerator({ onBack }) {
         </div>
       </div>
     );
-  }
-
-  return null;
-}
+  );
+} // End of oldReportCode function
+*/ // End of removed old code comment

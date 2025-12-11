@@ -1444,7 +1444,7 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
 
         // Generate event code like "50FR", "100BK", "200IM"
         const strokeCodes = {
-          'Freestyle': 'FR', 'Free': 'FR', 'Free Relay': 'FR-R',
+          'Freestyle': 'FR', 'Free': 'FR',
           'Backstroke': 'BK', 'Back': 'BK',
           'Breaststroke': 'BR', 'Breast': 'BR',
           'Butterfly': 'FL', 'Fly': 'FL',
