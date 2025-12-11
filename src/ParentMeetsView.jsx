@@ -305,17 +305,36 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
   const loadEntries = async () => {
     setLoading(true);
     try {
+      // Load session information first
+      const { data: sessionsData } = await supabase
+        .from('meet_sessions')
+        .select('*')
+        .eq('meet_id', meet.id)
+        .order('session_number');
+      
+      const sessionMap = {};
+      (sessionsData || []).forEach(s => {
+        sessionMap[s.session_number] = s;
+      });
+      
+      // Load entries with event info
       const { data } = await supabase
         .from('meet_entries')
         .select(`
           *,
-          meet_events(event_number, session_name, session_date)
+          meet_events(event_number)
         `)
         .eq('meet_id', meet.id)
         .eq('swimmer_id', swimmer.id)
         .order('session_number, estimated_start_time');
       
-      setSwimmerEntries(data || []);
+      // Enhance entries with session data
+      const enhancedEntries = (data || []).map(entry => ({
+        ...entry,
+        session_info: sessionMap[entry.session_number] || null
+      }));
+      
+      setSwimmerEntries(enhancedEntries);
     } catch (error) {
       console.error('Error loading entries:', error);
     } finally {
@@ -329,14 +348,19 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
     swimmerEntries.forEach(entry => {
       const session = entry.session_number || 0;
       if (!groups[session]) {
+        const sessionInfo = entry.session_info;
         groups[session] = {
-          sessionName: entry.meet_events?.session_name || `Session ${session || 'TBD'}`,
+          sessionNumber: session,
+          sessionName: sessionInfo?.session_name || `Session ${session || 'TBD'}`,
+          sessionDate: sessionInfo?.session_date || null,
+          startTime: sessionInfo?.start_time || null,
           entries: []
         };
       }
       groups[session].entries.push(entry);
     });
-    return Object.values(groups);
+    // Sort by session number
+    return Object.values(groups).sort((a, b) => a.sessionNumber - b.sessionNumber);
   }, [swimmerEntries]);
 
   return (
@@ -381,8 +405,22 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
         <div className="space-y-6">
           {entriesBySession.map((session, idx) => (
             <div key={idx} className="bg-white rounded-xl border overflow-hidden">
-              <div className="p-4 bg-slate-800 text-white font-semibold">
-                {session.sessionName}
+              <div className="p-4 bg-slate-800 text-white">
+                <div className="font-semibold text-lg">{session.sessionName}</div>
+                <div className="text-sm text-slate-300 flex gap-4 mt-1">
+                  {session.sessionDate && (
+                    <span>
+                      {new Date(session.sessionDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                        weekday: 'short', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </span>
+                  )}
+                  {session.startTime && (
+                    <span>Start: {formatTime(session.startTime)}</span>
+                  )}
+                </div>
               </div>
               <div className="divide-y">
                 {session.entries.map(entry => (
