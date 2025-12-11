@@ -71,6 +71,16 @@ const getAgeGroup = (age) => {
   return null;
 };
 
+const abbreviateEvent = (event) => {
+  if (!event) return '';
+  return event
+    .replace('Freestyle', 'Free')
+    .replace('Backstroke', 'Back')
+    .replace('Breaststroke', 'Breast')
+    .replace('Butterfly', 'Fly')
+    .replace(' IM', ' IM'); // Keep IM as is
+};
+
 const normalizeEvent = (evt) => {
   const { dist, stroke } = parseEvent(evt);
   if (!dist || !stroke) return null;
@@ -335,6 +345,18 @@ const generatePDFContent = (data) => {
 // ============================================
 
 const generateClassicPDFContent = (data) => {
+  console.log('Classic PDF - newStandards:', data.newStandards);
+  
+  // Helper function to abbreviate event names
+  const abbrevEvent = (event) => {
+    if (!event) return '';
+    return event
+      .replace('Freestyle', 'Free')
+      .replace('Backstroke', 'Back')
+      .replace('Breaststroke', 'Breast')
+      .replace('Butterfly', 'Fly');
+  };
+  
   // Group new standards by swimmer
   const standardsBySwimmer = {};
   data.newStandards.forEach(ns => {
@@ -345,9 +367,14 @@ const generateClassicPDFContent = (data) => {
         standards: []
       };
     }
+    
+    // Extract level from standard name (e.g., "Boys 11-12 50 Freestyle BB" -> "BB")
+    const standardParts = ns.standard.split(' ');
+    const level = standardParts[standardParts.length - 1]; // Last part is the level
+    
     standardsBySwimmer[swimmerId].standards.push({
-      level: ns.standardLevel,
-      event: ns.event
+      level: level,
+      event: abbrevEvent(ns.event)
     });
   });
 
@@ -355,6 +382,30 @@ const generateClassicPDFContent = (data) => {
   const swimmersList = Object.values(standardsBySwimmer).sort((a, b) => 
     a.name.localeCompare(b.name)
   );
+  
+  console.log('Classic PDF - swimmersList:', swimmersList);
+  
+  // Process meet cuts data
+  const meetCutsProcessed = {};
+  if (data.meetCutsByMeet) {
+    Object.entries(data.meetCutsByMeet).forEach(([meetName, cuts]) => {
+      const cutsBySwimmer = {};
+      cuts.forEach(cut => {
+        const swimmerId = cut.swimmer.id;
+        if (!cutsBySwimmer[swimmerId]) {
+          cutsBySwimmer[swimmerId] = {
+            name: cut.swimmer.name,
+            events: []
+          };
+        }
+        cutsBySwimmer[swimmerId].events.push(abbrevEvent(cut.event));
+      });
+      
+      meetCutsProcessed[meetName] = Object.values(cutsBySwimmer).sort((a, b) => 
+        a.name.localeCompare(b.name)
+      );
+    });
+  }
 
   return `
 <!DOCTYPE html>
@@ -465,7 +516,7 @@ const generateClassicPDFContent = (data) => {
       const byLevel = {};
       swimmer.standards.forEach(std => {
         if (!byLevel[std.level]) byLevel[std.level] = [];
-        byLevel[std.level].push(std.event);
+        byLevel[std.level].push(abbreviateEvent(std.event));
       });
       
       // Build the standards text
@@ -476,10 +527,33 @@ const generateClassicPDFContent = (data) => {
       
       return `
         <div class="swimmer-entry">
-          <span class="swimmer-name">${swimmer.name}:</span> ${standardsText}
+          <span class="swimmer-name">${swimmer.name}:</span> ${standardsText || ''}
         </div>
       `;
     }).join('')}
+  </div>
+  ` : `
+  <div class="section">
+    <div class="section-title">New Motivational Time Standards:</div>
+    <div class="swimmer-entry" style="font-style: italic; color: #666;">No new motivational time standards achieved during this meet.</div>
+  </div>
+  `}
+
+  ${Object.keys(meetCutsProcessed).length > 0 ? `
+  <div class="section">
+    <div class="section-title">New Meet Cuts</div>
+    ${Object.entries(meetCutsProcessed).map(([meetName, swimmersList]) => `
+      <div style="margin-bottom: 24px;">
+        <div style="font-weight: 700; font-size: 16px; margin-bottom: 12px; text-decoration: underline;">
+          ${meetName}
+        </div>
+        ${swimmersList.map(s => `
+          <div class="swimmer-entry">
+            <span class="swimmer-name">${s.name}:</span> ${s.events.join(' ')}
+          </div>
+        `).join('')}
+      </div>
+    `).join('')}
   </div>
   ` : ''}
 
@@ -575,7 +649,11 @@ export default function MeetReportGenerator({ onBack }) {
   // ANALYSIS LOGIC (FIXED: Deduplication)
   // ============================================
 
-  const analyzeMeetResults = (meetResults, historicalBests, swimmerMap, standards) => {
+  const analyzeMeetResults = (meetResults, historicalBests, swimmerMap, allStandards) => {
+    // Separate motivational standards from meet cuts
+    const motivationalLevels = ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA'];
+    const standards = allStandards.filter(s => motivationalLevels.includes(s.name));
+    const meetCutStandards = allStandards.filter(s => !motivationalLevels.includes(s.name));
     const totalSwims = meetResults.length;
     let bestTimeCount = 0;
     let firstTimeCount = 0;
@@ -729,12 +807,67 @@ export default function MeetReportGenerator({ onBack }) {
       .sort((a, b) => b.totalDrop - a.totalDrop)
       .slice(0, 10);
 
+    // Track new meet cuts (championship qualifying times)
+    const newMeetCuts = [];
+    const processedMeetCuts = new Set();
+    
+    Object.entries(meetBests).forEach(([swimmerId, events]) => {
+      const swimmer = swimmerMap[swimmerId];
+      if (!swimmer) return;
+      
+      Object.entries(events).forEach(([normalized, meetBest]) => {
+        const currentSeconds = meetBest.seconds;
+        const historicalBest = historicalBests[swimmerId]?.[normalized];
+        
+        // Find relevant meet cut standards
+        const swimmerAge = parseInt(swimmer.age) || 0;
+        const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+        
+        const relevantCuts = meetCutStandards.filter(std => {
+          const stdGender = (std.gender || 'M').trim().toUpperCase();
+          const genderMatch = stdGender === swimmerGender;
+          const ageMatch = swimmerAge >= std.age_min && swimmerAge <= std.age_max;
+          const eventMatch = normalizeEvent(std.event) === normalized;
+          return genderMatch && ageMatch && eventMatch;
+        });
+        
+        relevantCuts.forEach(cut => {
+          const cutKey = `${swimmerId}-${normalized}-${cut.name}`;
+          if (processedMeetCuts.has(cutKey)) return;
+          
+          const achievedNow = currentSeconds <= cut.time_seconds;
+          const achievedBefore = historicalBest && historicalBest.seconds <= cut.time_seconds;
+          
+          if (achievedNow && !achievedBefore) {
+            processedMeetCuts.add(cutKey);
+            newMeetCuts.push({
+              swimmer,
+              event: normalized,
+              meetName: cut.name,
+              time: meetBest.time,
+              cutTime: secondsToTime(cut.time_seconds)
+            });
+          }
+        });
+      });
+    });
+    
+    // Group meet cuts by meet name
+    const meetCutsByMeet = {};
+    newMeetCuts.forEach(cut => {
+      if (!meetCutsByMeet[cut.meetName]) {
+        meetCutsByMeet[cut.meetName] = [];
+      }
+      meetCutsByMeet[cut.meetName].push(cut);
+    });
+
     return {
       totalSwims, bestTimeCount, firstTimeCount,
       btPercent: totalSwims > 0 ? Math.round((bestTimeCount / totalSwims) * 100) : 0,
       timeDrops, newStandards, standardsByLevel, strokeStats, groupStats: groupStatsArray,
       swimmerPerformance, biggestMovers, topTimeDrops: timeDrops.slice(0, 5),
-      topPercentDrops: [...timeDrops].sort((a, b) => b.dropPercent - a.dropPercent).slice(0, 5)
+      topPercentDrops: [...timeDrops].sort((a, b) => b.dropPercent - a.dropPercent).slice(0, 5),
+      newMeetCuts, meetCutsByMeet
     };
   };
 
