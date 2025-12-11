@@ -2180,10 +2180,31 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
         matched
       });
       
-      // Update entries with heat/lane data
+      // Get existing meet entries to cross-reference
+      const { data: existingEntries } = await supabase
+        .from('meet_entries')
+        .select('id, swimmer_id, swimmer_name, event_number')
+        .eq('meet_id', meet.id);
+      
+      console.log(`Found ${existingEntries?.length || 0} existing entries in database`);
+      
+      // Update entries with heat/lane data - only for entries that exist
       let updatedCount = 0;
+      let notFound = [];
+      
       for (const entry of matchedEntries) {
         console.log('Updating entry:', entry.swimmer_id, 'event:', entry.eventNumber, 'heat:', entry.heat, 'lane:', entry.lane);
+        
+        // Check if this entry exists in the database
+        const existingEntry = existingEntries?.find(e => 
+          e.swimmer_id === entry.swimmer_id && e.event_number === entry.eventNumber
+        );
+        
+        if (!existingEntry) {
+          console.log(`⚠ Entry not in database: ${entry.matchedSwimmerName} - Event ${entry.eventNumber}`);
+          notFound.push(`${entry.matchedSwimmerName} - Event ${entry.eventNumber}`);
+          continue;
+        }
         
         const { error, data } = await supabase
           .from('meet_entries')
@@ -2192,18 +2213,14 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
             lane_number: entry.lane,
             heat_seed_time: entry.seedTime
           })
-          .eq('meet_id', meet.id)
-          .eq('swimmer_id', entry.swimmer_id)
-          .eq('event_number', entry.eventNumber)
+          .eq('id', existingEntry.id)
           .select();
         
         if (error) {
           console.error('Error updating entry:', error);
         } else if (data?.length > 0) {
           updatedCount++;
-          console.log('Updated entry:', data[0]);
-        } else {
-          console.log('No entry found for swimmer:', entry.swimmer_id, 'event:', entry.eventNumber);
+          console.log(`✓ Updated: ${entry.matchedSwimmerName} - Event ${entry.eventNumber}, Heat ${entry.heat}, Lane ${entry.lane}`);
         }
       }
       
@@ -2212,7 +2229,11 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
         heat_sheet_pdf_url: 'uploaded'
       }).eq('id', meet.id);
       
-      alert(`Heat sheet processed!\n• ${parsed.entries.length} total entries in PDF\n• ${ourTeamEntries.length} entries for ${teamCode}\n• ${matchedEntries.length} swimmers matched\n• ${updatedCount} entries updated`);
+      if (notFound.length > 0) {
+        console.log(`${notFound.length} entries in heat sheet but not in database:`, notFound.slice(0, 5));
+      }
+      
+      alert(`Heat sheet processed!\n• ${parsed.entries.length} total entries in PDF\n• ${ourTeamEntries.length} entries for ${teamCode}\n• ${matchedEntries.length} swimmers matched\n• ${updatedCount} entries updated\n• ${notFound.length} entries not in database`);
       loadEntries();
       onRefresh();
     } catch (error) {
