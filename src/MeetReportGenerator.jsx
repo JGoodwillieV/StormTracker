@@ -12,8 +12,12 @@ import {
   ChevronLeft, Calendar, Users, Trophy, TrendingUp, TrendingDown,
   Award, Target, Zap, Clock, Filter, Download, Share2, Loader2,
   CheckCircle, Star, Flame, Medal, ChevronDown, ChevronRight,
-  Percent, Timer, Activity, BarChart3, FileText, Sparkles, Printer
+  Percent, Timer, Activity, BarChart3, FileText, Sparkles, Printer,
+  LayoutTemplate, Plus, Edit2, Trash2
 } from 'lucide-react';
+import ReportLayoutEditor from './ReportLayoutEditor';
+import { getDefaultLayout } from './reportSections';
+import DynamicMeetReport from './DynamicMeetReport';
 
 // ============================================
 // SHARED HELPERS
@@ -169,6 +173,15 @@ const ExpandableSection = ({ title, icon: Icon, children, defaultOpen = true, co
 // ============================================
 
 const generatePDFContent = (data) => {
+  // Get layout configuration
+  const layout = data.layout || getDefaultLayout('modern');
+  const enabledSections = (layout.sections || [])
+    .filter(s => s.enabled)
+    .sort((a, b) => a.order - b.order);
+  
+  // Helper to check if section is enabled
+  const isSectionEnabled = (sectionId) => enabledSections.some(s => s.id === sectionId);
+  
   return `
 <!DOCTYPE html>
 <html>
@@ -245,18 +258,22 @@ const generatePDFContent = (data) => {
     <p>${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
   </div>
 
+  ${isSectionEnabled('overview-stats') ? `
   <div class="stats-grid">
     <div class="stat-card"><div class="label">Total Swims</div><div class="value">${data.totalSwims}</div></div>
     <div class="stat-card"><div class="label">Best Times</div><div class="value">${data.bestTimeCount}</div><div class="sub">${data.btPercent}% of swims</div></div>
     <div class="stat-card"><div class="label">First Times</div><div class="value">${data.firstTimeCount}</div></div>
     <div class="stat-card"><div class="label">New Standards</div><div class="value">${data.newStandards.length}</div></div>
   </div>
+  ` : ''}
 
+  ${isSectionEnabled('bt-percentage') ? `
   <div class="hero">
     <div><div style="font-size:12px;opacity:0.9;text-transform:uppercase">Team Best Time Rate</div><div class="big-number">${data.btPercent}%</div><div style="opacity:0.9">${data.bestTimeCount} out of ${data.totalSwims} swims</div></div>
   </div>
+  ` : ''}
 
-  ${data.topTimeDrops && data.topTimeDrops.length > 0 ? `
+  ${isSectionEnabled('time-drops') && data.topTimeDrops && data.topTimeDrops.length > 0 ? `
   <div class="section">
     <div class="section-header">🔥 Biggest Time Drops</div>
     <div class="section-content">
@@ -271,7 +288,7 @@ const generatePDFContent = (data) => {
   </div>
   ` : ''}
 
-  ${data.newStandards && data.newStandards.length > 0 ? `
+  ${isSectionEnabled('new-standards') && data.newStandards && data.newStandards.length > 0 ? `
   <div class="section">
     <div class="section-header">🏆 New Time Standards Achieved</div>
     <div class="section-content">
@@ -287,7 +304,7 @@ const generatePDFContent = (data) => {
   </div>
   ` : ''}
 
-  ${data.strokeStats && Object.keys(data.strokeStats).length > 0 ? `
+  ${isSectionEnabled('stroke-performance') && data.strokeStats && Object.keys(data.strokeStats).length > 0 ? `
   <div class="section">
     <div class="section-header">🏊 Performance by Stroke</div>
     <div class="section-content">
@@ -303,7 +320,7 @@ const generatePDFContent = (data) => {
   </div>
   ` : ''}
 
-  ${data.groupStats && data.groupStats.length > 0 ? `
+  ${isSectionEnabled('group-performance') && data.groupStats && data.groupStats.length > 0 ? `
   <div class="section">
     <div class="section-header">👥 Performance by Group</div>
     <div class="section-content">
@@ -319,7 +336,7 @@ const generatePDFContent = (data) => {
   </div>
   ` : ''}
 
-  ${data.biggestMovers && data.biggestMovers.length > 0 ? `
+  ${isSectionEnabled('biggest-movers') && data.biggestMovers && data.biggestMovers.length > 0 ? `
   <div class="section">
     <div class="section-header">🥇 Biggest Movers (Total Time Dropped)</div>
     <div class="section-content">
@@ -346,6 +363,15 @@ const generatePDFContent = (data) => {
 
 const generateClassicPDFContent = (data) => {
   console.log('Classic PDF - newStandards:', data.newStandards);
+  
+  // Get layout configuration
+  const layout = data.layout || getDefaultLayout('classic');
+  const enabledSections = (layout.sections || [])
+    .filter(s => s.enabled)
+    .sort((a, b) => a.order - b.order);
+  
+  // Helper to check if section is enabled
+  const isSectionEnabled = (sectionId) => enabledSections.some(s => s.id === sectionId);
   
   // Helper function to abbreviate event names
   const abbrevEvent = (event) => {
@@ -501,14 +527,16 @@ const generateClassicPDFContent = (data) => {
     <div class="subtitle">${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
   </div>
 
+  ${isSectionEnabled('overview-stats') || isSectionEnabled('bt-percentage') ? `
   <div class="section">
     <div class="highlight-stat">
       Team Performance <strong>${data.btPercent}%</strong> Best times! (${data.bestTimeCount} out of ${data.totalSwims})
     </div>
     ${data.firstTimeCount > 0 ? `<div class="highlight-stat"><strong>${data.firstTimeCount}</strong> Established First Times!</div>` : ''}
   </div>
+  ` : ''}
 
-  ${swimmersList.length > 0 ? `
+  ${isSectionEnabled('new-standards') && swimmersList.length > 0 ? `
   <div class="section">
     <div class="section-title">New Motivational Time Standards:</div>
     ${swimmersList.map(swimmer => {
@@ -539,7 +567,7 @@ const generateClassicPDFContent = (data) => {
   </div>
   `}
 
-  ${Object.keys(meetCutsProcessed).length > 0 ? `
+  ${isSectionEnabled('meet-cuts') && Object.keys(meetCutsProcessed).length > 0 ? `
   <div class="section">
     <div class="section-title">New Meet Cuts</div>
     ${Object.entries(meetCutsProcessed).map(([meetName, swimmersList]) => `
@@ -597,6 +625,12 @@ export default function MeetReportGenerator({ onBack }) {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [reportData, setReportData] = useState(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  
+  // Layout management
+  const [layouts, setLayouts] = useState([]);
+  const [selectedLayout, setSelectedLayout] = useState(null);
+  const [showLayoutManager, setShowLayoutManager] = useState(false);
+  const [editingLayout, setEditingLayout] = useState(null);
 
   // Available age groups for filtering
   const AGE_GROUPS = [
@@ -617,6 +651,7 @@ export default function MeetReportGenerator({ onBack }) {
       }
     };
     loadGroups();
+    loadLayouts();
 
     const today = new Date();
     const lastWeek = new Date(today);
@@ -626,6 +661,64 @@ export default function MeetReportGenerator({ onBack }) {
       end: today.toISOString().split('T')[0]
     });
   }, []);
+
+  const loadLayouts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('report_layouts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setLayouts(data || []);
+      
+      // Select default layout if none selected
+      if (!selectedLayout && data && data.length > 0) {
+        const defaultLayout = data.find(l => l.is_default) || data[0];
+        setSelectedLayout(defaultLayout);
+      }
+    } catch (error) {
+      console.error('Error loading layouts:', error);
+    }
+  };
+
+  const handleDeleteLayout = async (layoutId) => {
+    if (!confirm('Are you sure you want to delete this layout?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('report_layouts')
+        .delete()
+        .eq('id', layoutId);
+      
+      if (error) throw error;
+      
+      // Reload layouts
+      await loadLayouts();
+      
+      // Clear selection if deleted layout was selected
+      if (selectedLayout?.id === layoutId) {
+        setSelectedLayout(null);
+      }
+    } catch (error) {
+      console.error('Error deleting layout:', error);
+      alert('Failed to delete layout: ' + error.message);
+    }
+  };
+
+  const handleEditLayout = (layout) => {
+    setEditingLayout(layout);
+    setShowLayoutManager(false);
+  };
+
+  const handleCreateNewLayout = () => {
+    setEditingLayout({ 
+      name: '', 
+      description: '', 
+      layout_config: getDefaultLayout(reportFormat) 
+    });
+    setShowLayoutManager(false);
+  };
 
   const handleExportPDF = async () => {
     if (!reportData) return;
@@ -974,11 +1067,15 @@ export default function MeetReportGenerator({ onBack }) {
       setLoadingMessage('Generating report...');
       setLoadingProgress(90);
 
+      // Get active layout or default
+      const activeLayout = selectedLayout?.layout_config || getDefaultLayout(reportFormat);
+      
       setReportData({
         meetName: meetName || `Meet Report`,
         dateRange,
         swimmers: filteredSwimmers,
         swimmerMap,
+        layout: activeLayout,
         ...analysis
       });
 
@@ -991,6 +1088,23 @@ export default function MeetReportGenerator({ onBack }) {
       setStep('select');
     }
   };
+
+  // ============================================
+  // RENDER: LAYOUT EDITOR
+  // ============================================
+
+  if (editingLayout !== null) {
+    return (
+      <ReportLayoutEditor
+        initialLayout={editingLayout.id ? editingLayout : null}
+        reportFormat={reportFormat}
+        onBack={() => {
+          setEditingLayout(null);
+          loadLayouts();
+        }}
+      />
+    );
+  }
 
   // ============================================
   // RENDER: SELECTION SCREEN
@@ -1126,6 +1240,95 @@ export default function MeetReportGenerator({ onBack }) {
             </div>
           </div>
 
+          {/* Layout Selector */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                <LayoutTemplate size={14} className="inline mr-1" /> Report Layout
+              </label>
+              <button
+                onClick={handleCreateNewLayout}
+                className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"
+              >
+                <Plus size={14} />
+                New Layout
+              </button>
+            </div>
+            
+            {layouts.length === 0 ? (
+              <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl text-center">
+                <LayoutTemplate size={24} className="mx-auto text-slate-400 mb-2" />
+                <p className="text-sm text-slate-500 mb-2">No custom layouts yet</p>
+                <button
+                  onClick={handleCreateNewLayout}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  Create your first layout
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setSelectedLayout(null)}
+                  className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
+                    !selectedLayout 
+                      ? 'border-indigo-600 bg-indigo-50' 
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-semibold text-slate-800 text-sm">Default Layout</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Standard report with all sections
+                  </div>
+                </button>
+                
+                {layouts.map(layout => (
+                  <div key={layout.id} className="relative group">
+                    <button
+                      onClick={() => setSelectedLayout(layout)}
+                      className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
+                        selectedLayout?.id === layout.id
+                          ? 'border-indigo-600 bg-indigo-50' 
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-slate-800 text-sm">{layout.name}</div>
+                      {layout.description && (
+                        <div className="text-xs text-slate-500 mt-1">{layout.description}</div>
+                      )}
+                      <div className="text-xs text-slate-400 mt-1">
+                        {layout.layout_config?.sections?.length || 0} sections
+                      </div>
+                    </button>
+                    
+                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditLayout(layout);
+                        }}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded-lg text-indigo-600"
+                        title="Edit layout"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteLayout(layout.id);
+                        }}
+                        className="p-1.5 bg-white hover:bg-red-50 border border-slate-200 rounded-lg text-red-600"
+                        title="Delete layout"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={generateReport}
             disabled={!dateRange.start || !dateRange.end}
@@ -1167,57 +1370,24 @@ export default function MeetReportGenerator({ onBack }) {
   // ============================================
 
   if (step === 'report' && reportData) {
-    const { meetName: reportMeetName, dateRange: reportDateRange, totalSwims, bestTimeCount, firstTimeCount, btPercent, topTimeDrops, newStandards, standardsByLevel, strokeStats, groupStats, biggestMovers } = reportData;
-
-    const strokeChartData = Object.entries(strokeStats).map(([stroke, stats]) => ({
-      name: stroke, 'Best Time %': stats.btPercent, 'Total Swims': stats.swims
-    }));
-
-    const groupChartData = groupStats.map(g => ({ name: g.name, 'Best Time %': g.btPercent, 'Swimmers': g.swimmerCount }));
-
-    const standardsPieData = Object.entries(standardsByLevel).map(([level, items]) => ({ name: level, value: items.length }));
-
     return (
-      <div className="space-y-6 pb-12">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setStep('select')} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
-              <ChevronLeft size={24} />
-            </button>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">{reportMeetName}</h2>
-              <p className="text-slate-500">
-                {new Date(reportDateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(reportDateRange.end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </p>
-            </div>
-          </div>
-          <button onClick={handleExportPDF} disabled={isExportingPDF} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
-            {isExportingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-            {isExportingPDF ? 'Exporting...' : 'Export PDF'}
-          </button>
-        </div>
+      <DynamicMeetReport 
+        reportData={reportData}
+        onBack={() => setStep('select')}
+        onExportPDF={handleExportPDF}
+        isExportingPDF={isExportingPDF}
+      />
+    );
+  }
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={Activity} label="Total Swims" value={totalSwims} color="blue" />
-          <StatCard icon={TrendingUp} label="Best Times" value={bestTimeCount} subValue={`${btPercent}% of swims`} color="green" />
-          <StatCard icon={Zap} label="First Times" value={firstTimeCount} subValue="New events" color="yellow" />
-          <StatCard icon={Award} label="New Standards" value={newStandards.length} subValue="Achieved" color="purple" />
-        </div>
-
-        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-emerald-100 text-sm font-medium uppercase tracking-wide">Team Best Time Rate</p>
-              <p className="text-5xl font-black mt-1">{btPercent}%</p>
-              <p className="text-emerald-100 mt-2">{bestTimeCount} out of {totalSwims} swims were best times!</p>
-            </div>
-            <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center">
-              <TrendingUp size={48} />
-            </div>
-          </div>
-        </div>
-
-        {topTimeDrops && topTimeDrops.length > 0 && (
+  // ============================================
+  // DEFAULT: No matching step
+  // ============================================
+  
+  if (false) { // OLD CONTENT DISABLED - using DynamicMeetReport instead
+    // This block contains the old hardcoded report view
+    // Keeping temporarily for reference, will be removed after testing
+    const x = topTimeDrops && topTimeDrops.length > 0 && (
           <ExpandableSection title="Biggest Time Drops" icon={Flame} count={topTimeDrops.length}>
             <div className="space-y-3">
               {topTimeDrops.map((drop, idx) => (
