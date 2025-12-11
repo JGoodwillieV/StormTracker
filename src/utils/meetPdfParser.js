@@ -865,38 +865,31 @@ export async function parseHeatSheetPDF(file) {
     }
     
     // Look for swimmer entries in this segment
-    // Format: "5 Goodwillie, James G 9 HNVR-VA 47.43" (lane, name, age, team, time)
-    // Try multiple patterns to handle different PDF extractions
+    // HY-TEK's PDF extraction puts columns in this order: Team SeedTime Age Name Lane
+    // Example: "HNVR-VA 47.43 9 Goodwillie, James G 5"
     
-    // Pattern 1: Standard format with single-digit lane
-    const swimmerPattern1 = /\b(\d)\s+([A-Za-z][A-Za-z'-]+,\s*[A-Za-z'-]+(?:\s+[A-Z])?)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\b/gi;
+    // Pattern: Team SeedTime Age Name Lane
+    const swimmerPattern = /([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\s+(\d{1,2})\s+([A-Za-z][A-Za-z'\s-]+,\s*[A-Za-z][A-Za-z'\s-]+(?:\s+[A-Z])?)\s+(\d)/gi;
     
-    // Pattern 2: More flexible with optional spaces
-    const swimmerPattern2 = /(\d)\s+([A-Za-z][A-Za-z'\s-]+,\s*[A-Za-z][A-Za-z'\s-]+)\s+(\d{1,2})\s+([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)/gi;
-    
-    const patterns = [swimmerPattern1, swimmerPattern2];
-    
-    for (const pattern of patterns) {
-      let swimmerMatch;
-      while ((swimmerMatch = pattern.exec(segment)) !== null) {
-        if (currentEvent) {
-          const entry = {
-            eventNumber: currentEvent.eventNumber,
-            eventName: currentEvent.eventName,
-            gender: currentEvent.gender,
-            lane: parseInt(swimmerMatch[1]),
-            swimmerName: swimmerMatch[2].trim(),
-            age: parseInt(swimmerMatch[3]),
-            teamCode: swimmerMatch[4],
-            seedTime: swimmerMatch[5],
-            seedTimeSeconds: parseTimeToSeconds(swimmerMatch[5]),
-            heat: currentHeat,
-            heatStartTime: currentHeatStart
-          };
-          
-          result.entries.push(entry);
-          console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat);
-        }
+    let swimmerMatch;
+    while ((swimmerMatch = swimmerPattern.exec(segment)) !== null) {
+      if (currentEvent && currentHeat) {
+        const entry = {
+          eventNumber: currentEvent.eventNumber,
+          eventName: currentEvent.eventName,
+          gender: currentEvent.gender,
+          teamCode: swimmerMatch[1],
+          seedTime: swimmerMatch[2],
+          age: parseInt(swimmerMatch[3]),
+          swimmerName: swimmerMatch[4].trim(),
+          lane: parseInt(swimmerMatch[5]),
+          seedTimeSeconds: parseTimeToSeconds(swimmerMatch[2]),
+          heat: currentHeat,
+          heatStartTime: currentHeatStart
+        };
+        
+        result.entries.push(entry);
+        console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat, 'seed:', entry.seedTime);
       }
     }
   }
