@@ -18,6 +18,7 @@ import {
 import ReportLayoutEditor from './ReportLayoutEditor';
 import { getDefaultLayout } from './reportSections';
 import DynamicMeetReport from './DynamicMeetReport';
+import { SECTION_HTML_GENERATORS } from './reportPDFGenerators';
 
 // ============================================
 // SHARED HELPERS
@@ -179,8 +180,15 @@ const generatePDFContent = (data) => {
     .filter(s => s.enabled)
     .sort((a, b) => a.order - b.order);
   
-  // Helper to check if section is enabled
-  const isSectionEnabled = (sectionId) => enabledSections.some(s => s.id === sectionId);
+  // Generate HTML for each enabled section
+  const sectionsHTML = enabledSections.map(section => {
+    const generator = SECTION_HTML_GENERATORS[section.id];
+    if (!generator) {
+      console.warn(`No PDF generator found for section: ${section.id}`);
+      return '';
+    }
+    return generator(data, section.config || {});
+  }).filter(html => html).join('\n');
   
   return `
 <!DOCTYPE html>
@@ -258,98 +266,7 @@ const generatePDFContent = (data) => {
     <p>${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
   </div>
 
-  ${isSectionEnabled('overview-stats') ? `
-  <div class="stats-grid">
-    <div class="stat-card"><div class="label">Total Swims</div><div class="value">${data.totalSwims}</div></div>
-    <div class="stat-card"><div class="label">Best Times</div><div class="value">${data.bestTimeCount}</div><div class="sub">${data.btPercent}% of swims</div></div>
-    <div class="stat-card"><div class="label">First Times</div><div class="value">${data.firstTimeCount}</div></div>
-    <div class="stat-card"><div class="label">New Standards</div><div class="value">${data.newStandards.length}</div></div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('bt-percentage') ? `
-  <div class="hero">
-    <div><div style="font-size:12px;opacity:0.9;text-transform:uppercase">Team Best Time Rate</div><div class="big-number">${data.btPercent}%</div><div style="opacity:0.9">${data.bestTimeCount} out of ${data.totalSwims} swims</div></div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('time-drops') && data.topTimeDrops && data.topTimeDrops.length > 0 ? `
-  <div class="section">
-    <div class="section-header">🔥 Biggest Time Drops</div>
-    <div class="section-content">
-      ${data.topTimeDrops.map((drop, idx) => `
-        <div class="item">
-          <div><span class="rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">${idx + 1}</span><span class="name">${drop.swimmer.name}</span> <span class="event">- ${drop.event}</span></div>
-          <span class="drop">-${drop.drop.toFixed(2)}s</span>
-        </div>
-        <div class="details">${drop.oldTime} → ${drop.newTime}</div>
-      `).join('')}
-    </div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('new-standards') && data.newStandards && data.newStandards.length > 0 ? `
-  <div class="section">
-    <div class="section-header">🏆 New Time Standards Achieved</div>
-    <div class="section-content">
-      ${['AAAA', 'AAA', 'AA', 'A', 'BB', 'B'].filter(level => data.standardsByLevel[level]?.length > 0).map(level => `
-        <div class="standard-group">
-          <div style="margin-bottom:8px"><span class="badge badge-${level}">${level}</span><span style="color:#64748b;font-size:14px">${data.standardsByLevel[level].length} achieved</span></div>
-          ${data.standardsByLevel[level].map(ns => `
-            <div class="standard-item"><div><strong>${ns.swimmer.name}</strong> <span style="color:#64748b">- ${ns.event}</span></div><span style="font-family:monospace">${ns.time}</span></div>
-          `).join('')}
-        </div>
-      `).join('')}
-    </div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('stroke-performance') && data.strokeStats && Object.keys(data.strokeStats).length > 0 ? `
-  <div class="section">
-    <div class="section-header">🏊 Performance by Stroke</div>
-    <div class="section-content">
-      <table>
-        <thead><tr><th>Stroke</th><th>Swims</th><th>Best Time %</th><th>Avg Drop</th></tr></thead>
-        <tbody>
-          ${Object.entries(data.strokeStats).map(([stroke, stats]) => `
-            <tr><td><strong>${stroke}</strong></td><td>${stats.swims}</td><td>${stats.btPercent}%</td><td>${stats.avgDrop > 0 ? '-' + stats.avgDrop.toFixed(2) + 's' : '-'}</td></tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('group-performance') && data.groupStats && data.groupStats.length > 0 ? `
-  <div class="section">
-    <div class="section-header">👥 Performance by Group</div>
-    <div class="section-content">
-      <table>
-        <thead><tr><th>Group</th><th>Swimmers</th><th>Swims</th><th>Best Time %</th></tr></thead>
-        <tbody>
-          ${data.groupStats.map(group => `
-            <tr><td><strong>${group.name}</strong></td><td>${group.swimmerCount}</td><td>${group.swims}</td><td>${group.btPercent}%</td></tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  ` : ''}
-
-  ${isSectionEnabled('biggest-movers') && data.biggestMovers && data.biggestMovers.length > 0 ? `
-  <div class="section">
-    <div class="section-header">🥇 Biggest Movers (Total Time Dropped)</div>
-    <div class="section-content">
-      ${data.biggestMovers.slice(0, 10).map((mover, idx) => `
-        <div class="item">
-          <div><span class="rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}">${idx + 1}</span><span class="name">${mover.swimmer.name}</span></div>
-          <span class="drop">-${mover.totalDrop.toFixed(2)}s</span>
-        </div>
-        <div class="details">${mover.bestTimes} BT • Best: ${mover.biggestDropEvent} (-${mover.biggestDrop.toFixed(2)}s)</div>
-      `).join('')}
-    </div>
-  </div>
-  ` : ''}
+  ${sectionsHTML}
 
   <div class="footer">Generated by StormTracker • ${new Date().toLocaleDateString()}</div>
   <script>window.onload = function() { window.print(); }</script>
@@ -370,9 +287,6 @@ const generateClassicPDFContent = (data) => {
     .filter(s => s.enabled)
     .sort((a, b) => a.order - b.order);
   
-  // Helper to check if section is enabled
-  const isSectionEnabled = (sectionId) => enabledSections.some(s => s.id === sectionId);
-  
   // Helper function to abbreviate event names
   const abbrevEvent = (event) => {
     if (!event) return '';
@@ -383,9 +297,9 @@ const generateClassicPDFContent = (data) => {
       .replace('Butterfly', 'Fly');
   };
   
-  // Group new standards by swimmer
+  // Process new standards for classic format
   const standardsBySwimmer = {};
-  data.newStandards.forEach(ns => {
+  (data.newStandards || []).forEach(ns => {
     const swimmerId = ns.swimmer.id;
     if (!standardsBySwimmer[swimmerId]) {
       standardsBySwimmer[swimmerId] = {
@@ -409,9 +323,7 @@ const generateClassicPDFContent = (data) => {
     a.name.localeCompare(b.name)
   );
   
-  console.log('Classic PDF - swimmersList:', swimmersList);
-  
-  // Process meet cuts data
+  // Process meet cuts data for classic format
   const meetCutsProcessed = {};
   if (data.meetCutsByMeet) {
     Object.entries(data.meetCutsByMeet).forEach(([meetName, cuts]) => {
@@ -527,7 +439,7 @@ const generateClassicPDFContent = (data) => {
     <div class="subtitle">${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
   </div>
 
-  ${isSectionEnabled('overview-stats') || isSectionEnabled('bt-percentage') ? `
+  ${enabledSections.some(s => ['overview-stats', 'bt-percentage'].includes(s.id)) ? `
   <div class="section">
     <div class="highlight-stat">
       Team Performance <strong>${data.btPercent}%</strong> Best times! (${data.bestTimeCount} out of ${data.totalSwims})
@@ -536,7 +448,7 @@ const generateClassicPDFContent = (data) => {
   </div>
   ` : ''}
 
-  ${isSectionEnabled('new-standards') && swimmersList.length > 0 ? `
+  ${enabledSections.some(s => s.id === 'new-standards') && swimmersList.length > 0 ? `
   <div class="section">
     <div class="section-title">New Motivational Time Standards:</div>
     ${swimmersList.map(swimmer => {
@@ -544,7 +456,7 @@ const generateClassicPDFContent = (data) => {
       const byLevel = {};
       swimmer.standards.forEach(std => {
         if (!byLevel[std.level]) byLevel[std.level] = [];
-        byLevel[std.level].push(abbreviateEvent(std.event));
+        byLevel[std.level].push(std.event);
       });
       
       // Build the standards text
@@ -560,14 +472,14 @@ const generateClassicPDFContent = (data) => {
       `;
     }).join('')}
   </div>
-  ` : `
+  ` : (enabledSections.some(s => s.id === 'new-standards') ? `
   <div class="section">
     <div class="section-title">New Motivational Time Standards:</div>
     <div class="swimmer-entry" style="font-style: italic; color: #666;">No new motivational time standards achieved during this meet.</div>
   </div>
-  `}
+  ` : '')}
 
-  ${isSectionEnabled('meet-cuts') && Object.keys(meetCutsProcessed).length > 0 ? `
+  ${enabledSections.some(s => s.id === 'meet-cuts') && Object.keys(meetCutsProcessed).length > 0 ? `
   <div class="section">
     <div class="section-title">New Meet Cuts</div>
     ${Object.entries(meetCutsProcessed).map(([meetName, swimmersList]) => `
