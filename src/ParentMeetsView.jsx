@@ -317,22 +317,38 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
         sessionMap[s.session_number] = s;
       });
       
-      // Load entries with event info
+      // Load entries with event info including session_number from meet_events
       const { data } = await supabase
         .from('meet_entries')
         .select(`
           *,
-          meet_events(event_number)
+          meet_events(event_number, session_number)
         `)
         .eq('meet_id', meet.id)
         .eq('swimmer_id', swimmer.id)
-        .order('session_number, estimated_start_time');
+        .order('estimated_start_time');
       
       // Enhance entries with session data
-      const enhancedEntries = (data || []).map(entry => ({
-        ...entry,
-        session_info: sessionMap[entry.session_number] || null
-      }));
+      // Use session_number from entry, or fall back to meet_events.session_number
+      const enhancedEntries = (data || []).map(entry => {
+        const sessionNum = entry.session_number || entry.meet_events?.session_number || 0;
+        return {
+          ...entry,
+          session_number: sessionNum, // Ensure we have a session number
+          session_info: sessionMap[sessionNum] || null
+        };
+      });
+      
+      // Sort by session number, then estimated start time
+      enhancedEntries.sort((a, b) => {
+        if (a.session_number !== b.session_number) {
+          return (a.session_number || 999) - (b.session_number || 999);
+        }
+        if (a.estimated_start_time && b.estimated_start_time) {
+          return a.estimated_start_time.localeCompare(b.estimated_start_time);
+        }
+        return 0;
+      });
       
       setSwimmerEntries(enhancedEntries);
     } catch (error) {

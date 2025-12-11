@@ -1956,7 +1956,7 @@ const TimelineTab = ({ meet, onRefresh }) => {
         }
       }
       
-      // Update meet_entries with estimated start times from events
+      // Update meet_entries with estimated start times and session numbers from events
       // Only process prelims events
       let entriesUpdated = 0;
       for (const evt of prelimsEvents) {
@@ -1966,7 +1966,10 @@ const TimelineTab = ({ meet, onRefresh }) => {
           const timestamp = sessionDate && time24h ? `${sessionDate} ${time24h}` : null;
           
           const { data } = await supabase.from('meet_entries')
-            .update({ estimated_start_time: timestamp })
+            .update({ 
+              estimated_start_time: timestamp,
+              session_number: evt.sessionNumber
+            })
             .eq('meet_id', meet.id)
             .eq('event_number', evt.eventNumber)
             .select();
