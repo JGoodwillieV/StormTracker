@@ -655,16 +655,23 @@ export async function parseTimelinePDF(file) {
     result.sessions.push(sessionInfo);
     
     // Parse events in this session
-    // Normalize the text first to handle split numbers
-    const normalizedText = sessionText
-      .replace(/(\d)\s+(\d)/g, '$1$2')  // Fix "1 4" -> "14"
-      .replace(/_+/g, '')  // Remove underscores
-      .replace(/\s+/g, ' ');
+    // Normalize the text carefully to preserve time formats
+    let normalizedText = sessionText
+      .replace(/_+/g, '')  // Remove underscores first
+      // Fix split time formats first (before general space collapse)
+      // Handle patterns like "1 0:11 AM" -> "10:11 AM" and "0 9:00 AM" -> "09:00 AM"
+      .replace(/(\d)\s+(\d):(\d{2})\s*(AM|PM)/gi, '$1$2:$3 $4')
+      .replace(/\s+/g, ' ')  // Now collapse all whitespace to single spaces
+      .trim();
+    
+    // Fix other split numbers (event numbers, entries, heats)
+    normalizedText = normalizedText
+      .replace(/(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d)\s+(\d)\s+(Girls?|Boys?)/gi, '$1 $2$3 $4')  // Fix split event numbers
+      .replace(/(Breaststroke|Backstroke|Butterfly|Freestyle|Free\s*Relay|Medley\s*Relay|IM)\s+(\d)\s+(\d)\s+(\d)/gi, '$1 $2$3 $4');  // Fix split entry/heat counts
     
     // Pattern for event lines: "Prelims 4 Boys 10 & Under 50 Breaststroke 27 4 09:12 AM"
     // Format: Round EventNum Gender AgeGroup Distance Stroke Entries Heats StartTime
-    // Updated to handle optional "u" after heats and flexible spacing before time
-    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/gi;
+    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s+(\d{1,2}:\d{2}\s*(?:AM|PM))/gi;
     
     let match;
     while ((match = eventPattern.exec(normalizedText)) !== null) {

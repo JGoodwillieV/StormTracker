@@ -1862,6 +1862,7 @@ const TimelineTab = ({ meet, onRefresh }) => {
       let eventsUpdated = 0;
       if (parsed.events?.length > 0) {
         for (const evt of parsed.events) {
+          console.log(`Updating event ${evt.eventNumber}: ${evt.eventName} at ${evt.estimatedStartTime}`);
           const { error, data } = await supabase.from('meet_events')
             .update({
               entry_count: evt.entryCount,
@@ -1873,8 +1874,13 @@ const TimelineTab = ({ meet, onRefresh }) => {
             .eq('event_number', evt.eventNumber)
             .select();
           
-          if (!error && data?.length > 0) {
+          if (error) {
+            console.error(`Error updating event ${evt.eventNumber}:`, error);
+          } else if (data?.length > 0) {
             eventsUpdated++;
+            console.log(`✓ Updated event ${evt.eventNumber}`);
+          } else {
+            console.warn(`⚠ No matching event found for event number ${evt.eventNumber}`);
           }
         }
       }
