@@ -658,11 +658,13 @@ export async function parseTimelinePDF(file) {
     // Normalize the text first to handle split numbers
     const normalizedText = sessionText
       .replace(/(\d)\s+(\d)/g, '$1$2')  // Fix "1 4" -> "14"
+      .replace(/_+/g, '')  // Remove underscores
       .replace(/\s+/g, ' ');
     
     // Pattern for event lines: "Prelims 4 Boys 10 & Under 50 Breaststroke 27 4 09:12 AM"
     // Format: Round EventNum Gender AgeGroup Distance Stroke Entries Heats StartTime
-    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
+    // Updated to handle optional "u" after heats and flexible spacing before time
+    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/gi;
     
     let match;
     while ((match = eventPattern.exec(normalizedText)) !== null) {
