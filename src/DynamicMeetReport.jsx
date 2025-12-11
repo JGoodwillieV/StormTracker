@@ -16,6 +16,13 @@ export default function DynamicMeetReport({ reportData, onBack, onExportPDF, isE
   const enabledSections = (activeLayout.sections || [])
     .filter(s => s.enabled)
     .sort((a, b) => a.order - b.order);
+  
+  // Helper to format date properly (avoid timezone issues)
+  const formatDate = (dateStr, options) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', options);
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -31,8 +38,8 @@ export default function DynamicMeetReport({ reportData, onBack, onExportPDF, isE
           <div>
             <h2 className="text-2xl font-bold text-slate-900">{meetName}</h2>
             <p className="text-slate-500">
-              {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {' '}
-              {new Date(dateRange.end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {formatDate(dateRange.start, { month: 'short', day: 'numeric' })} - {' '}
+              {formatDate(dateRange.end, { month: 'short', day: 'numeric', year: 'numeric' })}
             </p>
           </div>
         </div>

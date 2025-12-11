@@ -190,6 +190,14 @@ const generatePDFContent = (data) => {
     return generator(data, section.config || {});
   }).filter(html => html).join('\n');
   
+  // Helper to format date properly (avoid timezone issues)
+  const formatDate = (dateStr, options) => {
+    // Parse as local date to avoid timezone shifting
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', options);
+  };
+  
   return `
 <!DOCTYPE html>
 <html>
@@ -214,7 +222,9 @@ const generatePDFContent = (data) => {
       display: grid; 
       grid-template-columns: repeat(4, 1fr); 
       gap: 12px; 
-      margin-bottom: 24px; 
+      margin-bottom: 24px;
+      page-break-after: avoid;
+      page-break-inside: avoid;
     }
     .stat-card {
       background: white; 
@@ -262,6 +272,8 @@ const generatePDFContent = (data) => {
       margin-bottom: 24px;
       text-align: center;
       box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+      page-break-after: avoid;
+      page-break-inside: avoid;
     }
     .hero .big-number { 
       font-size: 72px; 
@@ -393,7 +405,7 @@ const generatePDFContent = (data) => {
 <body>
   <div class="header">
     <h1>${data.meetName || 'Meet Report'}</h1>
-    <p>${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+    <p>${formatDate(data.dateRange.start, { month: 'long', day: 'numeric' })} - ${formatDate(data.dateRange.end, { month: 'long', day: 'numeric', year: 'numeric' })}</p>
   </div>
 
   ${sectionsHTML}
@@ -416,6 +428,13 @@ const generateClassicPDFContent = (data) => {
   const enabledSections = (layout.sections || [])
     .filter(s => s.enabled)
     .sort((a, b) => a.order - b.order);
+  
+  // Helper to format date properly (avoid timezone issues)
+  const formatDate = (dateStr, options) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', options);
+  };
   
   // Helper function to abbreviate event names
   const abbrevEvent = (event) => {
@@ -566,7 +585,7 @@ const generateClassicPDFContent = (data) => {
   <div class="header">
     <h1>MEET REPORT</h1>
     <div class="subtitle">${data.meetName || 'Team Performance Report'}</div>
-    <div class="subtitle">${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+    <div class="subtitle">${formatDate(data.dateRange.start, { month: 'long', day: 'numeric' })} - ${formatDate(data.dateRange.end, { month: 'long', day: 'numeric', year: 'numeric' })}</div>
   </div>
 
   ${enabledSections.some(s => ['overview-stats', 'bt-percentage'].includes(s.id)) ? `
