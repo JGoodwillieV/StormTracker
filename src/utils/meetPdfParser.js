@@ -830,9 +830,10 @@ export async function parseHeatSheetPDF(file) {
   let currentHeatStart = null;
   
   // Normalize text - handle spaces in numbers
+  // But be careful not to join seed times with ages
   const normalizedText = fullText
-    .replace(/(\d)\s+(\d)/g, '$1$2')  // Fix split numbers
-    .replace(/\s+/g, ' ');  // Normalize whitespace
+    .replace(/\s+/g, ' ')  // First collapse all whitespace to single spaces
+    .trim();
   
   // Split into lines
   const lines = normalizedText.split(/(?=#\d+|Heat\s+\d+)/);
@@ -866,38 +867,74 @@ export async function parseHeatSheetPDF(file) {
     
     // Look for swimmer entries in this segment
     // HY-TEK's PDF extraction puts columns in this order: Team SeedTime Age Name Lane
-    // Example: "HNVR-VA 47.43 9 Goodwillie, James G 5"
+    // Example: "HNVR-VA 47.41 9 Goodwillie, James G 5"
     
     // Debug: Show segment content for troubleshooting if this is event 4, 8, or 12
     if (currentEvent && [4, 8, 12].includes(currentEvent.eventNumber) && currentHeat) {
       console.log(`Event ${currentEvent.eventNumber} Heat ${currentHeat} segment (500 chars):`, segment.substring(0, 500));
     }
     
-    // Pattern: Team SeedTime Age Name Lane
-    // More flexible to handle variations in spacing and name formats
-    const swimmerPattern = /([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\s+(\d{1,2})\s+([A-Za-z][A-Za-z'\-\.]+,\s*[A-Za-z][A-Za-z'\s\-\.]+?)\s+(\d)(?:\s|$)/gi;
+    // Pattern: Team SeedTime+Age Name Lane
+    // The age is stuck to the seed time: "HNVR-VA 47.419 Goodwillie, James G 5"
+    // Seed time format: XX.XX or X:XX.XX, then 1-2 digit age
+    
+    // Match: Team (NT OR time with optional age stuck) (optional age if separated) Name Lane
+    const swimmerPattern = /([A-Z0-9]{2,6}-[A-Z]{2})\s+(NT|[\d:\.]+)\s*(\d{1,2})?\s+([A-Za-z][A-Za-z'\-\.]+,\s*[A-Za-z][A-Za-z'\s\-\.]*(?:\s+[A-Z])?)\s+(\d{1,2})(?:\s|$)/gi;
     
     let swimmerMatch;
     let matchCount = 0;
     while ((swimmerMatch = swimmerPattern.exec(segment)) !== null) {
       if (currentEvent && currentHeat) {
-        matchCount++;
-        const entry = {
-          eventNumber: currentEvent.eventNumber,
-          eventName: currentEvent.eventName,
-          gender: currentEvent.gender,
-          teamCode: swimmerMatch[1],
-          seedTime: swimmerMatch[2],
-          age: parseInt(swimmerMatch[3]),
-          swimmerName: swimmerMatch[4].trim(),
-          lane: parseInt(swimmerMatch[5]),
-          seedTimeSeconds: parseTimeToSeconds(swimmerMatch[2]),
-          heat: currentHeat,
-          heatStartTime: currentHeatStart
-        };
+        let teamCode = swimmerMatch[1];
+        let seedTimeRaw = swimmerMatch[2];
+        let ageStr = swimmerMatch[3];
+        let swimmerName = swimmerMatch[4].trim();
+        let lane = parseInt(swimmerMatch[5]);
         
-        result.entries.push(entry);
-        console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat, 'seed:', entry.seedTime);
+        // Parse seed time and age
+        // If age is missing, it might be stuck to the end of seedTimeRaw
+        let seedTime = seedTimeRaw;
+        let age = null;
+        
+        if (ageStr) {
+          age = parseInt(ageStr);
+        } else if (seedTimeRaw !== 'NT' && /\d$/.test(seedTimeRaw)) {
+          // Age is stuck to seed time - extract last 1-2 digits
+          // Check if last digit makes sense as age
+          const lastChar = seedTimeRaw[seedTimeRaw.length - 1];
+          if (lastChar >= '6' && lastChar <= '9') {
+            // Single digit age (6-9)
+            seedTime = seedTimeRaw.slice(0, -1);
+            age = parseInt(lastChar);
+          } else if (seedTimeRaw.length >= 2) {
+            // Try last 2 digits (10-12)
+            const last2 = seedTimeRaw.slice(-2);
+            if (last2 === '10' || last2 === '11' || last2 === '12') {
+              seedTime = seedTimeRaw.slice(0, -2);
+              age = parseInt(last2);
+            }
+          }
+        }
+        
+        if (age) {
+          matchCount++;
+          const entry = {
+            eventNumber: currentEvent.eventNumber,
+            eventName: currentEvent.eventName,
+            gender: currentEvent.gender,
+            teamCode: teamCode,
+            seedTime: seedTime,
+            age: age,
+            swimmerName: swimmerName,
+            lane: lane,
+            seedTimeSeconds: parseTimeToSeconds(seedTime),
+            heat: currentHeat,
+            heatStartTime: currentHeatStart
+          };
+          
+          result.entries.push(entry);
+          console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat, 'seed:', entry.seedTime);
+        }
       }
     }
     
