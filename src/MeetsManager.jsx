@@ -2155,72 +2155,70 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
       console.log('Parsed heat sheet:', parsed);
       console.log(`Found ${parsed.entries.length} total entries in heat sheet`);
       
-      // Get swimmers to match
-      const { data: swimmers } = await supabase
-        .from('swimmers')
-        .select('id, name');
-      
-      console.log(`Found ${swimmers?.length || 0} swimmers in database`);
-      
       // Get team code from meet or default to HNVR (could be made configurable)
       const teamCode = meet.team_code || 'HNVR';
       
-      // Match entries to our swimmers
-      const matched = matchHeatSheetEntries(parsed.entries, swimmers || [], teamCode);
-      
-      const matchedEntries = matched.filter(e => e.matched);
-      const ourTeamEntries = matched.filter(e => e.matchReason !== 'different_team');
-      
-      console.log(`Matched ${matchedEntries.length} entries out of ${ourTeamEntries.length} for our team`);
-      
-      setParseResult({
-        totalEntries: parsed.entries.length,
-        ourTeamEntries: ourTeamEntries.length,
-        matchedEntries: matchedEntries.length,
-        matched
-      });
-      
-      // Get existing meet entries to cross-reference
+      // Get existing meet entries to match against
       const { data: existingEntries } = await supabase
         .from('meet_entries')
-        .select('id, swimmer_id, swimmer_name, event_number')
+        .select('id, swimmer_id, swimmer_name, event_number, event_name')
         .eq('meet_id', meet.id);
       
-      console.log(`Found ${existingEntries?.length || 0} existing entries in database`);
+      console.log(`Found ${existingEntries?.length || 0} existing entries in database for this meet`);
       
-      // Update entries with heat/lane data - only for entries that exist
+      // Match heat sheet entries to existing database entries
       let updatedCount = 0;
+      let matchedCount = 0;
       let notFound = [];
       
-      for (const entry of matchedEntries) {
-        console.log('Updating entry:', entry.swimmer_id, 'event:', entry.eventNumber, 'heat:', entry.heat, 'lane:', entry.lane);
-        
-        // Check if this entry exists in the database
-        const existingEntry = existingEntries?.find(e => 
-          e.swimmer_id === entry.swimmer_id && e.event_number === entry.eventNumber
-        );
-        
-        if (!existingEntry) {
-          console.log(`⚠ Entry not in database: ${entry.matchedSwimmerName} - Event ${entry.eventNumber}`);
-          notFound.push(`${entry.matchedSwimmerName} - Event ${entry.eventNumber}`);
+      for (const heatEntry of parsed.entries) {
+        // Skip other teams if team code is specified
+        if (teamCode && !heatEntry.teamCode.toUpperCase().startsWith(teamCode.toUpperCase())) {
           continue;
         }
         
-        const { error, data } = await supabase
-          .from('meet_entries')
-          .update({
-            heat_number: entry.heat,
-            lane_number: entry.lane,
-            heat_seed_time: entry.seedTime
-          })
-          .eq('id', existingEntry.id)
-          .select();
+        // This is one of our team's entries
+        matchedCount++;
         
-        if (error) {
-          console.error('Error updating entry:', error);
-        } else if (data?.length > 0) {
-          updatedCount++;
-          console.log(`✓ Updated: ${entry.matchedSwimmerName} - Event ${entry.eventNumber}, Heat ${entry.heat}, Lane ${entry.lane}`);
+        // Try to find matching entry in database by event number and swimmer name
+        const dbEntry = existingEntries?.find(e => {
+          if (e.event_number !== heatEntry.eventNumber) return false;
+          
+          // Parse heat sheet name: "Goodwillie, James G" -> last="goodwillie", first="james"
+          const heatName = heatEntry.swimmerName.toLowerCase();
+          const heatParts = heatName.split(',').map(p => p.trim());
+          const heatLast = heatParts[0] || '';
+          const heatFirst = heatParts[1]?.split(/\s+/)[0] || '';
+          
+          // Parse database name: "James G Goodwillie"
+          const dbName = e.swimmer_name.toLowerCase();
+          
+          // Check if both first and last names are in the database name
+          return dbName.includes(heatLast) && dbName.includes(heatFirst);
+        });
+        
+        if (dbEntry) {
+          console.log(`✓ Match found: ${heatEntry.swimmerName} (Event ${heatEntry.eventNumber}, Heat ${heatEntry.heat}, Lane ${heatEntry.lane})`);
+          
+          const { error, data } = await supabase
+            .from('meet_entries')
+            .update({
+              heat_number: heatEntry.heat,
+              lane_number: heatEntry.lane,
+              heat_seed_time: heatEntry.seedTime
+            })
+            .eq('id', dbEntry.id)
+            .select();
+          
+          if (error) {
+            console.error('Error updating entry:', error);
+          } else if (data?.length > 0) {
+            updatedCount++;
+            console.log(`  ✓ Updated: ${dbEntry.swimmer_name} - ${dbEntry.event_name}`);
+          }
+        } else {
+          console.log(`⚠ No match: ${heatEntry.swimmerName} (Event ${heatEntry.eventNumber})`);
+          notFound.push(`${heatEntry.swimmerName} - Event ${heatEntry.eventNumber}`);
         }
       }
       
@@ -2229,11 +2227,11 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
         heat_sheet_pdf_url: 'uploaded'
       }).eq('id', meet.id);
       
-      if (notFound.length > 0) {
-        console.log(`${notFound.length} entries in heat sheet but not in database:`, notFound.slice(0, 5));
+      if (notFound.length > 0 && notFound.length <= 10) {
+        console.log(`Entries in heat sheet but not matched:`, notFound);
       }
       
-      alert(`Heat sheet processed!\n• ${parsed.entries.length} total entries in PDF\n• ${ourTeamEntries.length} entries for ${teamCode}\n• ${matchedEntries.length} swimmers matched\n• ${updatedCount} entries updated\n• ${notFound.length} entries not in database`);
+      alert(`Heat sheet processed!\n• ${parsed.entries.length} total entries in PDF\n• ${matchedCount} entries for ${teamCode}\n• ${updatedCount} entries updated with heat/lane\n• ${notFound.length} entries not matched`);
       loadEntries();
       onRefresh();
     } catch (error) {
