@@ -2166,17 +2166,33 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
       
       console.log(`Found ${existingEntries?.length || 0} existing entries in database for this meet`);
       
+      // Debug: Log what swimmers and events we're looking to match
+      if (existingEntries && existingEntries.length > 0) {
+        const swimmerEventPairs = existingEntries.map(e => 
+          `${e.swimmer_name} - Event ${e.event_number}: ${e.event_name}`
+        );
+        console.log('=== ENTRIES TO MATCH ===');
+        swimmerEventPairs.forEach(pair => console.log(`  ${pair}`));
+        console.log('========================');
+      }
+      
+      // Filter to our team's entries
+      const ourTeamHeatEntries = parsed.entries.filter(e => 
+        !teamCode || e.teamCode.toUpperCase().startsWith(teamCode.toUpperCase())
+      );
+      
+      console.log(`=== HEAT SHEET ENTRIES FOR ${teamCode} ===`);
+      ourTeamHeatEntries.forEach(e => 
+        console.log(`  ${e.swimmerName} - Event ${e.eventNumber}, Heat ${e.heat}, Lane ${e.lane}`)
+      );
+      console.log('========================================');
+      
       // Match heat sheet entries to existing database entries
       let updatedCount = 0;
       let matchedCount = 0;
       let notFound = [];
       
-      for (const heatEntry of parsed.entries) {
-        // Skip other teams if team code is specified
-        if (teamCode && !heatEntry.teamCode.toUpperCase().startsWith(teamCode.toUpperCase())) {
-          continue;
-        }
-        
+      for (const heatEntry of ourTeamHeatEntries) {
         // This is one of our team's entries
         matchedCount++;
         
@@ -2217,7 +2233,11 @@ const HeatSheetTab = ({ meet, onRefresh }) => {
             console.log(`  ✓ Updated: ${dbEntry.swimmer_name} - ${dbEntry.event_name}`);
           }
         } else {
-          console.log(`⚠ No match: ${heatEntry.swimmerName} (Event ${heatEntry.eventNumber})`);
+          // Debug: Show what we were looking for
+          const heatParts = heatEntry.swimmerName.toLowerCase().split(',').map(p => p.trim());
+          const heatLast = heatParts[0] || '';
+          const heatFirst = heatParts[1]?.split(/\s+/)[0] || '';
+          console.log(`⚠ No match: ${heatEntry.swimmerName} (Event ${heatEntry.eventNumber}) - looking for "${heatFirst}" and "${heatLast}" in event ${heatEntry.eventNumber}`);
           notFound.push(`${heatEntry.swimmerName} - Event ${heatEntry.eventNumber}`);
         }
       }
