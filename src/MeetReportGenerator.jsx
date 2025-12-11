@@ -1,6 +1,6 @@
 // src/MeetReportGenerator.jsx
 // Comprehensive Meet Report Generator for Coaches
-// V2: Fixed duplicate times + Added PDF Export
+// V3: Added age group filtering + Classic format option
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './supabase';
@@ -57,6 +57,18 @@ const parseEvent = (evt) => {
     return { dist, stroke };
   }
   return { dist: '', stroke: '' };
+};
+
+const getAgeGroup = (age) => {
+  if (!age) return null;
+  const numAge = parseInt(age);
+  if (numAge <= 8) return '8 & Under';
+  if (numAge >= 9 && numAge <= 10) return '9-10';
+  if (numAge >= 11 && numAge <= 12) return '11-12';
+  if (numAge >= 13 && numAge <= 14) return '13-14';
+  if (numAge >= 15 && numAge <= 18) return '15-18';
+  if (numAge >= 19) return '19 & Over';
+  return null;
 };
 
 const normalizeEvent = (evt) => {
@@ -319,6 +331,183 @@ const generatePDFContent = (data) => {
 };
 
 // ============================================
+// OLD FORMAT PDF EXPORT FUNCTION
+// ============================================
+
+const generateClassicPDFContent = (data) => {
+  // Group new standards by swimmer
+  const standardsBySwimmer = {};
+  data.newStandards.forEach(ns => {
+    const swimmerId = ns.swimmer.id;
+    if (!standardsBySwimmer[swimmerId]) {
+      standardsBySwimmer[swimmerId] = {
+        name: ns.swimmer.name,
+        standards: []
+      };
+    }
+    standardsBySwimmer[swimmerId].standards.push({
+      level: ns.standardLevel,
+      event: ns.event
+    });
+  });
+
+  // Sort swimmers by name
+  const swimmersList = Object.values(standardsBySwimmer).sort((a, b) => 
+    a.name.localeCompare(b.name)
+  );
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>${data.meetName || 'Meet Report'}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #000; line-height: 1.8; padding: 40px; max-width: 900px; margin: 0 auto;
+      font-size: 14px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding-bottom: 20px;
+      border-bottom: 3px solid #000;
+    }
+    .header h1 { 
+      font-size: 32px; 
+      font-weight: 900; 
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .header .subtitle { 
+      font-size: 18px; 
+      font-weight: 600;
+      color: #333;
+    }
+    .section {
+      margin-bottom: 40px;
+      page-break-inside: avoid;
+    }
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #333;
+    }
+    .highlight-stat {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.6;
+    }
+    .swimmer-entry {
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+    .swimmer-name {
+      font-weight: 700;
+    }
+    .standards-list {
+      display: inline;
+    }
+    .standard-badge {
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .info-section {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .info-section h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+    .info-section ul {
+      margin-left: 20px;
+      margin-top: 8px;
+    }
+    .info-section li {
+      margin-bottom: 4px;
+    }
+    @media print { 
+      body { padding: 20px; font-size: 12px; }
+      .section { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MEET REPORT</h1>
+    <div class="subtitle">${data.meetName || 'Team Performance Report'}</div>
+    <div class="subtitle">${new Date(data.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${new Date(data.dateRange.end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+  </div>
+
+  <div class="section">
+    <div class="highlight-stat">
+      Team Performance <strong>${data.btPercent}%</strong> Best times! (${data.bestTimeCount} out of ${data.totalSwims})
+    </div>
+    ${data.firstTimeCount > 0 ? `<div class="highlight-stat"><strong>${data.firstTimeCount}</strong> Established First Times!</div>` : ''}
+  </div>
+
+  ${swimmersList.length > 0 ? `
+  <div class="section">
+    <div class="section-title">New Motivational Time Standards:</div>
+    ${swimmersList.map(swimmer => {
+      // Group standards by level for this swimmer
+      const byLevel = {};
+      swimmer.standards.forEach(std => {
+        if (!byLevel[std.level]) byLevel[std.level] = [];
+        byLevel[std.level].push(std.event);
+      });
+      
+      // Build the standards text
+      const standardsText = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B']
+        .filter(level => byLevel[level])
+        .map(level => `<span class="standard-badge">${level}</span> ${byLevel[level].join(' ')}`)
+        .join(' ');
+      
+      return `
+        <div class="swimmer-entry">
+          <span class="swimmer-name">${swimmer.name}:</span> ${standardsText}
+        </div>
+      `;
+    }).join('')}
+  </div>
+  ` : ''}
+
+  <div class="info-section">
+    <h3>Motivational Times:</h3>
+    <p>
+      USA Swimming uses what is known as time standards or motivational times. This is done to motivate and create goals for swimmers as well as being able to qualify meets. Some meets, for example, may only be for swimmers who have A and above times and conversely some meets may only be for C/B/BB swimmers. Most meets will be open to all but the meet invite will indicate if there are any restrictions on who can attend.
+    </p>
+    <p style="margin-top:12px;">
+      The time standards are determined by USA swimming based on percentages and you can determine where your swimmer stands compared to other swimmers based on the time standard achieved:
+    </p>
+    <ul>
+      <li><strong>C</strong> - All swimmers below a B standard</li>
+      <li><strong>B</strong> - Top 55% of swimmers</li>
+      <li><strong>BB</strong> - Top 35% of swimmers</li>
+      <li><strong>A</strong> - Top 15% of swimmers</li>
+      <li><strong>AA</strong> - Top 8% of swimmers</li>
+      <li><strong>AAA</strong> - Top 6% of swimmers</li>
+      <li><strong>AAAA</strong> - Top 2% of swimmers</li>
+    </ul>
+  </div>
+
+  <script>window.onload = function() { window.print(); }</script>
+</body>
+</html>`;
+};
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 
@@ -327,11 +516,23 @@ export default function MeetReportGenerator({ onBack }) {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedGroups, setSelectedGroups] = useState([]);
   const [availableGroups, setAvailableGroups] = useState([]);
+  const [selectedAgeGroups, setSelectedAgeGroups] = useState([]);
+  const [reportFormat, setReportFormat] = useState('modern'); // 'modern' or 'classic'
   const [meetName, setMeetName] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [reportData, setReportData] = useState(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+
+  // Available age groups for filtering
+  const AGE_GROUPS = [
+    '8 & Under',
+    '9-10',
+    '11-12',
+    '13-14',
+    '15-18',
+    '19 & Over'
+  ];
 
   useEffect(() => {
     const loadGroups = async () => {
@@ -357,7 +558,10 @@ export default function MeetReportGenerator({ onBack }) {
     setIsExportingPDF(true);
     try {
       const printWindow = window.open('', '_blank');
-      printWindow.document.write(generatePDFContent(reportData));
+      const content = reportFormat === 'classic' 
+        ? generateClassicPDFContent(reportData)
+        : generatePDFContent(reportData);
+      printWindow.document.write(content);
       printWindow.document.close();
     } catch (error) {
       console.error('PDF export error:', error);
@@ -552,9 +756,18 @@ export default function MeetReportGenerator({ onBack }) {
       setLoadingProgress(10);
       const { data: swimmers } = await supabase.from('swimmers').select('*');
       
-      const filteredSwimmers = selectedGroups.length > 0
+      // Filter by group if specified
+      let filteredSwimmers = selectedGroups.length > 0
         ? swimmers.filter(s => selectedGroups.includes(s.group_name))
         : swimmers;
+      
+      // Filter by age group if specified
+      if (selectedAgeGroups.length > 0) {
+        filteredSwimmers = filteredSwimmers.filter(s => {
+          const ageGroup = getAgeGroup(s.age);
+          return selectedAgeGroups.includes(ageGroup);
+        });
+      }
       
       const swimmerIds = filteredSwimmers.map(s => s.id);
       const swimmerMap = filteredSwimmers.reduce((acc, s) => { acc[s.id] = s; return acc; }, {});
@@ -723,6 +936,60 @@ export default function MeetReportGenerator({ onBack }) {
                   Clear All
                 </button>
               )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              <Users size={14} className="inline mr-1" /> Filter by Age Group (Optional)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {AGE_GROUPS.map(ageGroup => (
+                <button
+                  key={ageGroup}
+                  onClick={() => setSelectedAgeGroups(prev => prev.includes(ageGroup) ? prev.filter(g => g !== ageGroup) : [...prev, ageGroup])}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    selectedAgeGroups.includes(ageGroup) ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {ageGroup}
+                </button>
+              ))}
+              {selectedAgeGroups.length > 0 && (
+                <button onClick={() => setSelectedAgeGroups([])} className="px-3 py-1.5 rounded-full text-sm font-medium text-rose-600 hover:bg-rose-50">
+                  Clear All
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              <FileText size={14} className="inline mr-1" /> Report Format
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setReportFormat('modern')}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  reportFormat === 'modern' 
+                    ? 'border-indigo-600 bg-indigo-50' 
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="font-semibold text-slate-800 mb-1">Modern Format</div>
+                <div className="text-xs text-slate-500">Styled report with charts and detailed analytics</div>
+              </button>
+              <button
+                onClick={() => setReportFormat('classic')}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  reportFormat === 'classic' 
+                    ? 'border-indigo-600 bg-indigo-50' 
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="font-semibold text-slate-800 mb-1">Classic Format</div>
+                <div className="text-xs text-slate-500">Simple text format with new standards by swimmer</div>
+              </button>
             </div>
           </div>
 
