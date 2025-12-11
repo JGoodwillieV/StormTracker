@@ -154,6 +154,8 @@ export default function Standards({ eventName, bestTime, gender, age }) {
         standards={standards}
         bestTime={bestTime}
         eventName={eventName}
+        age={age}
+        gender={gender}
       />
     </>
   );
