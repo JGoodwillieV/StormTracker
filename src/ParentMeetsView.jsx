@@ -27,10 +27,17 @@ const formatDate = (date) => {
 const formatTime = (time) => {
   if (!time) return '';
   try {
-    // Handle both "HH:MM:SS" and timestamp formats
-    const timeStr = typeof time === 'string' && time.includes('T') 
-      ? new Date(time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      : time;
+    // Handle full timestamps like "2025-11-14 09:43:00" or ISO format or just times
+    let timeStr = time;
+    if (typeof time === 'string') {
+      if (time.includes('T')) {
+        // ISO format
+        timeStr = new Date(time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      } else if (time.includes(' ')) {
+        // Space-separated timestamp "2025-11-14 09:43:00"
+        timeStr = time.split(' ')[1];
+      }
+    }
     
     if (timeStr.includes(':')) {
       const [hours, mins] = timeStr.split(':');

@@ -43,7 +43,9 @@ const formatDate = (date) => {
 const formatTime = (time) => {
   if (!time) return '';
   try {
-    const [hours, mins] = time.split(':');
+    // Handle full timestamps like "2025-11-14 09:43:00" or just times like "09:43:00"
+    const timeString = time.includes(' ') ? time.split(' ')[1] : time;
+    const [hours, mins] = timeString.split(':');
     const h = parseInt(hours);
     const ampm = h >= 12 ? 'PM' : 'AM';
     const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
@@ -1878,20 +1880,34 @@ const TimelineTab = ({ meet, onRefresh }) => {
       }
       
       // Get all sessions to map session numbers to dates (needed for both events and entries)
+      // Also identify which sessions are prelims
       const { data: sessionsData } = await supabase
         .from('meet_sessions')
-        .select('session_number, session_date')
+        .select('session_number, session_date, session_name')
         .eq('meet_id', meet.id);
       
       const sessionDateMap = {};
+      const prelimsSessionNumbers = new Set();
       (sessionsData || []).forEach(s => {
         sessionDateMap[s.session_number] = s.session_date;
+        // Track prelims sessions
+        if (s.session_name?.toLowerCase().includes('prelim')) {
+          prelimsSessionNumbers.add(s.session_number);
+        }
       });
       
       // Update meet_events with timeline data
+      // Only process events from PRELIMS sessions (skip finals)
       let eventsUpdated = 0;
       if (parsed.events?.length > 0) {
-        for (const evt of parsed.events) {
+        // Filter to only prelims events
+        const prelimsEvents = parsed.events.filter(evt => 
+          prelimsSessionNumbers.has(evt.sessionNumber)
+        );
+        
+        console.log(`Processing ${prelimsEvents.length} prelims events (skipping ${parsed.events.length - prelimsEvents.length} finals events)`);
+        
+        for (const evt of prelimsEvents) {
           const time24h = convertTo24Hour(evt.estimatedStartTime);
           const sessionDate = sessionDateMap[evt.sessionNumber] || meet.start_date;
           
@@ -1922,8 +1938,9 @@ const TimelineTab = ({ meet, onRefresh }) => {
       }
       
       // Update meet_entries with estimated start times from events
+      // Only process prelims events
       let entriesUpdated = 0;
-      for (const evt of parsed.events) {
+      for (const evt of prelimsEvents) {
         if (evt.estimatedStartTime) {
           const time24h = convertTo24Hour(evt.estimatedStartTime);
           const sessionDate = sessionDateMap[evt.sessionNumber] || meet.start_date;
@@ -1946,7 +1963,8 @@ const TimelineTab = ({ meet, onRefresh }) => {
         timeline_pdf_url: 'uploaded'
       }).eq('id', meet.id);
       
-      alert(`Timeline uploaded!\n• ${parsed.sessions?.length || 0} sessions\n• ${eventsUpdated} events updated\n• ${entriesUpdated} entries updated with start times`);
+      const prelimsSessions = parsed.sessions?.filter(s => s.name?.toLowerCase().includes('prelim')) || [];
+      alert(`Timeline uploaded!\n• ${prelimsSessions.length} prelims sessions\n• ${eventsUpdated} events updated with start times\n• ${entriesUpdated} entries updated\n• Skipped ${parsed.events.length - prelimsEvents.length} finals events`);
       loadTimeline();
       onRefresh();
     } catch (error) {
