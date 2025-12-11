@@ -1812,6 +1812,25 @@ const TimelineTab = ({ meet, onRefresh }) => {
     }
   };
 
+  // Helper function to convert 12-hour time to 24-hour format for PostgreSQL
+  const convertTo24Hour = (time12h) => {
+    if (!time12h) return null;
+    
+    const match = time12h.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!match) return time12h; // Return as-is if format doesn't match
+    
+    let [, hours, minutes, period] = match;
+    hours = parseInt(hours);
+    
+    if (period.toUpperCase() === 'PM' && hours !== 12) {
+      hours += 12;
+    } else if (period.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes}:00`;
+  };
+
   const handleTimelineUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1841,7 +1860,7 @@ const TimelineTab = ({ meet, onRefresh }) => {
             session_number: session.sessionNumber,
             session_name: session.name,
             session_date: sessionDate,
-            start_time: session.startTime,
+            start_time: convertTo24Hour(session.startTime),
             heat_interval_seconds: session.heatInterval || 30,
             session_type: session.name?.toLowerCase().includes('final') ? 'finals' : 'prelims'
           };
@@ -1862,12 +1881,13 @@ const TimelineTab = ({ meet, onRefresh }) => {
       let eventsUpdated = 0;
       if (parsed.events?.length > 0) {
         for (const evt of parsed.events) {
-          console.log(`Updating event ${evt.eventNumber}: ${evt.eventName} at ${evt.estimatedStartTime}`);
+          const time24h = convertTo24Hour(evt.estimatedStartTime);
+          console.log(`Updating event ${evt.eventNumber}: ${evt.eventName} at ${evt.estimatedStartTime} (${time24h})`);
           const { error, data } = await supabase.from('meet_events')
             .update({
               entry_count: evt.entryCount,
               heat_count: evt.heatCount,
-              estimated_start_time: evt.estimatedStartTime,
+              estimated_start_time: time24h,
               session_number: evt.sessionNumber
             })
             .eq('meet_id', meet.id)
@@ -1889,8 +1909,9 @@ const TimelineTab = ({ meet, onRefresh }) => {
       let entriesUpdated = 0;
       for (const evt of parsed.events) {
         if (evt.estimatedStartTime) {
+          const time24h = convertTo24Hour(evt.estimatedStartTime);
           const { data } = await supabase.from('meet_entries')
-            .update({ estimated_start_time: evt.estimatedStartTime })
+            .update({ estimated_start_time: time24h })
             .eq('meet_id', meet.id)
             .eq('event_number', evt.eventNumber)
             .select();
