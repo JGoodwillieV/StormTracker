@@ -43,14 +43,29 @@ const formatDate = (date) => {
 const formatTime = (time) => {
   if (!time) return '';
   try {
-    // Handle full timestamps like "2025-11-14 09:43:00" or just times like "09:43:00"
-    const timeString = time.includes(' ') ? time.split(' ')[1] : time;
+    let timeString = time;
+    
+    // Handle different timestamp formats
+    if (typeof time === 'string') {
+      // ISO format: "2025-11-14T09:00:00.000Z" or "2025-11-14T09:00:00"
+      if (time.includes('T')) {
+        const date = new Date(time);
+        timeString = date.toTimeString().split(' ')[0]; // Gets "HH:MM:SS"
+      }
+      // Space-separated: "2025-11-14 09:00:00"
+      else if (time.includes(' ')) {
+        timeString = time.split(' ')[1];
+      }
+      // Already just time: "09:00:00"
+    }
+    
     const [hours, mins] = timeString.split(':');
     const h = parseInt(hours);
     const ampm = h >= 12 ? 'PM' : 'AM';
     const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
     return `${hour12}:${mins} ${ampm}`;
-  } catch {
+  } catch (error) {
+    console.error('Error formatting time:', time, error);
     return time;
   }
 };
@@ -1804,6 +1819,11 @@ const TimelineTab = ({ meet, onRefresh }) => {
         .select('*')
         .eq('meet_id', meet.id)
         .order('session_number, event_number');
+      
+      // Debug: Log a sample event to see the timestamp format
+      if (eventsData && eventsData.length > 0 && eventsData[0].estimated_start_time) {
+        console.log('Sample event timestamp:', eventsData[0].estimated_start_time, typeof eventsData[0].estimated_start_time);
+      }
       
       setSessions(sessionsData || []);
       setEvents(eventsData || []);
