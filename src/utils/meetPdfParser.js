@@ -868,12 +868,20 @@ export async function parseHeatSheetPDF(file) {
     // HY-TEK's PDF extraction puts columns in this order: Team SeedTime Age Name Lane
     // Example: "HNVR-VA 47.43 9 Goodwillie, James G 5"
     
+    // Debug: Show segment content for troubleshooting if this is event 4, 8, or 12
+    if (currentEvent && [4, 8, 12].includes(currentEvent.eventNumber) && currentHeat) {
+      console.log(`Event ${currentEvent.eventNumber} Heat ${currentHeat} segment (500 chars):`, segment.substring(0, 500));
+    }
+    
     // Pattern: Team SeedTime Age Name Lane
-    const swimmerPattern = /([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\s+(\d{1,2})\s+([A-Za-z][A-Za-z'\s-]+,\s*[A-Za-z][A-Za-z'\s-]+(?:\s+[A-Z])?)\s+(\d)/gi;
+    // More flexible to handle variations in spacing and name formats
+    const swimmerPattern = /([A-Z0-9]{2,6}-[A-Z]{2})\s+([\d:.]+|NT)\s+(\d{1,2})\s+([A-Za-z][A-Za-z'\-\.]+,\s*[A-Za-z][A-Za-z'\s\-\.]+?)\s+(\d)(?:\s|$)/gi;
     
     let swimmerMatch;
+    let matchCount = 0;
     while ((swimmerMatch = swimmerPattern.exec(segment)) !== null) {
       if (currentEvent && currentHeat) {
+        matchCount++;
         const entry = {
           eventNumber: currentEvent.eventNumber,
           eventName: currentEvent.eventName,
@@ -891,6 +899,11 @@ export async function parseHeatSheetPDF(file) {
         result.entries.push(entry);
         console.log('Found swimmer:', entry.swimmerName, 'lane:', entry.lane, 'heat:', entry.heat, 'seed:', entry.seedTime);
       }
+    }
+    
+    // Debug: If no matches in this segment but we have event and heat
+    if (currentEvent && currentHeat && matchCount === 0 && [4, 8, 12].includes(currentEvent.eventNumber)) {
+      console.log(`⚠ No swimmers matched in Event ${currentEvent.eventNumber} Heat ${currentHeat} segment`);
     }
   }
   
