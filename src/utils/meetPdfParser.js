@@ -671,9 +671,18 @@ export async function parseTimelinePDF(file) {
     
     // Pattern for event lines: "Prelims 4 Boys 10 & Under 50 Breaststroke 27 4 09:12 AM"
     // Format: Round EventNum Gender AgeGroup Distance Stroke Entries Heats StartTime
-    const eventPattern = /(Prelims?|Finals?(?:-\d|-S|-1)?)\s+(\d+)\s+(Girls?|Boys?)\s+((?:\d+\s*&?\s*Under|\d+-\d+|\d+\s*&?\s*Over))\s+(\d+)\s+([A-Za-z\s]+?)\s+(\d+)\s+(\d+)\s*u?\s+(\d{1,2}:\d{2}\s*(?:AM|PM))/gi;
+    // Use explicit stroke names to avoid greedy matching
+    const strokePattern = '(Freestyle|Breaststroke|Backstroke|Butterfly|Free\\s*Relay|Medley\\s*Relay|IM)';
+    const eventPattern = new RegExp(`(Prelims?|Finals?(?:-\\d|-S|-1)?)\\s+(\\d+)\\s+(Girls?|Boys?)\\s+((?:\\d+\\s*&?\\s*Under|\\d+-\\d+|\\d+\\s*&?\\s*Over))\\s+(\\d+)\\s+${strokePattern}\\s+(\\d+)\\s+(\\d+)\\s*u?\\s+(\\d{1,2}:\\d{2}\\s*(?:AM|PM))`, 'gi');
+    
+    // Debug: Log the normalized text for this session (first 1000 chars)
+    if (sessionInfo.sessionNumber <= 2) {
+      console.log(`Session ${sessionInfo.sessionNumber} normalized text (first 1000 chars):`, normalizedText.substring(0, 1000));
+    }
     
     let match;
+    const foundEvents = new Set();
+    
     while ((match = eventPattern.exec(normalizedText)) !== null) {
       const roundType = match[1].toLowerCase();
       const eventNumber = parseInt(match[2]);
@@ -702,7 +711,44 @@ export async function parseTimelinePDF(file) {
         estimatedStartTime: startTime
       });
       
+      foundEvents.add(eventNumber);
       console.log(`Event ${eventNumber}: ${eventName} at ${startTime}`);
+    }
+    
+    // Try a more lenient pattern for events that might be missing entry/heat counts
+    const lenientPattern = new RegExp(`(Prelims?|Finals?(?:-\\d|-S|-1)?)\\s+(\\d+)\\s+(Girls?|Boys?)\\s+((?:\\d+\\s*&?\\s*Under|\\d+-\\d+|\\d+\\s*&?\\s*Over))\\s+(\\d+)\\s+${strokePattern}.*?(\\d{1,2}:\\d{2}\\s*(?:AM|PM))`, 'gi');
+    
+    while ((match = lenientPattern.exec(normalizedText)) !== null) {
+      const eventNumber = parseInt(match[2]);
+      
+      // Skip if we already found this event with the strict pattern
+      if (foundEvents.has(eventNumber)) continue;
+      
+      const roundType = match[1].toLowerCase();
+      const gender = match[3].toLowerCase().includes('girl') ? 'Girls' : 'Boys';
+      const ageGroup = normalizeAgeGroup(match[4]);
+      const distance = parseInt(match[5]);
+      const stroke = normalizeStroke(match[6].trim());
+      const startTime = match[7].trim();
+      
+      const eventName = `${gender} ${ageGroup} ${distance} ${stroke}`;
+      
+      result.events.push({
+        sessionNumber: sessionInfo.sessionNumber,
+        eventNumber,
+        eventName,
+        gender,
+        ageGroup,
+        distance,
+        stroke,
+        isRelay: /relay/i.test(stroke),
+        roundType: roundType.includes('final') ? 'finals' : 'prelims',
+        entryCount: null,
+        heatCount: null,
+        estimatedStartTime: startTime
+      });
+      
+      console.log(`Event ${eventNumber} (lenient): ${eventName} at ${startTime}`);
     }
   }
   
