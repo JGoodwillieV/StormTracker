@@ -1877,17 +1877,33 @@ const TimelineTab = ({ meet, onRefresh }) => {
         }
       }
       
+      // Get all sessions to map session numbers to dates (needed for both events and entries)
+      const { data: sessionsData } = await supabase
+        .from('meet_sessions')
+        .select('session_number, session_date')
+        .eq('meet_id', meet.id);
+      
+      const sessionDateMap = {};
+      (sessionsData || []).forEach(s => {
+        sessionDateMap[s.session_number] = s.session_date;
+      });
+      
       // Update meet_events with timeline data
       let eventsUpdated = 0;
       if (parsed.events?.length > 0) {
         for (const evt of parsed.events) {
           const time24h = convertTo24Hour(evt.estimatedStartTime);
-          console.log(`Updating event ${evt.eventNumber}: ${evt.eventName} at ${evt.estimatedStartTime} (${time24h})`);
+          const sessionDate = sessionDateMap[evt.sessionNumber] || meet.start_date;
+          
+          // Create full timestamp by combining session date with time
+          const timestamp = sessionDate && time24h ? `${sessionDate} ${time24h}` : null;
+          
+          console.log(`Updating event ${evt.eventNumber}: ${evt.eventName} at ${evt.estimatedStartTime} (${timestamp})`);
           const { error, data } = await supabase.from('meet_events')
             .update({
               entry_count: evt.entryCount,
               heat_count: evt.heatCount,
-              estimated_start_time: time24h,
+              estimated_start_time: timestamp,
               session_number: evt.sessionNumber
             })
             .eq('meet_id', meet.id)
@@ -1910,8 +1926,11 @@ const TimelineTab = ({ meet, onRefresh }) => {
       for (const evt of parsed.events) {
         if (evt.estimatedStartTime) {
           const time24h = convertTo24Hour(evt.estimatedStartTime);
+          const sessionDate = sessionDateMap[evt.sessionNumber] || meet.start_date;
+          const timestamp = sessionDate && time24h ? `${sessionDate} ${time24h}` : null;
+          
           const { data } = await supabase.from('meet_entries')
-            .update({ estimated_start_time: time24h })
+            .update({ estimated_start_time: timestamp })
             .eq('meet_id', meet.id)
             .eq('event_number', evt.eventNumber)
             .select();
