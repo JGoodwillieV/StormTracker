@@ -425,7 +425,7 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
             <label className="text-xs text-slate-500 font-medium mb-1 block">Training Group</label>
             <select
               value={practice.training_group_id || ''}
-              onChange={(e) => handleUpdatePractice({ training_group_id: e.target.value ? parseInt(e.target.value) : null })}
+              onChange={(e) => handleUpdatePractice({ training_group_id: e.target.value || null })}
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Groups</option>

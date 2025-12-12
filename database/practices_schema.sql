@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS practices (
   -- Basic Info
   title VARCHAR(200) NOT NULL,
   description TEXT,
-  training_group_id BIGINT,  -- NULL means "all groups"
+  training_group_id VARCHAR(100),  -- Store group name (e.g., "Senior", "Age Group") or NULL for "all groups"
   
   -- Schedule
   scheduled_date DATE,
