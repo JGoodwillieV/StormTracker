@@ -42,7 +42,10 @@ export function RecentTestSets({ onViewAll, onStartNew }) {
           test_set_results (
             swimmer_id,
             rep_number,
-            time_ms
+            time_ms,
+            lane_number,
+            lane_position,
+            start_offset_ms
           )
         `)
         .order('created_at', { ascending: false })
@@ -118,6 +121,12 @@ export function RecentTestSets({ onViewAll, onStartNew }) {
                       <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
                         {set.group_name}
                       </span>
+                      {set.use_lanes && (
+                        <span className="text-xs bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                          <Users size={10} />
+                          Lanes
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
                       <span className="flex items-center gap-1">
@@ -174,7 +183,9 @@ export function SwimmerPracticeTab({ swimmerId, swimmerName }) {
         .from('test_set_results')
         .select(`
           *,
-          test_sets (*)
+          test_sets (
+            *
+          )
         `)
         .eq('swimmer_id', swimmerId)
         .order('created_at', { ascending: false });
@@ -425,7 +436,10 @@ export function TestSetsList({ onBack, onStartNew, swimmers }) {
           test_set_results (
             swimmer_id,
             rep_number,
-            time_ms
+            time_ms,
+            lane_number,
+            lane_position,
+            start_offset_ms
           )
         `)
         .order('created_at', { ascending: false });
@@ -559,41 +573,71 @@ export function TestSetsList({ onBack, onStartNew, swimmers }) {
                 {/* Expanded Results */}
                 {isExpanded && (
                   <div className="border-t border-slate-100">
+                    {/* Lane info header */}
+                    {set.use_lanes && (
+                      <div className="bg-cyan-50 px-4 py-2 border-b border-cyan-100 flex items-center gap-2">
+                        <Users size={14} className="text-cyan-600" />
+                        <span className="text-xs font-medium text-cyan-700">
+                          Lane-based set • {set.lane_stagger_seconds}s stagger between swimmers
+                        </span>
+                      </div>
+                    )}
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
                           <th className="text-left px-4 py-2 font-medium text-slate-500">#</th>
                           <th className="text-left px-4 py-2 font-medium text-slate-500">Swimmer</th>
+                          {set.use_lanes && <th className="text-center px-2 py-2 font-medium text-slate-500">Lane</th>}
                           <th className="text-center px-3 py-2 font-medium text-emerald-600">Avg</th>
                           <th className="text-center px-3 py-2 font-medium text-blue-600">Best</th>
                           <th className="text-center px-3 py-2 font-medium text-slate-500">Reps</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {swimmerStats.map((s, idx) => (
-                          <tr key={s.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-2">
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                                idx === 0 ? 'bg-amber-100 text-amber-700' :
-                                idx === 1 ? 'bg-slate-200 text-slate-600' :
-                                idx === 2 ? 'bg-orange-100 text-orange-700' :
-                                'bg-slate-100 text-slate-500'
-                              }`}>
-                                {idx + 1}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2 font-medium text-slate-800">{s.name}</td>
-                            <td className="px-3 py-2 text-center font-mono font-bold text-emerald-600">
-                              {formatTime(s.avg)}
-                            </td>
-                            <td className="px-3 py-2 text-center font-mono text-blue-600">
-                              {formatTime(s.best)}
-                            </td>
-                            <td className="px-3 py-2 text-center text-slate-500">
-                              {s.reps}/{set.reps}
-                            </td>
-                          </tr>
-                        ))}
+                        {swimmerStats.map((s, idx) => {
+                          // Get lane info from first result
+                          const swimmerResults = results.filter(r => r.swimmer_id === s.id);
+                          const laneInfo = swimmerResults.length > 0 && swimmerResults[0].lane_number 
+                            ? { lane: swimmerResults[0].lane_number, position: swimmerResults[0].lane_position }
+                            : null;
+                          
+                          return (
+                            <tr key={s.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-2">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  idx === 0 ? 'bg-amber-100 text-amber-700' :
+                                  idx === 1 ? 'bg-slate-200 text-slate-600' :
+                                  idx === 2 ? 'bg-orange-100 text-orange-700' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {idx + 1}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 font-medium text-slate-800">{s.name}</td>
+                              {set.use_lanes && (
+                                <td className="px-2 py-2 text-center">
+                                  {laneInfo ? (
+                                    <div className="inline-flex flex-col items-center gap-0.5">
+                                      <span className="text-xs font-bold text-cyan-600">L{laneInfo.lane}</span>
+                                      <span className="text-[10px] text-slate-400">#{laneInfo.position + 1}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                              )}
+                              <td className="px-3 py-2 text-center font-mono font-bold text-emerald-600">
+                                {formatTime(s.avg)}
+                              </td>
+                              <td className="px-3 py-2 text-center font-mono text-blue-600">
+                                {formatTime(s.best)}
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-500">
+                                {s.reps}/{set.reps}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

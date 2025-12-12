@@ -45,6 +45,12 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   const [useInterval, setUseInterval] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   
+  // Lane configuration state
+  const [useLanes, setUseLanes] = useState(false);
+  const [laneConfig, setLaneConfig] = useState({}); // { laneNumber: [swimmer1, swimmer2, ...] }
+  const [laneStagger, setLaneStagger] = useState(5); // seconds between swimmers in same lane
+  const [swimmerStartTimes, setSwimmerStartTimes] = useState({}); // { swimmerId: { rep: startTimeMs } }
+  
   // Drag and drop state
   const [draggedSwimmer, setDraggedSwimmer] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -135,10 +141,12 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   const handleSwimmerTap = useCallback((swimmerId) => {
     if (!isRunning) return;
     
-    const currentTime = masterClock - repStartTime;
-    
     // Check if already recorded for this rep
     if (results[swimmerId]?.[currentRep] !== undefined) return;
+    
+    // Calculate time based on swimmer's individual start time
+    const swimmerStartTime = swimmerStartTimes[swimmerId]?.[currentRep] || repStartTime;
+    const currentTime = masterClock - swimmerStartTime;
     
     // Record time
     setResults(prev => ({
@@ -156,7 +164,7 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
     setFlashingCard(swimmerId);
     setTimeout(() => setFlashingCard(null), 300);
     
-  }, [isRunning, masterClock, repStartTime, currentRep, results]);
+  }, [isRunning, masterClock, repStartTime, currentRep, results, swimmerStartTimes]);
 
   // Handle missed rep (long press)
   const handleMissedRep = useCallback((swimmerId) => {
@@ -186,7 +194,24 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   // Start the set
   const handleStart = () => {
     setIsRunning(true);
-    setRepStartTime(masterClock);
+    const startTime = masterClock;
+    setRepStartTime(startTime);
+    
+    // Set individual start times for first rep if using lanes
+    if (useLanes) {
+      const newStartTimes = {};
+      Object.entries(laneConfig).forEach(([laneNum, swimmers]) => {
+        swimmers.forEach((swimmer, index) => {
+          if (!newStartTimes[swimmer.id]) {
+            newStartTimes[swimmer.id] = {};
+          }
+          // Each swimmer starts laneStagger seconds after the previous one
+          newStartTimes[swimmer.id][currentRep] = startTime + (index * laneStagger * 1000);
+        });
+      });
+      setSwimmerStartTimes(newStartTimes);
+    }
+    
     playBeep();
   };
 
@@ -198,8 +223,26 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
   // Advance to next rep
   const advanceRep = () => {
     if (currentRep >= reps) return;
-    setCurrentRep(prev => prev + 1);
-    setRepStartTime(masterClock);
+    const nextRep = currentRep + 1;
+    setCurrentRep(nextRep);
+    const newRepStart = masterClock;
+    setRepStartTime(newRepStart);
+    
+    // Set individual start times for each swimmer if using lanes
+    if (useLanes) {
+      const newStartTimes = { ...swimmerStartTimes };
+      Object.entries(laneConfig).forEach(([laneNum, swimmers]) => {
+        swimmers.forEach((swimmer, index) => {
+          if (!newStartTimes[swimmer.id]) {
+            newStartTimes[swimmer.id] = {};
+          }
+          // Each swimmer starts laneStagger seconds after the previous one
+          newStartTimes[swimmer.id][nextRep] = newRepStart + (index * laneStagger * 1000);
+        });
+      });
+      setSwimmerStartTimes(newStartTimes);
+    }
+    
     if (soundEnabled) playBeep();
   };
 
@@ -240,7 +283,9 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
           distance,
           stroke,
           type: setType,
-          interval_seconds: useInterval ? targetInterval : null
+          interval_seconds: useInterval ? targetInterval : null,
+          use_lanes: useLanes,
+          lane_stagger_seconds: useLanes ? laneStagger : null
         }])
         .select()
         .single();
@@ -249,15 +294,38 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
 
       // Create result records
       const resultRecords = [];
+      
+      // Get lane and position info for each swimmer
+      const swimmerLaneInfo = {};
+      if (useLanes) {
+        Object.entries(laneConfig).forEach(([laneNum, swimmers]) => {
+          swimmers.forEach((swimmer, position) => {
+            swimmerLaneInfo[swimmer.id] = {
+              lane: parseInt(laneNum),
+              position: position
+            };
+          });
+        });
+      }
+      
       Object.entries(results).forEach(([swimmerId, repTimes]) => {
         Object.entries(repTimes).forEach(([repNum, time]) => {
           if (time !== 'DNS') {
-            resultRecords.push({
+            const record = {
               test_set_id: testSet.id,
               swimmer_id: swimmerId,
               rep_number: parseInt(repNum),
               time_ms: time
-            });
+            };
+            
+            // Add lane info if using lanes
+            if (useLanes && swimmerLaneInfo[swimmerId]) {
+              record.lane_number = swimmerLaneInfo[swimmerId].lane;
+              record.lane_position = swimmerLaneInfo[swimmerId].position;
+              record.start_offset_ms = swimmerLaneInfo[swimmerId].position * laneStagger * 1000;
+            }
+            
+            resultRecords.push(record);
           }
         });
       });
@@ -364,6 +432,91 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
       [newList[index], newList[newIndex]] = [newList[newIndex], newList[index]];
       return newList;
     });
+  };
+
+  // ==========================================
+  // LANE CONFIGURATION FUNCTIONS
+  // ==========================================
+  
+  // Auto-distribute swimmers into lanes
+  const autoDistributeLanes = (numLanes) => {
+    const swimmers = [...selectedSwimmers];
+    const newConfig = {};
+    
+    for (let i = 0; i < numLanes; i++) {
+      newConfig[i + 1] = [];
+    }
+    
+    swimmers.forEach((swimmer, index) => {
+      const laneNum = (index % numLanes) + 1;
+      newConfig[laneNum].push(swimmer);
+    });
+    
+    setLaneConfig(newConfig);
+  };
+  
+  // Move swimmer to a different lane
+  const moveSwimmerToLane = (swimmer, fromLane, toLane, toPosition = -1) => {
+    setLaneConfig(prev => {
+      const newConfig = { ...prev };
+      
+      // Remove from old lane
+      if (fromLane && newConfig[fromLane]) {
+        newConfig[fromLane] = newConfig[fromLane].filter(s => s.id !== swimmer.id);
+      }
+      
+      // Add to new lane
+      if (!newConfig[toLane]) {
+        newConfig[toLane] = [];
+      }
+      if (toPosition >= 0) {
+        newConfig[toLane].splice(toPosition, 0, swimmer);
+      } else {
+        newConfig[toLane].push(swimmer);
+      }
+      
+      return newConfig;
+    });
+  };
+  
+  // Remove swimmer from lane
+  const removeSwimmerFromLane = (swimmer, laneNum) => {
+    setLaneConfig(prev => {
+      const newConfig = { ...prev };
+      if (newConfig[laneNum]) {
+        newConfig[laneNum] = newConfig[laneNum].filter(s => s.id !== swimmer.id);
+      }
+      return newConfig;
+    });
+  };
+  
+  // Move swimmer within lane
+  const moveSwimmerInLane = (laneNum, fromIndex, toIndex) => {
+    setLaneConfig(prev => {
+      const newConfig = { ...prev };
+      if (newConfig[laneNum]) {
+        const swimmers = [...newConfig[laneNum]];
+        const [moved] = swimmers.splice(fromIndex, 1);
+        swimmers.splice(toIndex, 0, moved);
+        newConfig[laneNum] = swimmers;
+      }
+      return newConfig;
+    });
+  };
+  
+  // Get all swimmers currently in lanes
+  const getSwimmersInLanes = () => {
+    const inLanes = new Set();
+    Object.values(laneConfig).forEach(swimmers => {
+      swimmers.forEach(s => inLanes.add(s.id));
+    });
+    return inLanes;
+  };
+  
+  // Get unassigned swimmers
+  const getUnassignedSwimmers = () => {
+    const inLanes = getSwimmersInLanes();
+    return selectedSwimmers.filter(s => !inLanes.has(s.id));
   };
 
   // ==========================================
@@ -643,6 +796,182 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
               </button>
             </div>
 
+            {/* Lane Configuration */}
+            {selectedSwimmers.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
+                      <Users size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-800">Lane Setup</h3>
+                      <p className="text-xs text-slate-500">Organize swimmers by lanes</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setUseLanes(!useLanes)}
+                    className={`w-12 h-7 rounded-full transition-colors ${
+                      useLanes ? 'bg-cyan-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
+                      useLanes ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+
+                {useLanes && (
+                  <div className="space-y-4">
+                    {/* Stagger Interval */}
+                    <div className="bg-cyan-50 rounded-xl p-3">
+                      <label className="block text-xs font-bold text-slate-600 uppercase mb-2">
+                        Stagger Interval (seconds between swimmers)
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setLaneStagger(Math.max(1, laneStagger - 1))}
+                          className="w-9 h-9 bg-white hover:bg-slate-100 rounded-lg flex items-center justify-center text-slate-600 shrink-0 shadow-sm"
+                        >
+                          <Minus size={16} />
+                        </button>
+                        <input
+                          type="number"
+                          value={laneStagger}
+                          onChange={(e) => setLaneStagger(Math.max(1, parseInt(e.target.value) || 5))}
+                          className="flex-1 text-center text-2xl font-bold text-slate-800 bg-white border border-slate-200 rounded-xl py-2"
+                        />
+                        <button
+                          onClick={() => setLaneStagger(laneStagger + 1)}
+                          className="w-9 h-9 bg-white hover:bg-slate-100 rounded-lg flex items-center justify-center text-slate-600 shrink-0 shadow-sm"
+                        >
+                          <Plus size={16} />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-2 text-center">
+                        Each swimmer leaves {laneStagger} second{laneStagger !== 1 ? 's' : ''} after the previous one
+                      </p>
+                    </div>
+
+                    {/* Quick Setup */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => autoDistributeLanes(2)}
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700"
+                      >
+                        2 Lanes
+                      </button>
+                      <button
+                        onClick={() => autoDistributeLanes(3)}
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700"
+                      >
+                        3 Lanes
+                      </button>
+                      <button
+                        onClick={() => autoDistributeLanes(4)}
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700"
+                      >
+                        4 Lanes
+                      </button>
+                      <button
+                        onClick={() => autoDistributeLanes(6)}
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700"
+                      >
+                        6 Lanes
+                      </button>
+                    </div>
+
+                    {/* Lane Display */}
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {Object.keys(laneConfig).sort((a, b) => parseInt(a) - parseInt(b)).map(laneNum => (
+                        <div key={laneNum} className="bg-slate-50 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-slate-700">Lane {laneNum}</span>
+                            <span className="text-xs text-slate-500">
+                              {laneConfig[laneNum].length} swimmer{laneConfig[laneNum].length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {laneConfig[laneNum].map((swimmer, index) => (
+                              <div
+                                key={swimmer.id}
+                                className="flex items-center gap-2 bg-white rounded-lg p-2"
+                              >
+                                <div className="w-6 h-6 bg-cyan-100 text-cyan-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
+                                  {index + 1}
+                                </div>
+                                <span className="flex-1 font-medium text-slate-700 text-sm truncate">
+                                  {swimmer.name}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  +{index * laneStagger}s
+                                </span>
+                                <div className="flex gap-1 shrink-0">
+                                  <button
+                                    onClick={() => moveSwimmerInLane(laneNum, index, Math.max(0, index - 1))}
+                                    disabled={index === 0}
+                                    className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                                  >
+                                    <ChevronDown size={14} className="rotate-180" />
+                                  </button>
+                                  <button
+                                    onClick={() => moveSwimmerInLane(laneNum, index, Math.min(laneConfig[laneNum].length - 1, index + 1))}
+                                    disabled={index === laneConfig[laneNum].length - 1}
+                                    className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                                  >
+                                    <ChevronDown size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => removeSwimmerFromLane(swimmer, laneNum)}
+                                    className="p-1 text-rose-400 hover:text-rose-600"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                            {laneConfig[laneNum].length === 0 && (
+                              <div className="text-center text-slate-400 text-sm py-2">
+                                Empty lane
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Unassigned Swimmers */}
+                    {getUnassignedSwimmers().length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertCircle size={16} className="text-amber-600" />
+                          <span className="font-bold text-amber-800 text-sm">Unassigned Swimmers</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {getUnassignedSwimmers().map(swimmer => (
+                            <div key={swimmer.id} className="bg-white rounded-lg p-2 flex items-center justify-between">
+                              <span className="text-sm font-medium text-slate-700 truncate">{swimmer.name}</span>
+                              <button
+                                onClick={() => {
+                                  const lanes = Object.keys(laneConfig);
+                                  if (lanes.length > 0) {
+                                    moveSwimmerToLane(swimmer, null, lanes[0]);
+                                  }
+                                }}
+                                className="text-xs text-cyan-600 hover:text-cyan-700 font-medium"
+                              >
+                                Add
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Start Button */}
             <button
               onClick={() => setStep('timing')}
@@ -716,76 +1045,172 @@ export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }
 
         {/* Swimmer Cards Grid */}
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {selectedSwimmers.map(swimmer => {
-              const thisRepTime = results[swimmer.id]?.[currentRep];
-              const lastRepTime = currentRep > 1 ? results[swimmer.id]?.[currentRep - 1] : null;
-              const isRecorded = thisRepTime !== undefined;
-              const isDNS = thisRepTime === 'DNS';
-              const isFlashing = flashingCard === swimmer.id;
-              
-              // Calculate diff from last rep
-              let diff = null;
-              if (isRecorded && !isDNS && lastRepTime && lastRepTime !== 'DNS') {
-                diff = thisRepTime - lastRepTime;
-              }
-
-              return (
-                <button
-                  key={swimmer.id}
-                  onClick={() => handleSwimmerTap(swimmer.id)}
-                  onContextMenu={(e) => { e.preventDefault(); handleMissedRep(swimmer.id); }}
-                  disabled={!isRunning || isRecorded}
-                  className={`
-                    relative p-4 rounded-2xl text-left transition-all transform
-                    ${isFlashing ? 'scale-95 bg-emerald-500' : ''}
-                    ${isRecorded && !isFlashing
-                      ? isDNS 
-                        ? 'bg-slate-700 opacity-50' 
-                        : 'bg-slate-700 border-2 border-emerald-500'
-                      : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
-                    }
-                    ${!isRunning ? 'opacity-50' : ''}
-                  `}
-                >
-                  {/* Swimmer Name */}
-                  <div className="font-bold text-lg mb-2 truncate">{swimmer.name}</div>
-                  
-                  {/* Current Rep Time */}
-                  <div className={`text-2xl font-mono font-bold ${
-                    isRecorded 
-                      ? isDNS ? 'text-slate-500' : 'text-emerald-400' 
-                      : 'text-slate-400'
-                  }`}>
-                    {isDNS ? 'DNS' : isRecorded ? formatTime(thisRepTime) : formatTime(repTime)}
+          {useLanes ? (
+            // Lane-based layout
+            <div className="space-y-4">
+              {Object.keys(laneConfig).sort((a, b) => parseInt(a) - parseInt(b)).map(laneNum => (
+                <div key={laneNum} className="bg-slate-800/50 rounded-2xl p-3">
+                  <div className="flex items-center justify-between mb-3 px-2">
+                    <span className="font-bold text-white text-lg">Lane {laneNum}</span>
+                    <span className="text-xs text-slate-400">
+                      {laneConfig[laneNum].filter(s => results[s.id]?.[currentRep] !== undefined).length} / {laneConfig[laneNum].length} finished
+                    </span>
                   </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {laneConfig[laneNum].map((swimmer, lanePosition) => {
+                      const thisRepTime = results[swimmer.id]?.[currentRep];
+                      const lastRepTime = currentRep > 1 ? results[swimmer.id]?.[currentRep - 1] : null;
+                      const isRecorded = thisRepTime !== undefined;
+                      const isDNS = thisRepTime === 'DNS';
+                      const isFlashing = flashingCard === swimmer.id;
+                      
+                      // Get swimmer's individual start time
+                      const swimmerStartTime = swimmerStartTimes[swimmer.id]?.[currentRep] || repStartTime;
+                      const timeSinceStart = masterClock - swimmerStartTime;
+                      
+                      // Calculate diff from last rep
+                      let diff = null;
+                      if (isRecorded && !isDNS && lastRepTime && lastRepTime !== 'DNS') {
+                        diff = thisRepTime - lastRepTime;
+                      }
 
-                  {/* Diff indicator */}
-                  {diff !== null && (
-                    <div className={`absolute top-2 right-2 text-xs font-bold px-1.5 py-0.5 rounded ${
-                      diff < 0 ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
+                      return (
+                        <button
+                          key={swimmer.id}
+                          onClick={() => handleSwimmerTap(swimmer.id)}
+                          onContextMenu={(e) => { e.preventDefault(); handleMissedRep(swimmer.id); }}
+                          disabled={!isRunning || isRecorded}
+                          className={`
+                            relative p-3 rounded-xl text-left transition-all transform
+                            ${isFlashing ? 'scale-95 bg-emerald-500' : ''}
+                            ${isRecorded && !isFlashing
+                              ? isDNS 
+                                ? 'bg-slate-700 opacity-50' 
+                                : 'bg-slate-700 border-2 border-emerald-500'
+                              : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
+                            }
+                            ${!isRunning ? 'opacity-50' : ''}
+                          `}
+                        >
+                          {/* Position indicator */}
+                          <div className="absolute top-2 left-2 w-5 h-5 bg-cyan-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                            {lanePosition + 1}
+                          </div>
+                          
+                          {/* Swimmer Name */}
+                          <div className="font-bold text-base mb-1 truncate pl-7">{swimmer.name}</div>
+                          
+                          {/* Current Rep Time */}
+                          <div className={`text-xl font-mono font-bold ${
+                            isRecorded 
+                              ? isDNS ? 'text-slate-500' : 'text-emerald-400' 
+                              : timeSinceStart < 0 ? 'text-slate-500' : 'text-slate-400'
+                          }`}>
+                            {isDNS ? 'DNS' : isRecorded ? formatTime(thisRepTime) : timeSinceStart < 0 ? 'Wait...' : formatTime(timeSinceStart)}
+                          </div>
+
+                          {/* Diff indicator */}
+                          {diff !== null && (
+                            <div className={`absolute top-2 right-2 text-xs font-bold px-1.5 py-0.5 rounded ${
+                              diff < 0 ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
+                            }`}>
+                              {diff < 0 ? '' : '+'}{(diff / 1000).toFixed(2)}
+                            </div>
+                          )}
+
+                          {/* Start offset indicator */}
+                          {!isRecorded && lanePosition > 0 && (
+                            <div className="text-xs text-cyan-400 mt-0.5">
+                              +{lanePosition * laneStagger}s start
+                            </div>
+                          )}
+
+                          {/* Recorded checkmark */}
+                          {isRecorded && !isDNS && !isFlashing && (
+                            <div className="absolute bottom-2 right-2">
+                              <CheckCircle2 size={18} className="text-emerald-400" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // Standard grid layout
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {selectedSwimmers.map(swimmer => {
+                const thisRepTime = results[swimmer.id]?.[currentRep];
+                const lastRepTime = currentRep > 1 ? results[swimmer.id]?.[currentRep - 1] : null;
+                const isRecorded = thisRepTime !== undefined;
+                const isDNS = thisRepTime === 'DNS';
+                const isFlashing = flashingCard === swimmer.id;
+                
+                // Calculate diff from last rep
+                let diff = null;
+                if (isRecorded && !isDNS && lastRepTime && lastRepTime !== 'DNS') {
+                  diff = thisRepTime - lastRepTime;
+                }
+
+                return (
+                  <button
+                    key={swimmer.id}
+                    onClick={() => handleSwimmerTap(swimmer.id)}
+                    onContextMenu={(e) => { e.preventDefault(); handleMissedRep(swimmer.id); }}
+                    disabled={!isRunning || isRecorded}
+                    className={`
+                      relative p-4 rounded-2xl text-left transition-all transform
+                      ${isFlashing ? 'scale-95 bg-emerald-500' : ''}
+                      ${isRecorded && !isFlashing
+                        ? isDNS 
+                          ? 'bg-slate-700 opacity-50' 
+                          : 'bg-slate-700 border-2 border-emerald-500'
+                        : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
+                      }
+                      ${!isRunning ? 'opacity-50' : ''}
+                    `}
+                  >
+                    {/* Swimmer Name */}
+                    <div className="font-bold text-lg mb-2 truncate">{swimmer.name}</div>
+                    
+                    {/* Current Rep Time */}
+                    <div className={`text-2xl font-mono font-bold ${
+                      isRecorded 
+                        ? isDNS ? 'text-slate-500' : 'text-emerald-400' 
+                        : 'text-slate-400'
                     }`}>
-                      {diff < 0 ? '' : '+'}{(diff / 1000).toFixed(2)}
+                      {isDNS ? 'DNS' : isRecorded ? formatTime(thisRepTime) : formatTime(repTime)}
                     </div>
-                  )}
 
-                  {/* Last rep reference */}
-                  {lastRepTime && lastRepTime !== 'DNS' && (
-                    <div className="text-xs text-slate-500 mt-1">
-                      Last: {formatTime(lastRepTime)}
-                    </div>
-                  )}
+                    {/* Diff indicator */}
+                    {diff !== null && (
+                      <div className={`absolute top-2 right-2 text-xs font-bold px-1.5 py-0.5 rounded ${
+                        diff < 0 ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
+                      }`}>
+                        {diff < 0 ? '' : '+'}{(diff / 1000).toFixed(2)}
+                      </div>
+                    )}
 
-                  {/* Recorded checkmark */}
-                  {isRecorded && !isDNS && !isFlashing && (
-                    <div className="absolute bottom-2 right-2">
-                      <CheckCircle2 size={20} className="text-emerald-400" />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                    {/* Last rep reference */}
+                    {lastRepTime && lastRepTime !== 'DNS' && (
+                      <div className="text-xs text-slate-500 mt-1">
+                        Last: {formatTime(lastRepTime)}
+                      </div>
+                    )}
+
+                    {/* Recorded checkmark */}
+                    {isRecorded && !isDNS && !isFlashing && (
+                      <div className="absolute bottom-2 right-2">
+                        <CheckCircle2 size={20} className="text-emerald-400" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Bottom Controls */}
