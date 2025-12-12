@@ -1051,18 +1051,28 @@ const TeamRecordsReport = ({ onBack }) => {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [recordData, setRecordData] = useState(null);
 
-  // Initialize date range to current season (Sept 1 - Aug 31)
+  // Initialize date range to capture all recent records
   useEffect(() => {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
     
-    // If before September, season started last Sept 1
-    // If September or later, season started this Sept 1
-    const seasonStartYear = currentMonth < 8 ? currentYear - 1 : currentYear;
+    // Set to current swim season (Sept 1 - present)
+    // Or start of year if we're early in the season
+    let startYear = currentYear;
+    let startMonth = '09';
+    
+    // If we're in Jan-Aug, go back to Sept of previous year
+    if (currentMonth < 8) {
+      startYear = currentYear - 1;
+    }
+    
+    // But if there might be records before Sept, start from Jan 1 of previous year
+    // This ensures we capture all records for reporting
+    const reportStartYear = currentMonth < 8 ? currentYear - 1 : currentYear - 1;
     
     setDateRange({
-      start: `${seasonStartYear}-09-01`,
+      start: `${reportStartYear}-01-01`,
       end: today.toISOString().split('T')[0]
     });
   }, []);
@@ -1077,15 +1087,27 @@ const TeamRecordsReport = ({ onBack }) => {
     setProgressMsg('Loading record history...');
 
     try {
-      // 1. Fetch record history within date range
+      // 1. Fetch record history within date range (filter by swim date, not when it was logged)
       const { data: recordHistory, error: historyError } = await supabase
         .from('record_history')
         .select('*')
-        .gte('broken_at', dateRange.start)
-        .lte('broken_at', dateRange.end)
-        .order('broken_at', { ascending: false });
+        .gte('date', dateRange.start)
+        .lte('date', dateRange.end)
+        .order('date', { ascending: false });
 
-      if (historyError) throw historyError;
+      if (historyError) {
+        console.error('Error fetching record history:', historyError);
+        
+        // Check if table doesn't exist
+        if (historyError.code === 'PGRST116' || historyError.message?.includes('does not exist')) {
+          alert('The record_history table has not been created yet. Please run the database/record_history_schema.sql file in Supabase first.');
+          setLoading(false);
+          return;
+        }
+        throw historyError;
+      }
+
+      console.log(`Found ${recordHistory?.length || 0} record breaks in date range`);
 
       // 2. Fetch current team records to calculate longest-held
       setProgressMsg('Analyzing current records...');
@@ -1313,9 +1335,18 @@ const TeamRecordsReport = ({ onBack }) => {
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
               <Award size={48} className="mx-auto text-slate-300 mb-4" />
               <h3 className="font-bold text-slate-700 text-lg mb-2">No Records Broken</h3>
-              <p className="text-slate-500 text-sm">
-                No team records were broken in the selected date range. Try expanding the date range or check back after the next meet!
+              <p className="text-slate-500 text-sm mb-4">
+                No team records were broken in the selected date range ({dateRange.start} to {dateRange.end}).
               </p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left max-w-2xl mx-auto">
+                <h4 className="font-bold text-blue-800 text-sm mb-2">ℹ️ How Record History Works:</h4>
+                <ul className="text-xs text-blue-700 space-y-1">
+                  <li>• Record history is automatically logged when you upload meet results and confirm record breaks</li>
+                  <li>• If you just set up the system, try uploading some recent meet results first</li>
+                  <li>• The record_history table needs to be created using database/record_history_schema.sql</li>
+                  <li>• Try expanding your date range to include more time</li>
+                </ul>
+              </div>
             </div>
           ) : (
             <>
@@ -1529,15 +1560,61 @@ const TeamRecordsReport = ({ onBack }) => {
 
       {/* Initial state */}
       {!loading && !recordData && (
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-12 text-center">
-          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Award size={32} className="text-amber-500" />
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-12 text-center">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Award size={32} className="text-amber-500" />
+            </div>
+            <h3 className="font-bold text-slate-800 text-xl mb-2">Team Records Analysis</h3>
+            <p className="text-slate-600 max-w-md mx-auto">
+              Select a date range above to analyze team record breaks, see who broke the most records, 
+              identify the most competitive events, and view the longest-held records.
+            </p>
           </div>
-          <h3 className="font-bold text-slate-800 text-xl mb-2">Team Records Analysis</h3>
-          <p className="text-slate-600 max-w-md mx-auto">
-            Select a date range above to analyze team record breaks, see who broke the most records, 
-            identify the most competitive events, and view the longest-held records.
-          </p>
+
+          {/* Setup Guide */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6">
+            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Database className="text-blue-500" size={20} />
+              Quick Setup Check
+            </h4>
+            
+            <div className="space-y-4 text-sm">
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="font-semibold text-slate-700 mb-2">1. Check if record_history table exists:</p>
+                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs overflow-x-auto">
+                  SELECT COUNT(*) as total_records FROM record_history;
+                </div>
+                <p className="text-slate-500 text-xs mt-2">Run this in Supabase SQL Editor. If you get an error, the table needs to be created.</p>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="font-semibold text-slate-700 mb-2">2. If table doesn't exist, create it:</p>
+                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs">
+                  Run: database/record_history_schema.sql
+                </div>
+                <p className="text-slate-500 text-xs mt-2">Copy the contents of this file and run it in Supabase SQL Editor.</p>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="font-semibold text-slate-700 mb-2">3. Check recent record breaks:</p>
+                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs overflow-x-auto">
+                  SELECT event, swimmer_name, time_display, broken_at<br/>
+                  FROM record_history<br/>
+                  ORDER BY broken_at DESC LIMIT 10;
+                </div>
+                <p className="text-slate-500 text-xs mt-2">This shows your 10 most recent record breaks.</p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="font-bold text-blue-800 text-sm mb-2">💡 Note:</p>
+                <p className="text-blue-700 text-xs">
+                  Record history is automatically logged when you upload meet results and confirm record breaks in the Record Break Modal. 
+                  If you just set up the system, upload some recent meet results to populate the history!
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
