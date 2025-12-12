@@ -3284,22 +3284,40 @@ const TopTimesReport = ({ onBack }) => {
       setProgressMsg('Loading results...');
       const dateRange = calculateDateRange();
       
-      // Build query - fetch all results in date range with swimmer info
-      let query = supabase
-        .from('results')
-        .select('*, swimmer:swimmers(*)')
-        .gte('date', dateRange.start)
-        .lte('date', dateRange.end);
-
-      // Execute query
-      const { data: results, error } = await query;
+      // Fetch all results in date range with pagination
+      let allResults = [];
+      let page = 0;
+      let keepFetching = true;
       
-      if (error) throw error;
+      while (keepFetching) {
+        setProgressMsg(`Fetching results ${page * 1000 + 1} - ${(page + 1) * 1000}...`);
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('*, swimmer:swimmers(*)')
+          .gte('date', dateRange.start)
+          .lte('date', dateRange.end)
+          .order('date', { ascending: false })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error) {
+          console.error('Error fetching results:', error);
+          throw error;
+        }
+        
+        if (!batch || batch.length === 0) {
+          keepFetching = false;
+        } else {
+          allResults = [...allResults, ...batch];
+          page++;
+          // Safety limit to prevent infinite loops
+          if (allResults.length > 50000) keepFetching = false;
+        }
+      }
 
-      setProgressMsg('Filtering and sorting...');
+      setProgressMsg(`Filtering and sorting ${allResults.length} results...`);
       
       // Filter by normalized event name, swimmer demographics, and category
-      let filteredResults = results.filter(r => {
+      let filteredResults = allResults.filter(r => {
         if (!r.swimmer) return false;
         
         // Event name filter (compare normalized versions)
