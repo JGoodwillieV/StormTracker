@@ -3161,6 +3161,34 @@ const TopTimesReport = ({ onBack }) => {
   const [events, setEvents] = useState([]);
   const [swimmers, setSwimmers] = useState([]);
 
+  // Helper function to normalize event names
+  const normalizeEventName = (eventStr) => {
+    if (!eventStr) return '';
+    
+    // Remove gender, age group, and round info (Finals, Prelims, etc.)
+    // Keep only distance, stroke, and course type (Y, S, L)
+    let cleaned = eventStr
+      .replace(/\b(Male|Female|Boys|Girls|Men|Women)\b/gi, '')
+      .replace(/\b\d+\s*&?\s*(Under|Over|and\s+under)\b/gi, '')
+      .replace(/\(?\d+-\d+\)?/g, '')  // Remove age ranges like (11-12) or 13-14
+      .replace(/\b(Finals?|Prelims?|Preliminaries?|Timed\s+Finals?|Heat\s+\d+)\b/gi, '')
+      .trim();
+    
+    // Clean up multiple spaces and parentheses
+    cleaned = cleaned.replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+    
+    // Extract just the distance, stroke, and course
+    const match = cleaned.match(/(\d+)\s+([A-Za-z]+)(?:\s+\(([YSL])\))?/);
+    if (match) {
+      const distance = match[1];
+      const stroke = match[2];
+      const course = match[3] ? ` (${match[3]})` : '';
+      return `${distance} ${stroke}${course}`;
+    }
+    
+    return cleaned;
+  };
+
   // Load swimmers and events on mount
   useEffect(() => {
     const loadInitialData = async () => {
@@ -3175,7 +3203,12 @@ const TopTimesReport = ({ onBack }) => {
         .limit(5000);
       
       if (resultsData) {
-        const uniqueEvents = [...new Set(resultsData.map(r => r.event))].filter(Boolean).sort((a, b) => {
+        // Normalize event names and get unique values
+        const normalizedEvents = resultsData
+          .map(r => normalizeEventName(r.event))
+          .filter(Boolean);
+        
+        const uniqueEvents = [...new Set(normalizedEvents)].sort((a, b) => {
           const aInfo = parseEvent(a);
           const bInfo = parseEvent(b);
           const aDist = parseInt(aInfo.dist) || 0;
@@ -3183,6 +3216,7 @@ const TopTimesReport = ({ onBack }) => {
           if (aDist !== bDist) return aDist - bDist;
           return (STROKE_ORDER[aInfo.stroke] || 99) - (STROKE_ORDER[bInfo.stroke] || 99);
         });
+        
         setEvents(uniqueEvents);
         if (uniqueEvents.length > 0) setSelectedEvent(uniqueEvents[0]);
       }
@@ -3250,11 +3284,10 @@ const TopTimesReport = ({ onBack }) => {
       setProgressMsg('Loading results...');
       const dateRange = calculateDateRange();
       
-      // Build query
+      // Build query - fetch all results in date range, we'll filter by event after normalizing
       let query = supabase
         .from('results')
         .select('*, swimmer:swimmers(*), meet:meets(*)')
-        .eq('event', selectedEvent)
         .gte('date', dateRange.start)
         .lte('date', dateRange.end);
 
@@ -3265,9 +3298,12 @@ const TopTimesReport = ({ onBack }) => {
 
       setProgressMsg('Filtering and sorting...');
       
-      // Filter by swimmer demographics and category
+      // Filter by normalized event name, swimmer demographics, and category
       let filteredResults = results.filter(r => {
         if (!r.swimmer) return false;
+        
+        // Event name filter (compare normalized versions)
+        if (normalizeEventName(r.event) !== selectedEvent) return false;
         
         // Gender filter
         if (gender !== 'all' && r.swimmer.gender !== gender) return false;
