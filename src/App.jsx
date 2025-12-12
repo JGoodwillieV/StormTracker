@@ -470,6 +470,23 @@ const fetchUserRole = async () => {
           onClose={() => setShowInviteModal(false)} 
         />
       )}
+      
+      {/* Team Record Break Modal */}
+      {showRecordModal && (
+        <RecordBreakModal
+          isOpen={showRecordModal}
+          recordBreaks={recordBreaks}
+          onClose={() => {
+            setShowRecordModal(false);
+            setRecordBreaks([]);
+          }}
+          onUpdate={(results) => {
+            console.log('Records updated:', results);
+            // Optionally refresh the page or update state
+          }}
+        />
+      )}
+      
       {/* PWA Install Prompt */}
       <InstallPrompt />
     </div>
