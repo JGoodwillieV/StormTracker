@@ -1125,6 +1125,19 @@ export default function MeetReportGenerator({ onBack }) {
 
       const analysis = analyzeMeetResults(meetResults, historicalBests, swimmerMap, standards);
 
+      setLoadingMessage('Checking for team records...');
+      setLoadingProgress(80);
+      
+      // Fetch team records broken during this meet
+      const { data: recordsData } = await supabase
+        .from('record_history')
+        .select('*')
+        .gte('date', dateRange.start)
+        .lte('date', dateRange.end)
+        .order('broken_at', { ascending: false });
+      
+      const recordsBroken = recordsData || [];
+
       setLoadingMessage('Generating report...');
       setLoadingProgress(90);
 
@@ -1137,6 +1150,7 @@ export default function MeetReportGenerator({ onBack }) {
         swimmers: filteredSwimmers,
         swimmerMap,
         layout: activeLayout,
+        recordsBroken,
         ...analysis
       });
 

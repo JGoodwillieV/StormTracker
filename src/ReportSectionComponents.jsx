@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import {
   Trophy, TrendingDown, Award, Target, Activity, Users, Flame,
-  Percent
+  Percent, Star
 } from 'lucide-react';
 
 const STANDARD_COLORS = {
@@ -429,6 +429,61 @@ export const BiggestMoversSection = ({ data, config }) => {
   );
 };
 
+// Section: Records Broken
+export const RecordsBrokenSection = ({ data }) => {
+  const records = data.recordsBroken || [];
+  
+  if (records.length === 0) {
+    return null; // Don't show section if no records broken
+  }
+
+  return (
+    <ExpandableSection title="⭐ Team Records Broken" icon={Star} count={records.length}>
+      <div className="space-y-4">
+        {records.map((record, idx) => (
+          <div key={idx} className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-4">
+              {/* Left: Swimmer & Event */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="bg-yellow-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">
+                    {idx + 1}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-800 text-lg">{record.swimmer_name}</div>
+                    <div className="text-sm text-slate-600">
+                      {record.gender} {record.age_group} • {record.event}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Right: Times */}
+              <div className="text-right">
+                <div className="text-xs text-slate-500 mb-1">New Record</div>
+                <div className="text-2xl font-bold text-emerald-600 font-mono mb-2">
+                  {record.time_display}
+                </div>
+                <div className="flex items-center gap-2 justify-end text-sm">
+                  <span className="text-slate-500">Previous:</span>
+                  <span className="font-mono text-slate-600 line-through">
+                    {record.previous_time_display || 'N/A'}
+                  </span>
+                </div>
+                {record.improvement_seconds && (
+                  <div className="mt-1 text-xs font-semibold text-emerald-600">
+                    ⬇️ Improved by {record.improvement_seconds.toFixed(2)}s
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </ExpandableSection>
+  );
+};
+
 // Export section mapping
 export const SECTION_COMPONENTS = {
   'overview-stats': OverviewStatsSection,
@@ -437,6 +492,7 @@ export const SECTION_COMPONENTS = {
   'percent-drops': PercentDropsSection,
   'new-standards': NewStandardsSection,
   'meet-cuts': MeetCutsSection,
+  'records-broken': RecordsBrokenSection,
   'stroke-performance': StrokePerformanceSection,
   'group-performance': GroupPerformanceSection,
   'biggest-movers': BiggestMoversSection,

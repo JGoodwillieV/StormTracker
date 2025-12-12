@@ -85,6 +85,17 @@ export const REPORT_SECTIONS = {
     availableIn: ['modern', 'classic']
   },
   
+  'records-broken': {
+    id: 'records-broken',
+    name: 'Team Records Broken',
+    category: 'achievements',
+    description: 'Team records broken during this meet',
+    icon: 'Star',
+    defaultEnabled: true,
+    configurable: false,
+    availableIn: ['modern', 'classic']
+  },
+  
   // Analysis
   'stroke-performance': {
     id: 'stroke-performance',
