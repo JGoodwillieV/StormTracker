@@ -45,7 +45,11 @@ export function RecentTestSets({ onViewAll, onStartNew }) {
             time_ms,
             lane_number,
             lane_position,
-            start_offset_ms
+            start_offset_ms,
+            swimmers (
+              id,
+              name
+            )
           )
         `)
         .order('created_at', { ascending: false })
@@ -422,7 +426,7 @@ export function SwimmerPracticeTab({ swimmerId, swimmerName }) {
 // ==========================================
 // FULL TEST SETS LIST PAGE
 // ==========================================
-export function TestSetsList({ onBack, onStartNew, swimmers }) {
+export function TestSetsList({ onBack, onStartNew }) {
   const [testSets, setTestSets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedSet, setExpandedSet] = useState(null);
@@ -439,7 +443,11 @@ export function TestSetsList({ onBack, onStartNew, swimmers }) {
             time_ms,
             lane_number,
             lane_position,
-            start_offset_ms
+            start_offset_ms,
+            swimmers (
+              id,
+              name
+            )
           )
         `)
         .order('created_at', { ascending: false });
@@ -452,12 +460,6 @@ export function TestSetsList({ onBack, onStartNew, swimmers }) {
 
     fetchAllSets();
   }, []);
-
-  // Get swimmer name by ID
-  const getSwimmerName = (id) => {
-    const swimmer = swimmers.find(s => s.id === id);
-    return swimmer ? swimmer.name : 'Unknown';
-  };
 
   if (loading) {
     return (
@@ -525,7 +527,9 @@ export function TestSetsList({ onBack, onStartNew, swimmers }) {
               const times = reps.map(r => r.time_ms).filter(Boolean);
               const avg = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null;
               const best = times.length > 0 ? Math.min(...times) : null;
-              return { id, name: getSwimmerName(id), avg, best, reps: times.length };
+              // Get swimmer name from the first result (all should have same swimmer)
+              const swimmerName = reps.length > 0 && reps[0].swimmers ? reps[0].swimmers.name : 'Unknown';
+              return { id, name: swimmerName, avg, best, reps: times.length };
             }).sort((a, b) => (a.avg || 999999) - (b.avg || 999999));
 
             const isExpanded = expandedSet === set.id;

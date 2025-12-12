@@ -454,7 +454,6 @@ const fetchUserRole = async () => {
           <TestSetsList 
             onBack={() => navigateTo('dashboard')}
             onStartNew={() => navigateTo('test-set')}
-            swimmers={swimmers}
           />
         )}
 
