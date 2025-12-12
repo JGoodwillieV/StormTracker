@@ -5,7 +5,7 @@ import MeetReportGenerator from './MeetReportGenerator';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
-  ChevronDown, Search, User, X
+  ChevronDown, Search, User, X, Award, Calendar, Star, TrendingDown
 } from 'lucide-react';
 
 // --- SHARED HELPERS (Available to all components) ---
@@ -80,6 +80,7 @@ export default function Reports({ onBack }) {
       case 'heatmap': return <FlawHeatmapReport onBack={() => setCurrentReport(null)} />;
       case 'groups': return <GroupProgressionReport onBack={() => setCurrentReport(null)} />;
       case 'meetreport': return <MeetReportGenerator onBack={() => setCurrentReport(null)} />;
+      case 'teamrecords': return <TeamRecordsReport onBack={() => setCurrentReport(null)} />;
       default: return null;
     }
   };
@@ -142,6 +143,13 @@ export default function Reports({ onBack }) {
                 <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Activity size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Team Funnel</h3>
                 <p className="text-slate-500 text-sm mt-1">Visualize team progression through time standards.</p>
+            </div>
+
+            {/* 6. TEAM RECORDS */}
+            <div onClick={() => setCurrentReport('teamrecords')} className="bg-white p-6 rounded-2xl border hover:border-amber-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Award size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Team Records</h3>
+                <p className="text-slate-500 text-sm mt-1">Analyze team record breaks and history.</p>
             </div>
         </div>
     </div>
@@ -1035,6 +1043,506 @@ const RelayGenerator = ({ onBack }) => {
         </div>
     );
   };
+
+// 6. TEAM RECORDS REPORT
+const TeamRecordsReport = ({ onBack }) => {
+  const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [recordData, setRecordData] = useState(null);
+
+  // Initialize date range to current season (Sept 1 - Aug 31)
+  useEffect(() => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    
+    // If before September, season started last Sept 1
+    // If September or later, season started this Sept 1
+    const seasonStartYear = currentMonth < 8 ? currentYear - 1 : currentYear;
+    
+    setDateRange({
+      start: `${seasonStartYear}-09-01`,
+      end: today.toISOString().split('T')[0]
+    });
+  }, []);
+
+  const generateReport = async () => {
+    if (!dateRange.start || !dateRange.end) {
+      alert('Please select both start and end dates.');
+      return;
+    }
+
+    setLoading(true);
+    setProgressMsg('Loading record history...');
+
+    try {
+      // 1. Fetch record history within date range
+      const { data: recordHistory, error: historyError } = await supabase
+        .from('record_history')
+        .select('*')
+        .gte('broken_at', dateRange.start)
+        .lte('broken_at', dateRange.end)
+        .order('broken_at', { ascending: false });
+
+      if (historyError) throw historyError;
+
+      // 2. Fetch current team records to calculate longest-held
+      setProgressMsg('Analyzing current records...');
+      const { data: currentRecords, error: recordsError } = await supabase
+        .from('team_records')
+        .select('*');
+
+      if (recordsError) throw recordsError;
+
+      setProgressMsg('Processing insights...');
+
+      // --- INSIGHT 1: Records broken multiple times ---
+      const eventBreaks = {};
+      
+      (recordHistory || []).forEach(record => {
+        const key = `${record.event}|${record.age_group}|${record.gender}`;
+        if (!eventBreaks[key]) {
+          eventBreaks[key] = {
+            event: record.event,
+            age_group: record.age_group,
+            gender: record.gender,
+            breaks: [],
+            swimmers: new Set(),
+            totalImprovement: 0
+          };
+        }
+        
+        eventBreaks[key].breaks.push(record);
+        eventBreaks[key].swimmers.add(record.swimmer_name);
+        if (record.improvement_seconds) {
+          eventBreaks[key].totalImprovement += parseFloat(record.improvement_seconds);
+        }
+      });
+
+      // Convert to array and sort by number of breaks
+      const multiBreakEvents = Object.values(eventBreaks)
+        .map(e => ({
+          ...e,
+          breakCount: e.breaks.length,
+          swimmerCount: e.swimmers.size,
+          swimmers: Array.from(e.swimmers)
+        }))
+        .filter(e => e.breakCount > 0)
+        .sort((a, b) => b.breakCount - a.breakCount);
+
+      // Most competitive event
+      const mostCompetitiveEvent = multiBreakEvents[0] || null;
+
+      // --- INSIGHT 2: Individual swimmer achievements ---
+      const swimmerAchievements = {};
+      
+      (recordHistory || []).forEach(record => {
+        if (!swimmerAchievements[record.swimmer_name]) {
+          swimmerAchievements[record.swimmer_name] = {
+            name: record.swimmer_name,
+            swimmer_id: record.swimmer_id,
+            records: [],
+            totalRecords: 0,
+            uniqueEvents: new Set(),
+            totalImprovement: 0
+          };
+        }
+        
+        swimmerAchievements[record.swimmer_name].records.push(record);
+        swimmerAchievements[record.swimmer_name].totalRecords++;
+        swimmerAchievements[record.swimmer_name].uniqueEvents.add(record.event);
+        
+        if (record.improvement_seconds) {
+          swimmerAchievements[record.swimmer_name].totalImprovement += parseFloat(record.improvement_seconds);
+        }
+      });
+
+      // Convert to array and calculate unique event count
+      const topRecordBreakers = Object.values(swimmerAchievements)
+        .map(s => ({
+          ...s,
+          uniqueEventCount: s.uniqueEvents.size
+        }))
+        .sort((a, b) => b.totalRecords - a.totalRecords);
+
+      // --- INSIGHT 3: Longest-held records ---
+      const longestHeld = (currentRecords || []).map(record => {
+        const recordDate = new Date(record.date);
+        const now = new Date();
+        const daysHeld = Math.floor((now - recordDate) / (1000 * 60 * 60 * 24));
+        
+        return {
+          ...record,
+          daysHeld,
+          yearsHeld: (daysHeld / 365).toFixed(1)
+        };
+      }).sort((a, b) => b.daysHeld - a.daysHeld);
+
+      // --- SUMMARY STATS ---
+      const totalBreaks = (recordHistory || []).length;
+      const uniqueSwimmers = new Set((recordHistory || []).map(r => r.swimmer_name)).size;
+      const uniqueEvents = new Set((recordHistory || []).map(r => `${r.event}|${r.age_group}|${r.gender}`)).size;
+      const totalImprovement = (recordHistory || []).reduce((sum, r) => sum + (parseFloat(r.improvement_seconds) || 0), 0);
+
+      setRecordData({
+        totalBreaks,
+        uniqueSwimmers,
+        uniqueEvents,
+        totalImprovement,
+        multiBreakEvents,
+        mostCompetitiveEvent,
+        topRecordBreakers,
+        longestHeld,
+        recordHistory: recordHistory || []
+      });
+
+    } catch (error) {
+      console.error(error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setLoading(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Auto-generate on mount
+  useEffect(() => {
+    if (dateRange.start && dateRange.end) {
+      generateReport();
+    }
+  }, []); // Only run on mount
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline">
+          <ArrowRight className="rotate-180" size={16}/> Back to Reports
+        </button>
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <Award className="text-amber-500" size={24} /> Team Records Report
+        </h2>
+      </div>
+
+      {/* Date Range Filter */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Calendar size={18} className="text-slate-400" /> Date Range
+        </h3>
+        
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Start Date</label>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+            />
+          </div>
+
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">End Date</label>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+            />
+          </div>
+
+          <button
+            onClick={generateReport}
+            disabled={loading}
+            className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Zap size={16} />
+                Generate Report
+              </>
+            )}
+          </button>
+        </div>
+
+        {progressMsg && (
+          <div className="mt-4 text-sm text-slate-500 flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            {progressMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      {loading && !recordData && (
+        <div className="h-64 flex flex-col items-center justify-center text-slate-400">
+          <Loader2 size={40} className="animate-spin mb-4 text-amber-500" />
+          <p>{progressMsg || 'Processing...'}</p>
+        </div>
+      )}
+
+      {!loading && recordData && (
+        <>
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl p-6 text-white shadow-lg">
+              <div className="text-3xl font-black mb-1">{recordData.totalBreaks}</div>
+              <div className="text-sm opacity-90">Record Breaks</div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-3xl font-black text-slate-800 mb-1">{recordData.uniqueSwimmers}</div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider">Record Holders</div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-3xl font-black text-slate-800 mb-1">{recordData.uniqueEvents}</div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider">Events Impacted</div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-emerald-200 shadow-sm bg-emerald-50">
+              <div className="text-3xl font-black text-emerald-600 mb-1">{recordData.totalImprovement.toFixed(2)}s</div>
+              <div className="text-xs text-emerald-600 uppercase tracking-wider">Total Improvement</div>
+            </div>
+          </div>
+
+          {recordData.totalBreaks === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <Award size={48} className="mx-auto text-slate-300 mb-4" />
+              <h3 className="font-bold text-slate-700 text-lg mb-2">No Records Broken</h3>
+              <p className="text-slate-500 text-sm">
+                No team records were broken in the selected date range. Try expanding the date range or check back after the next meet!
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Top Record Breakers */}
+              {recordData.topRecordBreakers.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                      <Trophy className="text-amber-500" size={20} />
+                      Top Record Breakers
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">Swimmers who broke the most team records</p>
+                  </div>
+                  
+                  <div className="divide-y divide-slate-100">
+                    {recordData.topRecordBreakers.slice(0, 10).map((swimmer, idx) => (
+                      <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className={`
+                              w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
+                              ${idx === 0 ? 'bg-gradient-to-br from-yellow-400 to-amber-500' : 
+                                idx === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-400' :
+                                idx === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-700' :
+                                'bg-gradient-to-br from-slate-400 to-slate-500'}
+                            `}>
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-slate-800">{swimmer.name}</h4>
+                              <p className="text-sm text-slate-500">
+                                {swimmer.totalRecords} record{swimmer.totalRecords !== 1 ? 's' : ''} across {swimmer.uniqueEventCount} event{swimmer.uniqueEventCount !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <div className="text-2xl font-black text-amber-500">{swimmer.totalRecords}</div>
+                            <div className="text-xs text-slate-400 uppercase">Records</div>
+                          </div>
+                        </div>
+                        
+                        {/* Sample Events */}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[...swimmer.uniqueEvents].slice(0, 5).map((event, i) => (
+                            <span key={i} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full border border-amber-200">
+                              {event}
+                            </span>
+                          ))}
+                          {swimmer.uniqueEventCount > 5 && (
+                            <span className="text-xs text-slate-400">+{swimmer.uniqueEventCount - 5} more</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Most Competitive Events */}
+              {recordData.multiBreakEvents.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                      <TrendingDown className="text-blue-500" size={20} />
+                      Most Competitive Events
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">Records broken multiple times</p>
+                  </div>
+                  
+                  <div className="divide-y divide-slate-100">
+                    {recordData.multiBreakEvents.slice(0, 10).map((event, idx) => (
+                      <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="font-bold text-slate-800">{event.event}</h4>
+                              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                {event.age_group} • {event.gender === 'M' ? 'Boys' : 'Girls'}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                              <div>
+                                <div className="text-lg font-bold text-blue-600">{event.breakCount}</div>
+                                <div className="text-xs text-slate-400">Times Broken</div>
+                              </div>
+                              <div>
+                                <div className="text-lg font-bold text-purple-600">{event.swimmerCount}</div>
+                                <div className="text-xs text-slate-400">Different Swimmers</div>
+                              </div>
+                              <div>
+                                <div className="text-lg font-bold text-emerald-600">{event.totalImprovement.toFixed(2)}s</div>
+                                <div className="text-xs text-slate-400">Total Improvement</div>
+                              </div>
+                              <div>
+                                <div className="text-lg font-bold text-amber-600">{(event.totalImprovement / event.breakCount).toFixed(2)}s</div>
+                                <div className="text-xs text-slate-400">Avg Drop</div>
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm text-slate-600">
+                              <span className="font-semibold">Record holders:</span>{' '}
+                              {event.swimmers.join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Longest-Held Records */}
+              {recordData.longestHeld.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                      <Clock className="text-purple-500" size={20} />
+                      Longest-Held Records
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">Current records that have stood the test of time</p>
+                  </div>
+                  
+                  <div className="divide-y divide-slate-100">
+                    {recordData.longestHeld.slice(0, 15).map((record, idx) => (
+                      <div key={idx} className="p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-1">
+                              <h4 className="font-bold text-slate-800">{record.event}</h4>
+                              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                {record.age_group} • {record.gender === 'M' ? 'Boys' : 'Girls'}
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-600">
+                              <span className="font-semibold">{record.swimmer_name}</span> •{' '}
+                              <span className="font-mono text-blue-600">{record.time_display}</span> •{' '}
+                              <span className="text-slate-400">
+                                {(() => {
+                                  const [year, month, day] = record.date.split('T')[0].split('-');
+                                  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                                  return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                })()}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <div className="text-xl font-bold text-purple-600">{record.daysHeld}</div>
+                            <div className="text-xs text-slate-400">
+                              {record.daysHeld === 1 ? 'day' : 'days'} ({record.yearsHeld} yrs)
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Key Insights Card */}
+              {recordData.mostCompetitiveEvent && recordData.topRecordBreakers[0] && (
+                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
+                  <h3 className="font-bold text-xl mb-4 flex items-center gap-2">
+                    <Star size={24} />
+                    Key Insights
+                  </h3>
+                  
+                  <div className="space-y-3 text-white/90">
+                    {recordData.mostCompetitiveEvent.breakCount > 1 && (
+                      <div className="flex items-start gap-3">
+                        <div className="text-2xl">🔥</div>
+                        <p className="flex-1">
+                          The <span className="font-bold text-white">{recordData.mostCompetitiveEvent.age_group} {recordData.mostCompetitiveEvent.gender === 'M' ? 'Boys' : 'Girls'} {recordData.mostCompetitiveEvent.event}</span> record was broken{' '}
+                          <span className="font-bold text-white">{recordData.mostCompetitiveEvent.breakCount} times this {dateRange.start.includes('-09-01') ? 'season' : 'period'}</span> by{' '}
+                          <span className="font-bold text-white">{recordData.mostCompetitiveEvent.swimmerCount} different swimmer{recordData.mostCompetitiveEvent.swimmerCount !== 1 ? 's' : ''}</span> and improved by{' '}
+                          <span className="font-bold text-white">{recordData.mostCompetitiveEvent.totalImprovement.toFixed(2)} seconds</span>!
+                        </p>
+                      </div>
+                    )}
+                    
+                    {recordData.topRecordBreakers[0] && recordData.topRecordBreakers[0].totalRecords > 1 && (
+                      <div className="flex items-start gap-3">
+                        <div className="text-2xl">⭐</div>
+                        <p className="flex-1">
+                          <span className="font-bold text-white">{recordData.topRecordBreakers[0].name}</span> broke{' '}
+                          <span className="font-bold text-white">{recordData.topRecordBreakers[0].totalRecords} team records</span> this {dateRange.start.includes('-09-01') ? 'season' : 'period'} across{' '}
+                          <span className="font-bold text-white">{recordData.topRecordBreakers[0].uniqueEventCount} different event{recordData.topRecordBreakers[0].uniqueEventCount !== 1 ? 's' : ''}</span>!
+                        </p>
+                      </div>
+                    )}
+                    
+                    {recordData.longestHeld[0] && recordData.longestHeld[0].daysHeld > 365 && (
+                      <div className="flex items-start gap-3">
+                        <div className="text-2xl">🏆</div>
+                        <p className="flex-1">
+                          Longest-held record: <span className="font-bold text-white">{recordData.longestHeld[0].event}</span> by{' '}
+                          <span className="font-bold text-white">{recordData.longestHeld[0].swimmer_name}</span> ({' '}
+                          <span className="font-bold text-white">{recordData.longestHeld[0].daysHeld} days</span> / {recordData.longestHeld[0].yearsHeld} years)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Initial state */}
+      {!loading && !recordData && (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-12 text-center">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Award size={32} className="text-amber-500" />
+          </div>
+          <h3 className="font-bold text-slate-800 text-xl mb-2">Team Records Analysis</h3>
+          <p className="text-slate-600 max-w-md mx-auto">
+            Select a date range above to analyze team record breaks, see who broke the most records, 
+            identify the most competitive events, and view the longest-held records.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // --- PLACEHOLDERS FOR OTHER REPORTS (Will Implement Next) ---
 const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Big Movers Coming Soon</h3></div>;
