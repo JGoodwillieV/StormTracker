@@ -99,7 +99,7 @@ export async function checkForRecordBreak(result) {
     // 1. Get swimmer info
     const { data: swimmer, error: swimmerError } = await supabase
       .from('swimmers')
-      .select('name, birthday, gender')
+      .select('name, date_of_birth, gender')
       .eq('id', result.swimmer_id)
       .single();
     
@@ -112,7 +112,7 @@ export async function checkForRecordBreak(result) {
     
     // 2. Calculate swimmer's age on the date of the swim
     const swimDate = new Date(result.date);
-    const birthDate = new Date(swimmer.birthday);
+    const birthDate = new Date(swimmer.date_of_birth);
     let age = swimDate.getFullYear() - birthDate.getFullYear();
     const monthDiff = swimDate.getMonth() - birthDate.getMonth();
     if (monthDiff < 0 || (monthDiff === 0 && swimDate.getDate() < birthDate.getDate())) {
