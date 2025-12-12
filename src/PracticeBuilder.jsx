@@ -13,7 +13,8 @@ import {
   Timer,
   BookOpen,
   Play,
-  Repeat
+  Repeat,
+  Zap
 } from 'lucide-react';
 
 const STROKE_OPTIONS = ['free', 'back', 'breast', 'fly', 'IM', 'choice', 'drill', 'kick'];
@@ -21,6 +22,8 @@ const INTENSITY_OPTIONS = ['easy', 'moderate', 'fast', 'sprint', 'race_pace'];
 const EQUIPMENT_OPTIONS = ['fins', 'paddles', 'snorkel', 'kickboard', 'pull_buoy', 'band'];
 const SET_TYPES = ['warmup', 'pre_set', 'main_set', 'test_set', 'cooldown', 'dryland'];
 const FOCUS_TAGS = ['aerobic', 'threshold', 'speed', 'technique', 'IM', 'sprint', 'distance', 'race_prep'];
+
+import PracticeQuickEntry from './PracticeQuickEntry';
 
 export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPractice, swimmers }) {
   const [practice, setPractice] = useState(null);
@@ -32,6 +35,7 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
   const [showPrint, setShowPrint] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showRecurringSchedule, setShowRecurringSchedule] = useState(false);
+  const [viewMode, setViewMode] = useState('builder'); // 'builder' or 'quick-entry'
 
   useEffect(() => {
     if (practiceId) {
@@ -339,6 +343,23 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
     return <div className="flex items-center justify-center h-full">Practice not found</div>;
   }
 
+  // Quick Entry Mode View
+  if (viewMode === 'quick-entry') {
+    return (
+      <PracticeQuickEntry
+        practiceId={practice.id}
+        practice={practice}
+        onBack={onBack}
+        onSwitchToBuilder={() => {
+          setViewMode('builder');
+          // Reload practice to see updates
+          setTimeout(() => loadPractice(), 500);
+        }}
+      />
+    );
+  }
+
+  // Builder Mode View
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -357,6 +378,13 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
             />
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode('quick-entry')}
+              className="flex items-center gap-2 px-4 py-2 text-yellow-600 bg-yellow-50 border border-yellow-200 rounded-lg text-sm font-bold hover:bg-yellow-100 transition-colors"
+            >
+              <Zap size={16} />
+              <span className="hidden md:inline">Quick Entry</span>
+            </button>
             {sets.length > 0 && (
               <button
                 onClick={() => onRunPractice?.(practice.id)}
