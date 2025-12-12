@@ -552,7 +552,11 @@ const CloseCallsReport = ({ onBack }) => {
                           <div className="flex-1">
                             <div className="font-medium text-slate-800">{evt.event}</div>
                             <div className="text-xs text-slate-400 mt-0.5">
-                              Best: {evt.bestTimeDate ? new Date(evt.bestTimeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : 'N/A'}
+                              Best: {evt.bestTimeDate ? (() => {
+                                const [year, month, day] = evt.bestTimeDate.split('T')[0].split('-');
+                                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                                return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+                              })() : 'N/A'}
                             </div>
                           </div>
                           
@@ -803,7 +807,11 @@ const QualifiersReport = ({ onBack }) => {
                                     <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                                         <div>
                                             <div className="font-bold text-sm text-slate-700">{evt.event}</div>
-                                            <div className="text-xs text-slate-400">{new Date(evt.date).toLocaleDateString()}</div>
+                                            <div className="text-xs text-slate-400">{(() => {
+                                              const [year, month, day] = evt.date.split('T')[0].split('-');
+                                              const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                                              return dateObj.toLocaleDateString();
+                                            })()}</div>
                                         </div>
                                         <div className="text-right">
                                             <div className="font-mono font-bold text-blue-600 text-sm">{evt.time}</div>

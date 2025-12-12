@@ -572,8 +572,15 @@ const loadParentData = async () => {
                 subtitle: `${time.time} at ${time.meet_name || 'Meet'}`,
                 diffLabel, 
                 isDrop,
-                time: new Date(time.date).toLocaleDateString(),
-                date: new Date(time.date)
+                time: (() => {
+                  const [year, month, day] = time.date.split('T')[0].split('-');
+                  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                  return dateObj.toLocaleDateString();
+                })(),
+                date: (() => {
+                  const [year, month, day] = time.date.split('T')[0].split('-');
+                  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                })()
               });
             });
           } else {

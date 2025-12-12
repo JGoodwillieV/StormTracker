@@ -122,7 +122,11 @@ export default function RecordBreakModal({ isOpen, recordBreaks, onClose, onUpda
                       <div className="text-white text-2xl font-bold font-mono">{record.time_display}</div>
                       <div className="text-emerald-200 text-xs mt-1 flex items-center gap-1">
                         <Calendar size={12} />
-                        {new Date(record.date).toLocaleDateString()}
+                        {(() => {
+                          const [year, month, day] = record.date.split('T')[0].split('-');
+                          const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                          return dateObj.toLocaleDateString();
+                        })()}
                       </div>
                     </div>
 

@@ -85,9 +85,17 @@ function MeetCard({ meet, stats, onClick, onStatusChange }) {
           <div className="flex items-center gap-2 text-sm text-slate-500 mt-1">
             <Calendar size={14} />
             <span>
-              {new Date(meet.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {(() => {
+                const [year, month, day] = meet.start_date.split('T')[0].split('-');
+                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              })()}
               {meet.end_date && meet.end_date !== meet.start_date && 
-                ` - ${new Date(meet.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                ` - ${(() => {
+                  const [year, month, day] = meet.end_date.split('T')[0].split('-');
+                  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                  return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                })()}`
               }
             </span>
           </div>
@@ -588,7 +596,11 @@ function MeetDetail({ meet, onBack, onUpdate }) {
         .from('announcements')
         .insert({
           title: `ACTION REQUIRED: ${meet.name} Entries`,
-          content: `Meet entries are now available for review. Please confirm your swimmer's events${meet.entry_deadline ? ` by ${new Date(meet.entry_deadline).toLocaleDateString()}` : ''}.`,
+          content: `Meet entries are now available for review. Please confirm your swimmer's events${meet.entry_deadline ? ` by ${(() => {
+            const [year, month, day] = meet.entry_deadline.split('T')[0].split('-');
+            const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            return dateObj.toLocaleDateString();
+          })()}` : ''}.`,
           type: 'meet',
           is_urgent: true,
           author_id: user.id,
@@ -660,9 +672,13 @@ function MeetDetail({ meet, onBack, onUpdate }) {
               <StatusBadge status={meet.status} />
             </div>
             <p className="text-slate-500">
-              {new Date(meet.start_date).toLocaleDateString('en-US', { 
-                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
-              })}
+              {(() => {
+                const [year, month, day] = meet.start_date.split('T')[0].split('-');
+                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return dateObj.toLocaleDateString('en-US', { 
+                  weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+                });
+              })()}
             </p>
           </div>
         </div>

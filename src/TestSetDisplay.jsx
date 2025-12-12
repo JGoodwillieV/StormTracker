@@ -17,7 +17,9 @@ const formatTime = (ms) => {
 };
 
 const formatDate = (dateStr) => {
-  return new Date(dateStr).toLocaleDateString('en-US', { 
+  // Parse timestamp directly without timezone conversion (created_at is already a timestamp)
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { 
     month: 'short', 
     day: 'numeric',
     year: '2-digit'

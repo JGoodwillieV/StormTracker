@@ -16,7 +16,10 @@ import {
 
 const formatDate = (date) => {
   if (!date) return '';
-  return new Date(date).toLocaleDateString('en-US', { 
+  // Parse YYYY-MM-DD directly without timezone conversion
+  const [year, month, day] = date.split('T')[0].split('-');
+  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  return dateObj.toLocaleDateString('en-US', { 
     weekday: 'short',
     month: 'short', 
     day: 'numeric',
@@ -426,11 +429,15 @@ const SwimmerMeetSchedule = ({ meet, swimmer, entries, onBack }) => {
                 <div className="text-sm text-slate-300 flex gap-4 mt-1">
                   {session.sessionDate && (
                     <span>
-                      {new Date(session.sessionDate + 'T00:00:00').toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })}
+                      {(() => {
+                        const [year, month, day] = session.sessionDate.split('T')[0].split('-');
+                        const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                        return dateObj.toLocaleDateString('en-US', { 
+                          weekday: 'short', 
+                          month: 'short',
+                          day: 'numeric'
+                        });
+                      })()}
                     </span>
                   )}
                   {session.startTime && (

@@ -225,13 +225,17 @@ function ConfirmationDetail({ meetId, swimmerId, swimmerName, parentId, onBack, 
               {new Date(meet.entry_deadline) < new Date() ? 'Deadline has passed' : 'Confirmation Deadline'}
             </p>
             <p className={`text-sm ${new Date(meet.entry_deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-              {new Date(meet.entry_deadline).toLocaleDateString('en-US', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit'
-              })}
+              {(() => {
+                // entry_deadline might include time, so parse as full timestamp
+                const date = new Date(meet.entry_deadline);
+                return date.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit'
+                });
+              })()}
             </p>
           </div>
         </div>

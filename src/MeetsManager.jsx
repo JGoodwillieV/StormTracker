@@ -33,7 +33,10 @@ const StatusBadge = ({ status }) => {
 
 const formatDate = (date) => {
   if (!date) return '';
-  return new Date(date).toLocaleDateString('en-US', { 
+  // Parse YYYY-MM-DD directly without timezone conversion
+  const [year, month, day] = date.split('T')[0].split('-');
+  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  return dateObj.toLocaleDateString('en-US', { 
     month: 'short', 
     day: 'numeric',
     year: 'numeric'
@@ -1592,7 +1595,9 @@ const SwimmerEntryModal = ({ meet, swimmer, meetEvents, existingEntries, onClose
       // First check if event has explicit session info
       if (evt.session_date) {
         dayKey = evt.session_date;
-        dayName = new Date(evt.session_date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const [year, month, day] = evt.session_date.split('T')[0].split('-');
+        const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
       } else if (evt.session_name && evt.session_name !== 'Session 0' && evt.session_name !== 'Session TBD') {
         dayKey = evt.session_name;
         dayName = evt.session_name;

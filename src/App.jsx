@@ -825,7 +825,11 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase, s
                 let cleanDate = new Date().toISOString().split('T')[0];
                 if (dateVal) {
                     if (dateVal instanceof Date) {
-                        cleanDate = dateVal.toISOString().split('T')[0];
+                        // Extract date in local timezone to avoid timezone shift
+                        const year = dateVal.getFullYear();
+                        const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+                        const day = String(dateVal.getDate()).padStart(2, '0');
+                        cleanDate = `${year}-${month}-${day}`;
                     } else if (typeof dateVal === 'string' && dateVal.includes('/')) {
                         const dParts = dateVal.split('/'); 
                         if (dParts.length === 3) cleanDate = `20${dParts[2]}-${dParts[0].padStart(2, '0')}-${dParts[1].padStart(2, '0')}`;
@@ -1102,6 +1106,15 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis,
     }, [swimmer]);
 
     // --- 2. Helpers ---
+    // Format date string without timezone conversion
+    const formatDateSafe = (dateStr) => {
+        if (!dateStr) return '';
+        // Parse YYYY-MM-DD directly without timezone conversion
+        const [year, month, day] = dateStr.split('T')[0].split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        return date.toLocaleDateString();
+    };
+
     const getBaseEventName = (eventName) => {
         if (!eventName) return "";
         let clean = eventName.replace(/\s*\((Finals|Prelim)\)/i, '');
@@ -1156,8 +1169,11 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis,
             if (seconds === null) return; // Skip DQs for graph
 
             if (!bestTimePerDay[dateKey] || seconds < bestTimePerDay[dateKey].seconds) {
+                // Format date without timezone conversion
+                const [year, month, day] = r.date.split('T')[0].split('-');
+                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                 bestTimePerDay[dateKey] = {
-                    date: new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
+                    date: dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
                     fullDate: r.date,
                     seconds: seconds,
                     timeStr: r.time,
@@ -1407,7 +1423,7 @@ const SwimmerProfile = ({ swimmer, swimmers, onBack, navigateTo, onViewAnalysis,
                                         const improvement = getImprovement(group, groupedResults);
                                         return (
                                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 text-slate-500 whitespace-nowrap">{new Date(group.date).toLocaleDateString()}</td>
+                                                <td className="px-6 py-4 text-slate-500 whitespace-nowrap">{formatDateSafe(group.date)}</td>
                                                 <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">{group.event}</td>
                                                 
                                                 <td className="px-6 py-4 text-slate-600 whitespace-nowrap">

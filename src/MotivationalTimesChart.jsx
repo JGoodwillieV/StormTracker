@@ -328,7 +328,11 @@ export default function MotivationalTimesChart({ swimmerId, age, gender }) {
                 <td className="px-5 py-3">
                   <div className="font-medium text-slate-800">{formatEventDisplay(row.event)}</div>
                   <div className="text-xs text-slate-400">
-                    {row.date ? new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : ''}
+                    {row.date ? (() => {
+                      const [year, month, day] = row.date.split('T')[0].split('-');
+                      const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                      return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+                    })() : ''}
                   </div>
                 </td>
 
