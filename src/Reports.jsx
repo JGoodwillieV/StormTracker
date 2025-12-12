@@ -82,6 +82,7 @@ export default function Reports({ onBack }) {
       case 'groups': return <GroupProgressionReport onBack={() => setCurrentReport(null)} />;
       case 'meetreport': return <MeetReportGenerator onBack={() => setCurrentReport(null)} />;
       case 'teamrecords': return <TeamRecordsReport onBack={() => setCurrentReport(null)} />;
+      case 'toptimes': return <TopTimesReport onBack={() => setCurrentReport(null)} />;
       default: return null;
     }
   };
@@ -151,6 +152,13 @@ export default function Reports({ onBack }) {
                 <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Award size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Team Records</h3>
                 <p className="text-slate-500 text-sm mt-1">Analyze team record breaks and history.</p>
+            </div>
+
+            {/* 7. TOP TIMES */}
+            <div onClick={() => setCurrentReport('toptimes')} className="bg-white p-6 rounded-2xl border hover:border-rose-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Clock size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Top Times</h3>
+                <p className="text-slate-500 text-sm mt-1">View top 10 times by event, age, and date range.</p>
             </div>
         </div>
     </div>
@@ -3127,6 +3135,440 @@ const TeamFunnelReport = ({ onBack }) => {
               </>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 7. TOP TIMES REPORT
+const TopTimesReport = ({ onBack }) => {
+  // Filter State
+  const [timePeriod, setTimePeriod] = useState('season'); // 'season', 'last30', 'last60', 'last90', 'custom', 'single'
+  const [singleDate, setSingleDate] = useState('');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [gender, setGender] = useState('all');
+  const [ageGroup, setAgeGroup] = useState('all');
+  const [category, setCategory] = useState('all'); // 'all', 'SCY', 'SCM', 'LCM'
+  const [selectedEvent, setSelectedEvent] = useState('');
+  
+  // Data State
+  const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [topTimes, setTopTimes] = useState([]);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [swimmers, setSwimmers] = useState([]);
+
+  // Load swimmers and events on mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      const { data: swimmerData } = await supabase.from('swimmers').select('*');
+      if (swimmerData) {
+        setSwimmers(swimmerData);
+      }
+
+      const { data: resultsData } = await supabase
+        .from('results')
+        .select('event')
+        .limit(5000);
+      
+      if (resultsData) {
+        const uniqueEvents = [...new Set(resultsData.map(r => r.event))].filter(Boolean).sort((a, b) => {
+          const aInfo = parseEvent(a);
+          const bInfo = parseEvent(b);
+          const aDist = parseInt(aInfo.dist) || 0;
+          const bDist = parseInt(bInfo.dist) || 0;
+          if (aDist !== bDist) return aDist - bDist;
+          return (STROKE_ORDER[aInfo.stroke] || 99) - (STROKE_ORDER[bInfo.stroke] || 99);
+        });
+        setEvents(uniqueEvents);
+        if (uniqueEvents.length > 0) setSelectedEvent(uniqueEvents[0]);
+      }
+    };
+    loadInitialData();
+  }, []);
+
+  const calculateDateRange = () => {
+    const today = new Date();
+    let start, end;
+    
+    switch (timePeriod) {
+      case 'single':
+        start = singleDate;
+        end = singleDate;
+        break;
+      case 'last30':
+        start = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        end = today.toISOString().split('T')[0];
+        break;
+      case 'last60':
+        start = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        end = today.toISOString().split('T')[0];
+        break;
+      case 'last90':
+        start = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        end = today.toISOString().split('T')[0];
+        break;
+      case 'custom':
+        start = customStartDate;
+        end = customEndDate;
+        break;
+      case 'season':
+      default:
+        const currentYear = today.getMonth() >= 8 ? today.getFullYear() : today.getFullYear() - 1;
+        start = `${currentYear}-09-01`;
+        end = today.toISOString().split('T')[0];
+        break;
+    }
+    
+    return { start, end };
+  };
+
+  const generateReport = async () => {
+    if (!selectedEvent) {
+      alert('Please select an event.');
+      return;
+    }
+
+    if (timePeriod === 'single' && !singleDate) {
+      alert('Please select a date.');
+      return;
+    }
+
+    if (timePeriod === 'custom' && (!customStartDate || !customEndDate)) {
+      alert('Please select both start and end dates.');
+      return;
+    }
+
+    setLoading(true);
+    setHasGenerated(true);
+    setTopTimes([]);
+
+    try {
+      setProgressMsg('Loading results...');
+      const dateRange = calculateDateRange();
+      
+      // Build query
+      let query = supabase
+        .from('results')
+        .select('*, swimmer:swimmers(*), meet:meets(*)')
+        .eq('event', selectedEvent)
+        .gte('date', dateRange.start)
+        .lte('date', dateRange.end);
+
+      // Execute query
+      const { data: results, error } = await query;
+      
+      if (error) throw error;
+
+      setProgressMsg('Filtering and sorting...');
+      
+      // Filter by swimmer demographics and category
+      let filteredResults = results.filter(r => {
+        if (!r.swimmer) return false;
+        
+        // Gender filter
+        if (gender !== 'all' && r.swimmer.gender !== gender) return false;
+        
+        // Age group filter
+        if (ageGroup !== 'all') {
+          const age = parseInt(r.swimmer.age) || 0;
+          if (ageGroup === '10U' && age > 10) return false;
+          if (ageGroup === '11-12' && (age < 11 || age > 12)) return false;
+          if (ageGroup === '13-14' && (age < 13 || age > 14)) return false;
+          if (ageGroup === '15-18' && (age < 15 || age > 18)) return false;
+        }
+        
+        // Category filter (SCY, SCM, LCM)
+        if (category !== 'all') {
+          const eventUpper = (r.event || '').toUpperCase();
+          if (category === 'SCY' && !eventUpper.includes('(Y)') && !eventUpper.includes('YARD')) return false;
+          if (category === 'SCM' && !eventUpper.includes('(S)') && !eventUpper.includes('SHORT')) return false;
+          if (category === 'LCM' && !eventUpper.includes('(L)') && !eventUpper.includes('LONG')) return false;
+        }
+        
+        return true;
+      });
+
+      // Convert times to seconds and sort
+      filteredResults = filteredResults
+        .map(r => ({
+          ...r,
+          seconds: timeToSeconds(r.time)
+        }))
+        .filter(r => r.seconds < 999999)
+        .sort((a, b) => a.seconds - b.seconds)
+        .slice(0, 10); // Top 10
+
+      setTopTimes(filteredResults);
+      
+    } catch (error) {
+      console.error(error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setLoading(false);
+      setProgressMsg('');
+    }
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={onBack} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
+          <ChevronLeft size={24} />
+        </button>
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <Clock className="text-rose-600" /> Top Times
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">View top 10 times by event, age, and date range</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter size={18} className="text-slate-500" />
+          <h3 className="font-bold text-slate-800">Filters</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Time Period */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Time Period</label>
+            <select
+              value={timePeriod}
+              onChange={(e) => setTimePeriod(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              <option value="season">Season to Date</option>
+              <option value="last30">Last 30 Days</option>
+              <option value="last60">Last 60 Days</option>
+              <option value="last90">Last 90 Days</option>
+              <option value="single">Single Date</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
+
+          {/* Single Date Input */}
+          {timePeriod === 'single' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Date</label>
+              <input
+                type="date"
+                value={singleDate}
+                onChange={(e) => setSingleDate(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+          )}
+
+          {/* Custom Range Inputs */}
+          {timePeriod === 'custom' && (
+            <>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Start Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">End Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Gender */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Gender</label>
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              <option value="all">All</option>
+              <option value="M">Boys</option>
+              <option value="F">Girls</option>
+            </select>
+          </div>
+
+          {/* Age Group */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Age Group</label>
+            <select
+              value={ageGroup}
+              onChange={(e) => setAgeGroup(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              <option value="all">All Ages</option>
+              <option value="10U">10 & Under</option>
+              <option value="11-12">11-12</option>
+              <option value="13-14">13-14</option>
+              <option value="15-18">15-18</option>
+            </select>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Course</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              <option value="all">All Courses</option>
+              <option value="SCY">SCY (Short Course Yards)</option>
+              <option value="SCM">SCM (Short Course Meters)</option>
+              <option value="LCM">LCM (Long Course Meters)</option>
+            </select>
+          </div>
+
+          {/* Event */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Event</label>
+            <select
+              value={selectedEvent}
+              onChange={(e) => setSelectedEvent(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              {events.map(evt => (
+                <option key={evt} value={evt}>{evt}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Generate Button */}
+        <button
+          onClick={generateReport}
+          disabled={loading}
+          className="mt-6 w-full md:w-auto bg-gradient-to-r from-rose-500 to-pink-600 text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              {progressMsg || 'Loading...'}
+            </>
+          ) : (
+            <>
+              <Zap size={20} />
+              Generate Report
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Results */}
+      {hasGenerated && !loading && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h3 className="font-bold text-xl text-slate-900 mb-4 flex items-center gap-2">
+            <Trophy className="text-rose-600" />
+            Top 10 Times - {selectedEvent}
+          </h3>
+
+          {topTimes.length === 0 ? (
+            <div className="text-center py-12">
+              <AlertCircle size={48} className="mx-auto text-slate-300 mb-4" />
+              <p className="text-slate-500 text-lg">No results found matching your filters.</p>
+              <p className="text-slate-400 text-sm mt-2">Try adjusting your date range or filters.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {topTimes.map((result, index) => (
+                <div
+                  key={result.id}
+                  className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                    index === 0
+                      ? 'bg-gradient-to-r from-yellow-50 to-amber-50 border-amber-300 shadow-md'
+                      : index === 1
+                      ? 'bg-gradient-to-r from-slate-50 to-gray-50 border-slate-300'
+                      : index === 2
+                      ? 'bg-gradient-to-r from-orange-50 to-red-50 border-orange-200'
+                      : 'bg-slate-50 border-slate-200 hover:border-rose-300'
+                  }`}
+                >
+                  {/* Rank */}
+                  <div
+                    className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
+                      index === 0
+                        ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-white shadow-lg'
+                        : index === 1
+                        ? 'bg-gradient-to-br from-slate-300 to-gray-400 text-white shadow-md'
+                        : index === 2
+                        ? 'bg-gradient-to-br from-orange-400 to-red-500 text-white shadow-md'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {index + 1}
+                  </div>
+
+                  {/* Swimmer Info */}
+                  <div className="flex-1">
+                    <div className="font-bold text-slate-900 flex items-center gap-2">
+                      {result.swimmer?.name || 'Unknown Swimmer'}
+                      {result.swimmer?.age && (
+                        <span className="text-xs font-normal text-slate-500 bg-white px-2 py-0.5 rounded-full border">
+                          Age {result.swimmer.age}
+                        </span>
+                      )}
+                      {result.swimmer?.gender && (
+                        <span className={`text-xs font-normal px-2 py-0.5 rounded-full border ${
+                          result.swimmer.gender === 'M' 
+                            ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                            : 'bg-pink-50 text-pink-700 border-pink-200'
+                        }`}>
+                          {result.swimmer.gender === 'M' ? 'Boys' : 'Girls'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-slate-600 mt-1 flex items-center gap-3">
+                      <span className="flex items-center gap-1">
+                        <Calendar size={14} />
+                        {new Date(result.date).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          year: 'numeric' 
+                        })}
+                      </span>
+                      {result.meet?.name && (
+                        <span className="text-slate-400">• {result.meet.name}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Time */}
+                  <div className="text-right">
+                    <div className={`font-mono font-bold text-2xl ${
+                      index === 0
+                        ? 'text-amber-700'
+                        : index === 1
+                        ? 'text-slate-700'
+                        : index === 2
+                        ? 'text-orange-700'
+                        : 'text-slate-900'
+                    }`}>
+                      {result.time}
+                    </div>
+                    {result.points && (
+                      <div className="text-xs text-slate-500 mt-1">{result.points} pts</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
