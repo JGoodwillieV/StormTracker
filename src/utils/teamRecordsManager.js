@@ -212,11 +212,43 @@ export async function checkMultipleResults(results) {
   }
   
   console.log('\n🏁 Record check complete. Total breaks:', recordBreaks.length);
-  return recordBreaks;
+  
+  // Deduplicate: Keep only the FASTEST time for each event/age/gender combo
+  const deduped = deduplicateRecordBreaks(recordBreaks);
+  
+  if (deduped.length < recordBreaks.length) {
+    console.log(`📊 Deduplicated: ${recordBreaks.length} → ${deduped.length} (kept fastest times only)`);
+  }
+  
+  return deduped;
 }
 
 /**
- * Updates a team record in the database
+ * Deduplicates record breaks, keeping only the fastest time for each event/age/gender
+ * @param {Array} recordBreaks - Array of record break objects
+ * @returns {Array} Deduplicated array with only fastest times
+ */
+function deduplicateRecordBreaks(recordBreaks) {
+  const map = new Map();
+  
+  for (const record of recordBreaks) {
+    const key = `${record.event}|${record.age_group}|${record.gender}`;
+    const existing = map.get(key);
+    
+    if (!existing || record.time_seconds < existing.time_seconds) {
+      // This is faster than what we have, or first one for this key
+      map.set(key, record);
+      console.log(`  🏆 ${key}: Keeping ${record.time_display} by ${record.swimmer_name}${existing ? ` (faster than ${existing.time_display})` : ''}`);
+    } else {
+      console.log(`  ⏭️  ${key}: Skipping ${record.time_display} (slower than ${existing.time_display})`);
+    }
+  }
+  
+  return Array.from(map.values());
+}
+
+/**
+ * Updates a team record in the database and logs to history
  * @param {Object} recordBreak - The record break information
  * @returns {Promise<boolean>} Success status
  */
@@ -234,7 +266,52 @@ export async function updateTeamRecord(recordBreak) {
       updated_at: new Date().toISOString()
     };
     
-    // Check if record exists
+    // 1. Log to record history FIRST (before updating current record)
+    const historyData = {
+      event: recordBreak.event,
+      age_group: recordBreak.age_group,
+      gender: recordBreak.gender,
+      swimmer_id: recordBreak.swimmer_id,
+      swimmer_name: recordBreak.swimmer_name,
+      time_seconds: recordBreak.time_seconds,
+      time_display: recordBreak.time_display,
+      date: recordBreak.date,
+      course: 'SCY',
+      previous_record_holder: recordBreak.previous_record?.swimmer_name || null,
+      previous_time_seconds: recordBreak.previous_record?.time_seconds || null,
+      previous_time_display: recordBreak.previous_record?.time_display || null,
+      improvement_seconds: recordBreak.improvement || null,
+      broken_at: new Date().toISOString()
+    };
+    
+    const { error: historyError } = await supabase
+      .from('record_history')
+      .insert([historyData]);
+    
+    if (historyError) {
+      console.warn('⚠️ Could not log to record history:', historyError);
+      // Continue anyway - don't fail the update if history fails
+    } else {
+      console.log('📚 Logged to record history:', recordBreak.swimmer_name, recordBreak.event);
+    }
+    
+    // 2. If there was a previous record, mark it as superseded
+    if (recordBreak.previous_record) {
+      // Update the previous history entry to mark when it was broken
+      await supabase
+        .from('record_history')
+        .update({ 
+          held_until: new Date().toISOString()
+        })
+        .eq('event', recordBreak.event)
+        .eq('age_group', recordBreak.age_group)
+        .eq('gender', recordBreak.gender)
+        .eq('swimmer_name', recordBreak.previous_record.swimmer_name)
+        .eq('time_seconds', recordBreak.previous_record.time_seconds)
+        .is('held_until', null); // Only update current record holder
+    }
+    
+    // 3. Check if record exists in team_records
     const { data: existing } = await supabase
       .from('team_records')
       .select('id')
@@ -244,6 +321,7 @@ export async function updateTeamRecord(recordBreak) {
       .eq('course', 'SCY')
       .maybeSingle();
     
+    // 4. Update or insert current team record
     if (existing) {
       // Update existing record
       const { error } = await supabase
