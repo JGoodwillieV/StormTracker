@@ -27,6 +27,8 @@ import InviteLanding from './InviteLanding';
 import { UserPlus } from 'lucide-react';
 import MeetsManager from './MeetsManager';
 import ParentMeetsView from './ParentMeetsView';
+import { checkMultipleResults } from './utils/teamRecordsManager';
+import RecordBreakModal from './RecordBreakModal';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -76,6 +78,10 @@ export default function App() {
   
   // Dashboard Stats
   const [stats, setStats] = useState({ photos: 0, analyses: 0 });
+  
+  // Team Records
+  const [recordBreaks, setRecordBreaks] = useState([]);
+  const [showRecordModal, setShowRecordModal] = useState(false);
 
   // Fetch user role when session changes
   useEffect(() => {
@@ -836,9 +842,21 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
 
             if (newEntries.length > 0) {
                 const { error } = await supabase.from('results').insert(newEntries);
-                if (error) alert("Database error: " + error.message);
-                else { 
+                if (error) {
+                    alert("Database error: " + error.message);
+                } else { 
                     alert(`Success! Imported ${newEntries.length} results. (${entriesToInsert.length - newEntries.length} skipped as duplicates)`); 
+                    
+                    // Check for team record breaks
+                    console.log('Checking for team record breaks...');
+                    const breaks = await checkMultipleResults(newEntries);
+                    
+                    if (breaks && breaks.length > 0) {
+                        console.log(`Found ${breaks.length} team record(s) broken!`, breaks);
+                        setRecordBreaks(breaks);
+                        setShowRecordModal(true);
+                    }
+                    
                     setShowImport(false); 
                 }
             } else {
