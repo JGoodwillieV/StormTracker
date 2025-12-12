@@ -2551,12 +2551,12 @@ const SwimmerRow = ({ swimmer, rank, activeView }) => {
               <div className="text-sm font-bold text-purple-600">{swimmer.bestTimesCount}</div>
               <div className="text-[10px] text-slate-400 uppercase">Best Times</div>
             </div>
-            {swimmer.newStandardsCount > 0 && (
-              <div className="text-center">
-                <div className="text-sm font-bold text-yellow-600">{swimmer.newStandardsCount}</div>
-                <div className="text-[10px] text-slate-400 uppercase">Standards</div>
+            <div className="text-center">
+              <div className={`text-sm font-bold ${swimmer.newStandardsCount > 0 ? 'text-yellow-600' : 'text-slate-300'}`}>
+                {swimmer.newStandardsCount || '-'}
               </div>
-            )}
+              <div className="text-[10px] text-slate-400 uppercase">Standards</div>
+            </div>
           </div>
           
           {/* Primary Value (based on active view) */}
