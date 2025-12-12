@@ -3284,10 +3284,10 @@ const TopTimesReport = ({ onBack }) => {
       setProgressMsg('Loading results...');
       const dateRange = calculateDateRange();
       
-      // Build query - fetch all results in date range, we'll filter by event after normalizing
+      // Build query - fetch all results in date range with swimmer info
       let query = supabase
         .from('results')
-        .select('*, swimmer:swimmers(*), meet:meets(*)')
+        .select('*, swimmer:swimmers(*)')
         .gte('date', dateRange.start)
         .lte('date', dateRange.end);
 
@@ -3578,8 +3578,8 @@ const TopTimesReport = ({ onBack }) => {
                           year: 'numeric' 
                         })}
                       </span>
-                      {result.meet?.name && (
-                        <span className="text-slate-400">• {result.meet.name}</span>
+                      {result.meet_name && (
+                        <span className="text-slate-400">• {result.meet_name}</span>
                       )}
                     </div>
                   </div>
