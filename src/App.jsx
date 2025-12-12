@@ -31,6 +31,7 @@ import { checkMultipleResults } from './utils/teamRecordsManager';
 import RecordBreakModal from './RecordBreakModal';
 import PracticeHub from './PracticeHub';
 import PracticeBuilder from './PracticeBuilder';
+import PracticeRunMode from './PracticeRunMode';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -493,7 +494,25 @@ const fetchUserRole = async () => {
             onSave={() => {
               setView('practice-hub');
             }}
+            onRunPractice={(practiceId) => {
+              setSelectedPracticeId(practiceId);
+              setView('practice-run-mode');
+            }}
             swimmers={swimmers}
+          />
+        )}
+
+        {/* PRACTICE RUN MODE */}
+        {view === 'practice-run-mode' && (
+          <PracticeRunMode
+            practiceId={selectedPracticeId}
+            onBack={() => {
+              setView('practice-builder');
+            }}
+            onLaunchTestSet={(config) => {
+              // Future: Launch Test Set Tracker with pre-populated config
+              console.log('Launch test set with config:', config);
+            }}
           />
         )}
         

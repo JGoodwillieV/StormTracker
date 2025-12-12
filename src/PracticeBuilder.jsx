@@ -11,7 +11,9 @@ import {
   X,
   AlertCircle,
   Timer,
-  BookOpen
+  BookOpen,
+  Play,
+  Repeat
 } from 'lucide-react';
 
 const STROKE_OPTIONS = ['free', 'back', 'breast', 'fly', 'IM', 'choice', 'drill', 'kick'];
@@ -20,7 +22,7 @@ const EQUIPMENT_OPTIONS = ['fins', 'paddles', 'snorkel', 'kickboard', 'pull_buoy
 const SET_TYPES = ['warmup', 'pre_set', 'main_set', 'test_set', 'cooldown', 'dryland'];
 const FOCUS_TAGS = ['aerobic', 'threshold', 'speed', 'technique', 'IM', 'sprint', 'distance', 'race_prep'];
 
-export default function PracticeBuilder({ practiceId, onBack, onSave, swimmers }) {
+export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPractice, swimmers }) {
   const [practice, setPractice] = useState(null);
   const [sets, setSets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,7 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, swimmers }
   const [showAddItem, setShowAddItem] = useState(null); // setId
   const [showPrint, setShowPrint] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [showRecurringSchedule, setShowRecurringSchedule] = useState(false);
 
   useEffect(() => {
     if (practiceId) {
@@ -354,6 +357,15 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, swimmers }
             />
           </div>
           <div className="flex items-center gap-2">
+            {sets.length > 0 && (
+              <button
+                onClick={() => onRunPractice?.(practice.id)}
+                className="flex items-center gap-2 px-4 py-2 text-white bg-emerald-600 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+              >
+                <Play size={16} />
+                <span className="hidden md:inline">Run Practice</span>
+              </button>
+            )}
             <button
               onClick={handleSaveAsTemplate}
               className="flex items-center gap-2 px-4 py-2 text-purple-600 border border-purple-200 rounded-lg text-sm font-medium hover:bg-purple-50 transition-colors"
@@ -397,12 +409,21 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, swimmers }
 
           <div>
             <label className="text-xs text-slate-500 font-medium mb-1 block">Date</label>
-            <input
-              type="date"
-              value={practice.scheduled_date || ''}
-              onChange={(e) => handleUpdatePractice({ scheduled_date: e.target.value })}
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={practice.scheduled_date || ''}
+                onChange={(e) => handleUpdatePractice({ scheduled_date: e.target.value })}
+                className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                onClick={() => setShowRecurringSchedule(true)}
+                className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                title="Set up recurring schedule"
+              >
+                <Repeat size={16} />
+              </button>
+            </div>
           </div>
 
           <div>
@@ -545,6 +566,19 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, swimmers }
           practice={practice}
           sets={sets}
           onClose={() => setShowPrint(false)}
+        />
+      )}
+
+      {/* Recurring Schedule Modal */}
+      {showRecurringSchedule && (
+        <RecurringScheduleModal
+          practice={practice}
+          sets={sets}
+          onClose={() => setShowRecurringSchedule(false)}
+          onSchedule={(count) => {
+            alert(`Successfully scheduled ${count} recurring practices!`);
+            setShowRecurringSchedule(false);
+          }}
         />
       )}
     </div>
@@ -997,6 +1031,322 @@ function EditItemModal({ item, onSave, onClose }) {
             className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
           >
             Save Changes
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-3 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Recurring Schedule Modal Component
+function RecurringScheduleModal({ practice, sets, onClose, onSchedule }) {
+  const [scheduleType, setScheduleType] = useState('weekly');
+  const [selectedDays, setSelectedDays] = useState([]);
+  const [startDate, setStartDate] = useState(practice.scheduled_date || '');
+  const [endType, setEndType] = useState('occurrences');
+  const [occurrences, setOccurrences] = useState(8);
+  const [endDate, setEndDate] = useState('');
+  const [skipDates, setSkipDates] = useState([]);
+  const [newSkipDate, setNewSkipDate] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+
+  const DAYS = [
+    { id: 1, label: 'Mon', name: 'Monday' },
+    { id: 2, label: 'Tue', name: 'Tuesday' },
+    { id: 3, label: 'Wed', name: 'Wednesday' },
+    { id: 4, label: 'Thu', name: 'Thursday' },
+    { id: 5, label: 'Fri', name: 'Friday' },
+    { id: 6, label: 'Sat', name: 'Saturday' },
+    { id: 0, label: 'Sun', name: 'Sunday' }
+  ];
+
+  const toggleDay = (dayId) => {
+    if (selectedDays.includes(dayId)) {
+      setSelectedDays(selectedDays.filter(d => d !== dayId));
+    } else {
+      setSelectedDays([...selectedDays, dayId]);
+    }
+  };
+
+  const addSkipDate = () => {
+    if (newSkipDate && !skipDates.includes(newSkipDate)) {
+      setSkipDates([...skipDates, newSkipDate]);
+      setNewSkipDate('');
+    }
+  };
+
+  const removeSkipDate = (date) => {
+    setSkipDates(skipDates.filter(d => d !== date));
+  };
+
+  const handleSchedule = async () => {
+    if (selectedDays.length === 0) {
+      alert('Please select at least one day');
+      return;
+    }
+
+    if (!startDate) {
+      alert('Please select a start date');
+      return;
+    }
+
+    setScheduling(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const practicesToCreate = [];
+      
+      let currentDate = new Date(startDate + 'T00:00:00');
+      let count = 0;
+      const maxCount = endType === 'occurrences' ? occurrences : 100; // Safety limit
+
+      while (count < maxCount) {
+        const dayOfWeek = currentDate.getDay();
+        
+        // Check if this day is selected
+        if (selectedDays.includes(dayOfWeek)) {
+          const dateStr = currentDate.toISOString().split('T')[0];
+          
+          // Check if this date should be skipped
+          if (!skipDates.includes(dateStr)) {
+            // Check end date condition
+            if (endType === 'date' && endDate && dateStr > endDate) {
+              break;
+            }
+
+            // Create practice copy
+            const newPractice = {
+              coach_id: user.id,
+              created_by: user.id,
+              title: practice.title,
+              description: practice.description,
+              training_group_id: practice.training_group_id,
+              scheduled_date: dateStr,
+              scheduled_time: practice.scheduled_time,
+              status: 'scheduled',
+              focus_tags: practice.focus_tags,
+              total_yards: practice.total_yards
+            };
+
+            practicesToCreate.push({ practice: newPractice, sets: sets });
+            count++;
+          }
+        }
+
+        // Move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
+
+        // Safety check for infinite loop
+        if (currentDate > new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)) {
+          break; // Don't schedule more than 1 year out
+        }
+      }
+
+      // Insert all practices
+      for (const { practice: newPractice, sets: practiceSets } of practicesToCreate) {
+        const { data: practiceData, error: practiceError } = await supabase
+          .from('practices')
+          .insert([newPractice])
+          .select()
+          .single();
+
+        if (practiceError) throw practiceError;
+
+        // Copy sets and items
+        for (const set of practiceSets) {
+          const { practice_set_items, ...setData } = set;
+          const newSet = {
+            ...setData,
+            id: undefined,
+            practice_id: practiceData.id,
+            created_at: undefined
+          };
+
+          const { data: setInsertData, error: setError } = await supabase
+            .from('practice_sets')
+            .insert([newSet])
+            .select()
+            .single();
+
+          if (setError) throw setError;
+
+          // Copy items
+          if (practice_set_items && practice_set_items.length > 0) {
+            const newItems = practice_set_items.map(item => ({
+              set_id: setInsertData.id,
+              order_index: item.order_index,
+              reps: item.reps,
+              distance: item.distance,
+              stroke: item.stroke,
+              description: item.description,
+              interval: item.interval,
+              equipment: item.equipment,
+              intensity: item.intensity,
+              notes: item.notes
+            }));
+
+            const { error: itemsError } = await supabase
+              .from('practice_set_items')
+              .insert(newItems);
+
+            if (itemsError) throw itemsError;
+          }
+        }
+      }
+
+      onSchedule(practicesToCreate.length);
+    } catch (error) {
+      console.error('Error scheduling practices:', error);
+      alert('Failed to schedule practices: ' + error.message);
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl p-6 my-8">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-bold text-slate-900">Schedule Recurring Practice</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Start Date */}
+        <div className="mb-6">
+          <label className="text-sm font-medium text-slate-700 mb-2 block">Start Date</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2"
+          />
+        </div>
+
+        {/* Days of Week */}
+        <div className="mb-6">
+          <label className="text-sm font-medium text-slate-700 mb-2 block">Repeat On</label>
+          <div className="grid grid-cols-7 gap-2">
+            {DAYS.map(day => (
+              <button
+                key={day.id}
+                onClick={() => toggleDay(day.id)}
+                className={`py-3 rounded-lg text-sm font-bold transition-colors ${
+                  selectedDays.includes(day.id)
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {day.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* End Condition */}
+        <div className="mb-6">
+          <label className="text-sm font-medium text-slate-700 mb-2 block">Ends</label>
+          <div className="space-y-3">
+            <label className="flex items-center gap-3">
+              <input
+                type="radio"
+                checked={endType === 'never'}
+                onChange={() => setEndType('never')}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">Never</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="radio"
+                checked={endType === 'occurrences'}
+                onChange={() => setEndType('occurrences')}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">After</span>
+              <input
+                type="number"
+                value={occurrences}
+                onChange={(e) => setOccurrences(parseInt(e.target.value))}
+                disabled={endType !== 'occurrences'}
+                className="w-20 border border-slate-200 rounded px-2 py-1 text-sm disabled:bg-slate-100"
+                min="1"
+                max="100"
+              />
+              <span className="text-sm">occurrences</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="radio"
+                checked={endType === 'date'}
+                onChange={() => setEndType('date')}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">On date</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                disabled={endType !== 'date'}
+                className="border border-slate-200 rounded px-2 py-1 text-sm disabled:bg-slate-100"
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Skip Dates */}
+        <div className="mb-6">
+          <label className="text-sm font-medium text-slate-700 mb-2 block">Skip Dates (Holidays, Meet Days)</label>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="date"
+              value={newSkipDate}
+              onChange={(e) => setNewSkipDate(e.target.value)}
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              placeholder="Select date to skip"
+            />
+            <button
+              onClick={addSkipDate}
+              className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200"
+            >
+              Add
+            </button>
+          </div>
+          {skipDates.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {skipDates.map(date => (
+                <div
+                  key={date}
+                  className="flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg text-sm"
+                >
+                  <span>{new Date(date + 'T00:00:00').toLocaleDateString()}</span>
+                  <button
+                    onClick={() => removeSkipDate(date)}
+                    className="text-slate-500 hover:text-red-600"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSchedule}
+            disabled={scheduling || selectedDays.length === 0}
+            className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+          >
+            {scheduling ? 'Scheduling...' : 'Schedule Practices'}
           </button>
           <button
             onClick={onClose}

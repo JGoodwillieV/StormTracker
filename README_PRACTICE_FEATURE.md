@@ -79,6 +79,8 @@ You now have a **complete, production-ready Practice Planning Feature** for Stor
 | Print Layout | ✅ | Professional printouts |
 | Templates | ✅ | Save and reuse practices |
 | Calendar View | ✅ | Weekly schedule view |
+| **Run Practice Mode** | ✅ | **Poolside view with large text** |
+| **Recurring Schedule** | ✅ | **Auto-schedule repeating practices** |
 
 ---
 
@@ -92,6 +94,7 @@ database/
 src/
   ├── PracticeHub.jsx              (Main practice page)
   ├── PracticeBuilder.jsx          (Practice builder interface)
+  ├── PracticeRunMode.jsx          (Poolside run mode - NEW!)
   └── App.jsx                      (Modified for integration)
 ```
 
@@ -102,6 +105,7 @@ PRACTICE_FEATURE_SUMMARY.md        (Technical documentation)
 PRACTICE_QUICK_REFERENCE.md        (Quick reference card)
 PRACTICE_MVP_COMPLETE.md           (Implementation report)
 PRACTICE_DEPLOYMENT_CHECKLIST.md   (Deployment guide)
+PRACTICE_FEATURE_UPDATE.md         (New features update - NEW!)
 README_PRACTICE_FEATURE.md         (This file)
 ```
 
@@ -362,10 +366,10 @@ A: Ready to build once MVP is deployed and validated.
 - ✅ Mobile responsive design
 
 ### Lines of Code
-- **React Components**: ~1,700 lines
+- **React Components**: ~2,350 lines (includes Run Mode + Recurring)
 - **Database Schema**: ~400 lines
-- **Documentation**: ~2,000+ lines
-- **Total**: ~4,100+ lines
+- **Documentation**: ~2,500+ lines
+- **Total**: ~5,250+ lines
 
 ### Time to Deploy
 - **Database Setup**: 2 minutes
