@@ -126,7 +126,16 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', practice.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating practice:', error);
+        // Show user-friendly error for common issues
+        if (error.message.includes('invalid input syntax for type bigint')) {
+          alert('⚠️ Database Update Needed!\n\nThe Training Group field needs to be updated in your database.\n\nPlease run this in Supabase SQL Editor:\n\nALTER TABLE practices ALTER COLUMN training_group_id TYPE VARCHAR(100) USING training_group_id::VARCHAR;\n\nSee PRACTICE_SCHEMA_UPDATE.md for details.');
+        } else {
+          alert('Error saving practice: ' + error.message);
+        }
+        throw error;
+      }
 
       setPractice(prev => ({ ...prev, ...updates }));
     } catch (error) {
