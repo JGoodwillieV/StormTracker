@@ -383,7 +383,9 @@ const fetchUserRole = async () => {
             setSwimmers={setSwimmers} 
             setViewSwimmer={(s) => { setSelectedSwimmer(s); setView('profile'); }}
             navigateTo={navigateTo}
-            supabase={supabase} 
+            supabase={supabase}
+            setRecordBreaks={setRecordBreaks}
+            setShowRecordModal={setShowRecordModal}
           />
         )}
         
@@ -717,7 +719,7 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout, onInviteParent }) =>
   );
 };
 
-const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase }) => {
+const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase, setRecordBreaks, setShowRecordModal }) => {
     const [showImport, setShowImport] = useState(false);
     const [importType, setImportType] = useState('roster'); 
     const [isImporting, setIsImporting] = useState(false);
