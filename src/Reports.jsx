@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
 import MeetReportGenerator from './MeetReportGenerator';
+import { generateBigMoversReportHTML } from './reportPDFGenerators';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
-  ChevronDown, Search, User, X, Award, Calendar, Star, TrendingDown
+  ChevronDown, Search, User, X, Award, Calendar, Star, TrendingDown, Download
 } from 'lucide-react';
 
 // --- SHARED HELPERS (Available to all components) ---
@@ -1576,7 +1577,1068 @@ const TeamRecordsReport = ({ onBack }) => {
 };
 
 // --- PLACEHOLDERS FOR OTHER REPORTS (Will Implement Next) ---
-const BigMoversReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Big Movers Coming Soon</h3></div>;
+// 3. BIG MOVERS REPORT
+const BigMoversReport = ({ onBack }) => {
+  // View State
+  const [activeView, setActiveView] = useState('total'); // 'total', 'percentage', 'besttimes', 'standards'
+  
+  // Filter State
+  const [timePeriod, setTimePeriod] = useState('season'); // 'season', 'last30', 'last60', 'last90', 'custom'
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [gender, setGender] = useState('all');
+  const [ageGroup, setAgeGroup] = useState('all');
+  const [trainingGroup, setTrainingGroup] = useState('all');
+  const [strokeFilter, setStrokeFilter] = useState('all'); // 'all', 'free', 'back', 'breast', 'fly', 'im'
+  
+  // Data State
+  const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [swimmers, setSwimmers] = useState([]);
+  const [allResults, setAllResults] = useState([]);
+  const [trainingGroups, setTrainingGroups] = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [groupComparisons, setGroupComparisons] = useState([]);
+  
+  // Comparison Mode
+  const [showComparison, setShowComparison] = useState(false);
+
+  // Load swimmers and training groups on mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      const { data: swimmerData } = await supabase.from('swimmers').select('*');
+      if (swimmerData) {
+        setSwimmers(swimmerData);
+        const groups = [...new Set(swimmerData.map(s => s.group_name).filter(Boolean))].sort();
+        setTrainingGroups(groups);
+      }
+    };
+    loadInitialData();
+  }, []);
+
+  const generateReport = async () => {
+    setLoading(true);
+    setHasGenerated(true);
+    setLeaderboard([]);
+    
+    try {
+      // 1. Calculate date range
+      setProgressMsg('Calculating date range...');
+      const dateRange = calculateDateRange();
+      
+      // 2. Fetch all results in the time period
+      setProgressMsg('Loading meet results...');
+      let resultsInPeriod = [];
+      let page = 0;
+      let keepFetching = true;
+      
+      while (keepFetching) {
+        setProgressMsg(`Fetching results ${page * 1000 + 1} - ${(page + 1) * 1000}...`);
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .gte('date', dateRange.start)
+          .lte('date', dateRange.end)
+          .order('id', { ascending: true })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error || !batch || batch.length === 0) keepFetching = false;
+        else {
+          resultsInPeriod = [...resultsInPeriod, ...batch];
+          page++;
+          if (resultsInPeriod.length > 200000) keepFetching = false;
+        }
+      }
+      
+      // 3. Fetch historical results (before time period for baseline comparison)
+      setProgressMsg('Loading historical results...');
+      let historicalResults = [];
+      page = 0;
+      keepFetching = true;
+      
+      while (keepFetching) {
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .lt('date', dateRange.start)
+          .order('id', { ascending: true })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error || !batch || batch.length === 0) keepFetching = false;
+        else {
+          historicalResults = [...historicalResults, ...batch];
+          page++;
+          if (historicalResults.length > 200000) keepFetching = false;
+        }
+      }
+      
+      // 4. Load time standards for progression tracking
+      setProgressMsg('Loading time standards...');
+      const { data: standards } = await supabase.from('time_standards').select('*');
+      
+      // 5. Process swimmers
+      setProgressMsg('Analyzing improvements...');
+      const processedSwimmers = processSwimmerData(
+        swimmers, 
+        resultsInPeriod, 
+        historicalResults, 
+        standards,
+        { gender, ageGroup, trainingGroup, strokeFilter }
+      );
+      
+      // 6. Calculate group comparisons
+      if (trainingGroups.length > 0) {
+        const comparisons = calculateGroupComparisons(processedSwimmers, trainingGroups);
+        setGroupComparisons(comparisons);
+      }
+      
+      setLeaderboard(processedSwimmers);
+      setAllResults(resultsInPeriod);
+      
+    } catch (error) {
+      console.error(error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setLoading(false);
+      setProgressMsg('');
+    }
+  };
+
+  const calculateDateRange = () => {
+    const today = new Date();
+    let start, end = today.toISOString().split('T')[0];
+    
+    switch (timePeriod) {
+      case 'last30':
+        start = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        break;
+      case 'last60':
+        start = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        break;
+      case 'last90':
+        start = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        break;
+      case 'custom':
+        start = customStartDate;
+        end = customEndDate;
+        break;
+      case 'season':
+      default:
+        // Default to September 1st of current swim year
+        const currentYear = today.getMonth() >= 8 ? today.getFullYear() : today.getFullYear() - 1;
+        start = `${currentYear}-09-01`;
+        break;
+    }
+    
+    return { start, end };
+  };
+
+  const processSwimmerData = (swimmers, currentResults, historicalResults, standards, filters) => {
+    const processed = [];
+    
+    swimmers.forEach(swimmer => {
+      // Apply filters
+      if (filters.gender !== 'all' && swimmer.gender !== filters.gender) return;
+      if (filters.ageGroup !== 'all') {
+        const age = parseInt(swimmer.age) || 0;
+        if (filters.ageGroup === '10U' && age > 10) return;
+        if (filters.ageGroup === '11-12' && (age < 11 || age > 12)) return;
+        if (filters.ageGroup === '13-14' && (age < 13 || age > 14)) return;
+        if (filters.ageGroup === '15-18' && (age < 15 || age > 18)) return;
+      }
+      if (filters.trainingGroup !== 'all' && swimmer.group_name !== filters.trainingGroup) return;
+      
+      // Get swimmer's results
+      const myCurrentResults = currentResults.filter(r => r.swimmer_id === swimmer.id);
+      const myHistoricalResults = historicalResults.filter(r => r.swimmer_id === swimmer.id);
+      
+      if (myCurrentResults.length === 0) return; // Skip swimmers with no results in period
+      
+      // Build best times maps
+      const historicalBests = buildBestTimesMap(myHistoricalResults, filters.strokeFilter);
+      const currentBests = buildBestTimesMap(myCurrentResults, filters.strokeFilter);
+      
+      // Calculate improvements
+      const improvements = [];
+      let totalDrop = 0;
+      let totalPercentDrop = 0;
+      let bestTimesCount = 0;
+      let eventsWithData = 0;
+      
+      Object.keys(currentBests).forEach(eventKey => {
+        const current = currentBests[eventKey];
+        const historical = historicalBests[eventKey];
+        
+        if (historical) {
+          // Calculate time drop
+          const drop = historical.seconds - current.seconds;
+          if (drop > 0) { // Only count improvements
+            totalDrop += drop;
+            const percentDrop = (drop / historical.seconds) * 100;
+            totalPercentDrop += percentDrop;
+            eventsWithData++;
+            
+            improvements.push({
+              event: eventKey,
+              oldTime: historical.time,
+              oldSeconds: historical.seconds,
+              newTime: current.time,
+              newSeconds: current.seconds,
+              drop: drop,
+              percentDrop: percentDrop
+            });
+          }
+        } else {
+          // First time swimming this event (counts as best time)
+          bestTimesCount++;
+        }
+        
+        // Check if this is a best time (better than any historical)
+        const allHistoricalTimes = myHistoricalResults
+          .filter(r => normalizeEventName(r.event) === eventKey)
+          .map(r => timeToSeconds(r.time))
+          .filter(t => t < 999999);
+        
+        if (allHistoricalTimes.length === 0 || current.seconds < Math.min(...allHistoricalTimes)) {
+          bestTimesCount++;
+        }
+      });
+      
+      // Calculate standards progression
+      const standardsAchieved = calculateStandardsProgression(
+        swimmer,
+        currentBests,
+        historicalBests,
+        standards
+      );
+      
+      // Only include swimmers with improvements
+      if (totalDrop > 0 || bestTimesCount > 0) {
+        processed.push({
+          id: swimmer.id,
+          name: swimmer.name,
+          age: swimmer.age,
+          gender: swimmer.gender,
+          group: swimmer.group_name,
+          totalDrop: totalDrop,
+          avgPercentDrop: eventsWithData > 0 ? totalPercentDrop / eventsWithData : 0,
+          bestTimesCount: bestTimesCount,
+          improvements: improvements.sort((a, b) => b.drop - a.drop),
+          bestSingleDrop: improvements.length > 0 ? Math.max(...improvements.map(i => i.drop)) : 0,
+          bestSingleDropEvent: improvements.length > 0 ? 
+            improvements.reduce((prev, curr) => prev.drop > curr.drop ? prev : curr).event : '',
+          eventsImproved: improvements.length,
+          standardsAchieved: standardsAchieved,
+          newStandardsCount: standardsAchieved.length
+        });
+      }
+    });
+    
+    return processed;
+  };
+
+  const buildBestTimesMap = (results, strokeFilter) => {
+    const bestTimes = {};
+    
+    results.forEach(r => {
+      const { dist, stroke } = parseEvent(r.event);
+      if (!dist || !stroke) return;
+      
+      // Apply stroke filter
+      if (strokeFilter !== 'all' && stroke !== strokeFilter) return;
+      
+      const key = `${dist} ${stroke}`;
+      const seconds = timeToSeconds(r.time);
+      
+      if (seconds > 0 && seconds < 999999) {
+        if (!bestTimes[key] || seconds < bestTimes[key].seconds) {
+          bestTimes[key] = {
+            time: r.time,
+            seconds: seconds,
+            date: r.date
+          };
+        }
+      }
+    });
+    
+    return bestTimes;
+  };
+
+  const normalizeEventName = (eventStr) => {
+    const { dist, stroke } = parseEvent(eventStr);
+    return dist && stroke ? `${dist} ${stroke}` : '';
+  };
+
+  const calculateStandardsProgression = (swimmer, currentBests, historicalBests, standards) => {
+    if (!standards) return [];
+    
+    const achieved = [];
+    const swimmerAge = parseInt(swimmer.age) || 0;
+    const swimmerGender = (swimmer.gender || 'M').trim().toUpperCase();
+    
+    // Get relevant standards for this swimmer
+    const relevantStandards = standards.filter(std => {
+      const stdGender = std.gender.trim().toUpperCase();
+      const genderMatch = stdGender === swimmerGender;
+      const ageMatch = (std.age_max === 99) || (swimmerAge >= std.age_min && swimmerAge <= std.age_max);
+      return genderMatch && ageMatch;
+    });
+    
+    relevantStandards.forEach(std => {
+      const eventKey = normalizeEventName(std.event);
+      const current = currentBests[eventKey];
+      const historical = historicalBests[eventKey];
+      
+      // Check if they newly achieved this standard in the current period
+      if (current && current.seconds <= std.time_seconds) {
+        const wasAlreadyAchieved = historical && historical.seconds <= std.time_seconds;
+        if (!wasAlreadyAchieved) {
+          achieved.push({
+            level: std.name,
+            event: std.event,
+            time: current.time
+          });
+        }
+      }
+    });
+    
+    return achieved;
+  };
+
+  const calculateGroupComparisons = (processedSwimmers, groups) => {
+    const comparisons = groups.map(groupName => {
+      const groupSwimmers = processedSwimmers.filter(s => s.group === groupName);
+      
+      if (groupSwimmers.length === 0) {
+        return {
+          group: groupName,
+          count: 0,
+          avgTotalDrop: 0,
+          avgPercentDrop: 0,
+          totalBestTimes: 0,
+          totalNewStandards: 0
+        };
+      }
+      
+      const totalDrop = groupSwimmers.reduce((sum, s) => sum + s.totalDrop, 0);
+      const avgPercentDrop = groupSwimmers.reduce((sum, s) => sum + s.avgPercentDrop, 0) / groupSwimmers.length;
+      const totalBestTimes = groupSwimmers.reduce((sum, s) => sum + s.bestTimesCount, 0);
+      const totalNewStandards = groupSwimmers.reduce((sum, s) => sum + s.newStandardsCount, 0);
+      
+      return {
+        group: groupName,
+        count: groupSwimmers.length,
+        avgTotalDrop: totalDrop / groupSwimmers.length,
+        avgPercentDrop: avgPercentDrop,
+        totalBestTimes: totalBestTimes,
+        totalNewStandards: totalNewStandards,
+        swimmers: groupSwimmers
+      };
+    });
+    
+    return comparisons.sort((a, b) => b.avgTotalDrop - a.avgTotalDrop);
+  };
+
+  // Sort leaderboard based on active view
+  const sortedLeaderboard = useMemo(() => {
+    const sorted = [...leaderboard];
+    
+    switch (activeView) {
+      case 'total':
+        return sorted.sort((a, b) => b.totalDrop - a.totalDrop);
+      case 'percentage':
+        return sorted.sort((a, b) => b.avgPercentDrop - a.avgPercentDrop);
+      case 'besttimes':
+        return sorted.sort((a, b) => b.bestTimesCount - a.bestTimesCount);
+      case 'standards':
+        return sorted.sort((a, b) => b.newStandardsCount - a.newStandardsCount);
+      default:
+        return sorted;
+    }
+  }, [leaderboard, activeView]);
+
+  // Get top 3 for podium
+  const top3 = sortedLeaderboard.slice(0, 3);
+  const rest = sortedLeaderboard.slice(3);
+
+  // Stats
+  const stats = useMemo(() => {
+    if (leaderboard.length === 0) return null;
+    
+    const totalDropped = leaderboard.reduce((sum, s) => sum + s.totalDrop, 0);
+    const totalBestTimes = leaderboard.reduce((sum, s) => sum + s.bestTimesCount, 0);
+    const totalNewStandards = leaderboard.reduce((sum, s) => sum + s.newStandardsCount, 0);
+    const biggestSingleDrop = Math.max(...leaderboard.map(s => s.bestSingleDrop));
+    
+    return {
+      swimmers: leaderboard.length,
+      totalDropped: totalDropped,
+      avgDrop: totalDropped / leaderboard.length,
+      totalBestTimes: totalBestTimes,
+      totalNewStandards: totalNewStandards,
+      biggestSingleDrop: biggestSingleDrop
+    };
+  }, [leaderboard]);
+
+  // PDF Export Function
+  const handleExportPDF = () => {
+    const dateRange = calculateDateRange();
+    const filterLabels = {
+      timePeriod: timePeriod === 'season' ? 'Season to Date' : 
+                  timePeriod === 'last30' ? 'Last 30 Days' :
+                  timePeriod === 'last60' ? 'Last 60 Days' :
+                  timePeriod === 'last90' ? 'Last 90 Days' :
+                  `${dateRange.start} to ${dateRange.end}`,
+      gender: gender,
+      ageGroup: ageGroup,
+      trainingGroup: trainingGroup,
+      strokeFilter: strokeFilter
+    };
+
+    const reportData = {
+      leaderboard: sortedLeaderboard,
+      activeView: activeView,
+      filters: filterLabels,
+      stats: stats,
+      groupComparisons: groupComparisons
+    };
+
+    const htmlContent = generateBigMoversReportHTML(reportData);
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Big Movers Report - ${new Date().toLocaleDateString()}</title>
+        <style>
+          body { 
+            margin: 40px; 
+            font-family: system-ui, -apple-system, sans-serif;
+          }
+          @media print {
+            body { margin: 20px; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlContent}
+        <div class="no-print" style="margin-top: 24px; text-align: center;">
+          <button onclick="window.print()" style="padding: 12px 24px; background: #10b981; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px;">
+            Print PDF
+          </button>
+          <button onclick="window.close()" style="padding: 12px 24px; background: #64748b; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; margin-left: 12px;">
+            Close
+          </button>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline">
+          <ArrowRight className="rotate-180" size={16}/> Back to Reports
+        </button>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <TrendingUp className="text-emerald-500" size={24} /> Big Movers Report
+          </h2>
+          {hasGenerated && leaderboard.length > 0 && (
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm transition-colors"
+            >
+              <Download size={16} />
+              Export PDF
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filters Panel */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Filter size={18} className="text-slate-400" /> Report Filters
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          {/* Time Period */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Time Period</label>
+            <select 
+              value={timePeriod} 
+              onChange={e => setTimePeriod(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="season">Season to Date</option>
+              <option value="last30">Last 30 Days</option>
+              <option value="last60">Last 60 Days</option>
+              <option value="last90">Last 90 Days</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Gender</label>
+            <select 
+              value={gender} 
+              onChange={e => setGender(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All</option>
+              <option value="M">Boys</option>
+              <option value="F">Girls</option>
+            </select>
+          </div>
+
+          {/* Age Group */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Age Group</label>
+            <select 
+              value={ageGroup} 
+              onChange={e => setAgeGroup(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Ages</option>
+              <option value="10U">10 & Under</option>
+              <option value="11-12">11-12</option>
+              <option value="13-14">13-14</option>
+              <option value="15-18">15-18</option>
+            </select>
+          </div>
+
+          {/* Training Group */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Training Group</label>
+            <select 
+              value={trainingGroup} 
+              onChange={e => setTrainingGroup(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Groups</option>
+              {trainingGroups.map(group => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Stroke Filter */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Stroke</label>
+            <select 
+              value={strokeFilter} 
+              onChange={e => setStrokeFilter(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Strokes</option>
+              <option value="free">Freestyle</option>
+              <option value="back">Backstroke</option>
+              <option value="breast">Breaststroke</option>
+              <option value="fly">Butterfly</option>
+              <option value="im">IM</option>
+            </select>
+          </div>
+
+          {/* Generate Button */}
+          <div className="flex items-end">
+            <button 
+              onClick={generateReport}
+              disabled={loading}
+              className="w-full p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Zap size={16} />
+                  Generate Report
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Custom Date Range */}
+        {timePeriod === 'custom' && (
+          <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div>
+              <label className="block text-xs font-bold text-blue-700 uppercase mb-1.5">Start Date</label>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={e => setCustomStartDate(e.target.value)}
+                className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-blue-700 uppercase mb-1.5">End Date</label>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={e => setCustomEndDate(e.target.value)}
+                className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {progressMsg && (
+          <div className="mt-4 text-sm text-slate-500 flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            {progressMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
+      {hasGenerated && !loading && (
+        <>
+          {leaderboard.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <TrendingUp size={48} className="mx-auto text-slate-300 mb-4" />
+              <h3 className="font-bold text-slate-700 text-lg mb-2">No Improvements Found</h3>
+              <p className="text-slate-500 text-sm">
+                No swimmers showed improvements in the selected time period and filters.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Stats Summary */}
+              {stats && (
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="text-2xl font-bold text-slate-800">{stats.swimmers}</div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wider">Swimmers</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-4 rounded-xl shadow-lg text-white">
+                    <div className="text-2xl font-bold">{stats.totalDropped.toFixed(1)}s</div>
+                    <div className="text-xs uppercase tracking-wider opacity-90">Total Dropped</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm bg-blue-50">
+                    <div className="text-2xl font-bold text-blue-600">{stats.avgDrop.toFixed(2)}s</div>
+                    <div className="text-xs text-blue-600 uppercase tracking-wider">Avg Drop</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-purple-200 shadow-sm bg-purple-50">
+                    <div className="text-2xl font-bold text-purple-600">{stats.totalBestTimes}</div>
+                    <div className="text-xs text-purple-600 uppercase tracking-wider">Best Times</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-yellow-200 shadow-sm bg-yellow-50">
+                    <div className="text-2xl font-bold text-yellow-600">{stats.totalNewStandards}</div>
+                    <div className="text-xs text-yellow-600 uppercase tracking-wider">New Standards</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-orange-200 shadow-sm bg-orange-50">
+                    <div className="text-2xl font-bold text-orange-600">{stats.biggestSingleDrop.toFixed(2)}s</div>
+                    <div className="text-xs text-orange-600 uppercase tracking-wider">Biggest Drop</div>
+                  </div>
+                </div>
+              )}
+
+              {/* View Tabs */}
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => setActiveView('total')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                      activeView === 'total' 
+                        ? 'bg-emerald-500 text-white shadow-lg' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    Total Time Dropped
+                  </button>
+                  <button
+                    onClick={() => setActiveView('percentage')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                      activeView === 'percentage' 
+                        ? 'bg-blue-500 text-white shadow-lg' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
+                    }`}
+                  >
+                    % Improvement
+                  </button>
+                  <button
+                    onClick={() => setActiveView('besttimes')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                      activeView === 'besttimes' 
+                        ? 'bg-purple-500 text-white shadow-lg' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-purple-300'
+                    }`}
+                  >
+                    Most Best Times
+                  </button>
+                  <button
+                    onClick={() => setActiveView('standards')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                      activeView === 'standards' 
+                        ? 'bg-yellow-500 text-white shadow-lg' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-yellow-300'
+                    }`}
+                  >
+                    Standards Achieved
+                  </button>
+                </div>
+
+                {/* Group Comparison Toggle */}
+                {trainingGroups.length > 1 && (
+                  <button
+                    onClick={() => setShowComparison(!showComparison)}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
+                      showComparison 
+                        ? 'bg-cyan-500 text-white shadow-lg' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-cyan-300'
+                    }`}
+                  >
+                    <Users size={16} />
+                    Group Comparison
+                  </button>
+                )}
+              </div>
+
+              {/* Group Comparison View */}
+              {showComparison && groupComparisons.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
+                    <Users size={20} className="text-cyan-500" />
+                    Training Group Comparison
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {groupComparisons.map((comp, idx) => (
+                      <div 
+                        key={comp.group} 
+                        className={`p-4 rounded-xl border-2 ${
+                          idx === 0 
+                            ? 'border-emerald-400 bg-emerald-50' 
+                            : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h4 className="font-bold text-slate-800">{comp.group}</h4>
+                            <p className="text-xs text-slate-500">{comp.count} swimmer{comp.count !== 1 ? 's' : ''}</p>
+                          </div>
+                          {idx === 0 && (
+                            <div className="px-2 py-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full">
+                              TOP GROUP
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-slate-600">Avg Drop</span>
+                            <span className="font-bold text-emerald-600">{comp.avgTotalDrop.toFixed(2)}s</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-slate-600">Avg %</span>
+                            <span className="font-bold text-blue-600">{comp.avgPercentDrop.toFixed(1)}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-slate-600">Best Times</span>
+                            <span className="font-bold text-purple-600">{comp.totalBestTimes}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-slate-600">New Standards</span>
+                            <span className="font-bold text-yellow-600">{comp.totalNewStandards}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Podium Display for Top 3 */}
+              {top3.length > 0 && (
+                <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-slate-200 p-8">
+                  <h3 className="font-bold text-slate-800 text-lg mb-6 text-center flex items-center justify-center gap-2">
+                    <Trophy size={20} className="text-yellow-500" />
+                    Top Performers
+                  </h3>
+                  <div className="flex items-end justify-center gap-6 max-w-4xl mx-auto">
+                    {/* 2nd Place */}
+                    {top3[1] && (
+                      <PodiumCard swimmer={top3[1]} rank={2} activeView={activeView} />
+                    )}
+                    
+                    {/* 1st Place (Taller) */}
+                    {top3[0] && (
+                      <PodiumCard swimmer={top3[0]} rank={1} activeView={activeView} />
+                    )}
+                    
+                    {/* 3rd Place */}
+                    {top3[2] && (
+                      <PodiumCard swimmer={top3[2]} rank={3} activeView={activeView} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Rest of Leaderboard */}
+              {rest.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-4 bg-slate-50 border-b border-slate-200">
+                    <h3 className="font-bold text-slate-800">Full Leaderboard</h3>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {rest.map((swimmer, idx) => (
+                      <SwimmerRow 
+                        key={swimmer.id} 
+                        swimmer={swimmer} 
+                        rank={idx + 4} 
+                        activeView={activeView}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Initial State */}
+      {!hasGenerated && !loading && (
+        <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200 p-12 text-center">
+          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <TrendingUp size={32} className="text-emerald-500" />
+          </div>
+          <h3 className="font-bold text-slate-800 text-xl mb-2">Discover Your Big Movers</h3>
+          <p className="text-slate-600 max-w-md mx-auto">
+            See which swimmers have made the most improvement this season. 
+            Track total time dropped, best times achieved, and standards progression.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Podium Card Component
+const PodiumCard = ({ swimmer, rank, activeView }) => {
+  const getValue = () => {
+    switch (activeView) {
+      case 'total': return `${swimmer.totalDrop.toFixed(2)}s`;
+      case 'percentage': return `${swimmer.avgPercentDrop.toFixed(1)}%`;
+      case 'besttimes': return swimmer.bestTimesCount;
+      case 'standards': return swimmer.newStandardsCount;
+      default: return swimmer.totalDrop.toFixed(2);
+    }
+  };
+
+  const getLabel = () => {
+    switch (activeView) {
+      case 'total': return 'dropped';
+      case 'percentage': return 'improved';
+      case 'besttimes': return 'best times';
+      case 'standards': return 'standards';
+      default: return 'dropped';
+    }
+  };
+
+  const colors = {
+    1: { bg: 'from-yellow-400 to-yellow-500', border: 'border-yellow-400', text: 'text-yellow-600', badge: 'bg-yellow-500' },
+    2: { bg: 'from-slate-300 to-slate-400', border: 'border-slate-400', text: 'text-slate-600', badge: 'bg-slate-400' },
+    3: { bg: 'from-amber-600 to-amber-700', border: 'border-amber-600', text: 'text-amber-700', badge: 'bg-amber-600' }
+  };
+
+  const color = colors[rank];
+  const heights = { 1: 'h-64', 2: 'h-56', 3: 'h-48' };
+
+  return (
+    <div className={`flex flex-col items-center ${rank === 1 ? 'scale-110' : ''} transition-transform`}>
+      {/* Card */}
+      <div className={`bg-white rounded-2xl border-2 ${color.border} shadow-lg p-6 w-48 mb-4`}>
+        {/* Avatar */}
+        <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${color.bg} flex items-center justify-center text-white font-bold text-xl shadow-md`}>
+          {swimmer.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+        </div>
+        
+        {/* Name */}
+        <h4 className="font-bold text-slate-800 text-center mb-1">{swimmer.name}</h4>
+        <p className="text-xs text-slate-500 text-center mb-4">
+          {swimmer.age} yrs • {swimmer.group || 'Unassigned'}
+        </p>
+        
+        {/* Value */}
+        <div className="text-center">
+          <div className={`text-3xl font-bold ${color.text}`}>{getValue()}</div>
+          <div className="text-xs text-slate-500 uppercase">{getLabel()}</div>
+        </div>
+        
+        {/* Additional Stats */}
+        <div className="mt-4 pt-4 border-t border-slate-100 flex justify-around text-center">
+          <div>
+            <div className="text-sm font-bold text-slate-700">{swimmer.eventsImproved}</div>
+            <div className="text-[10px] text-slate-400 uppercase">Events</div>
+          </div>
+          <div>
+            <div className="text-sm font-bold text-slate-700">{swimmer.bestTimesCount}</div>
+            <div className="text-[10px] text-slate-400 uppercase">Best</div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Pedestal */}
+      <div className={`w-32 ${heights[rank]} bg-gradient-to-br ${color.bg} rounded-t-xl flex flex-col items-center justify-start pt-4 shadow-lg`}>
+        <div className={`w-12 h-12 ${color.badge} rounded-full flex items-center justify-center text-white font-bold text-2xl border-4 border-white shadow-md`}>
+          {rank}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Swimmer Row Component
+const SwimmerRow = ({ swimmer, rank, activeView }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const getValue = () => {
+    switch (activeView) {
+      case 'total': return `${swimmer.totalDrop.toFixed(2)}s`;
+      case 'percentage': return `${swimmer.avgPercentDrop.toFixed(1)}%`;
+      case 'besttimes': return swimmer.bestTimesCount;
+      case 'standards': return swimmer.newStandardsCount;
+      default: return swimmer.totalDrop.toFixed(2);
+    }
+  };
+
+  return (
+    <div className="hover:bg-slate-50 transition-colors">
+      <div 
+        className="p-4 flex items-center justify-between cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-4 flex-1">
+          {/* Rank */}
+          <div className="w-8 h-8 flex items-center justify-center font-bold text-slate-400 text-sm">
+            {rank}
+          </div>
+          
+          {/* Avatar */}
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+            {swimmer.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+          </div>
+          
+          {/* Info */}
+          <div className="flex-1">
+            <h4 className="font-bold text-slate-800">{swimmer.name}</h4>
+            <p className="text-xs text-slate-500">
+              {swimmer.age} yrs • {(swimmer.gender === 'M' || swimmer.gender === 'Male') ? 'Male' : 'Female'} • {swimmer.group || 'Unassigned'}
+            </p>
+          </div>
+          
+          {/* Stats */}
+          <div className="hidden md:flex gap-8">
+            <div className="text-center">
+              <div className="text-sm font-bold text-emerald-600">{swimmer.totalDrop.toFixed(2)}s</div>
+              <div className="text-[10px] text-slate-400 uppercase">Total Drop</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-bold text-blue-600">{swimmer.avgPercentDrop.toFixed(1)}%</div>
+              <div className="text-[10px] text-slate-400 uppercase">Avg %</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-bold text-purple-600">{swimmer.bestTimesCount}</div>
+              <div className="text-[10px] text-slate-400 uppercase">Best Times</div>
+            </div>
+            {swimmer.newStandardsCount > 0 && (
+              <div className="text-center">
+                <div className="text-sm font-bold text-yellow-600">{swimmer.newStandardsCount}</div>
+                <div className="text-[10px] text-slate-400 uppercase">Standards</div>
+              </div>
+            )}
+          </div>
+          
+          {/* Primary Value (based on active view) */}
+          <div className="text-right min-w-[80px]">
+            <div className="text-2xl font-bold text-slate-800">{getValue()}</div>
+          </div>
+          
+          {/* Expand Icon */}
+          <ChevronDown 
+            size={20} 
+            className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          />
+        </div>
+      </div>
+
+      {/* Expanded Details */}
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4">
+          {/* Best Single Drop */}
+          {swimmer.bestSingleDrop > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-emerald-600 font-bold uppercase">Best Single Drop</div>
+                  <div className="font-medium text-slate-800">{swimmer.bestSingleDropEvent}</div>
+                </div>
+                <div className="text-2xl font-bold text-emerald-600">{swimmer.bestSingleDrop.toFixed(2)}s</div>
+              </div>
+            </div>
+          )}
+
+          {/* Event Improvements */}
+          {swimmer.improvements.length > 0 && (
+            <div>
+              <h5 className="text-xs font-bold text-slate-500 uppercase mb-2">Event Improvements</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {swimmer.improvements.slice(0, 6).map((imp, idx) => (
+                  <div key={idx} className="bg-slate-50 rounded-lg p-2 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-slate-700">{imp.event}</div>
+                      <div className="text-xs text-slate-500">
+                        {imp.oldTime} → {imp.newTime}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-emerald-600">-{imp.drop.toFixed(2)}s</div>
+                      <div className="text-xs text-slate-500">{imp.percentDrop.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {swimmer.improvements.length > 6 && (
+                <p className="text-xs text-slate-400 mt-2 text-center">
+                  +{swimmer.improvements.length - 6} more improvements
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Standards Achieved */}
+          {swimmer.standardsAchieved.length > 0 && (
+            <div>
+              <h5 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
+                <Star size={12} className="text-yellow-500" />
+                New Standards Achieved
+              </h5>
+              <div className="flex flex-wrap gap-2">
+                {swimmer.standardsAchieved.map((std, idx) => (
+                  <div key={idx} className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                    <div className="text-xs font-bold text-yellow-700">{std.level}</div>
+                    <div className="text-[11px] text-yellow-600">{std.event}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">{std.time}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 const FlawHeatmapReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Heatmap Coming Soon</h3></div>;
 const GroupProgressionReport = ({ onBack }) => <div className="p-8"><button onClick={onBack}>Back</button><h3>Group Progression Coming Soon</h3></div>;
 
