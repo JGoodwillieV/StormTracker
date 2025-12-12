@@ -541,7 +541,7 @@ const CloseCallsReport = ({ onBack }) => {
                       <div>
                         <h4 className="font-bold text-slate-800">{group.swimmer.name}</h4>
                         <p className="text-xs text-slate-500">
-                          {group.swimmer.age} yrs • {group.swimmer.gender === 'M' ? 'Male' : 'Female'} • {group.swimmer.group || 'Unassigned'}
+                          {group.swimmer.age} yrs • {(group.swimmer.gender === 'M' || group.swimmer.gender === 'Male') ? 'Male' : 'Female'} • {group.swimmer.group || 'Unassigned'}
                         </p>
                       </div>
                     </div>
@@ -1425,7 +1425,7 @@ const TeamRecordsReport = ({ onBack }) => {
                             <div className="flex items-center gap-3 mb-2">
                               <h4 className="font-bold text-slate-800">{event.event}</h4>
                               <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                                {event.age_group} • {event.gender === 'M' ? 'Boys' : 'Girls'}
+                                {event.age_group} • {(event.gender === 'M' || event.gender === 'Male') ? 'Boys' : 'Girls'}
                               </span>
                             </div>
                             
@@ -1479,7 +1479,7 @@ const TeamRecordsReport = ({ onBack }) => {
                             <div className="flex items-center gap-3 mb-1">
                               <h4 className="font-bold text-slate-800">{record.event}</h4>
                               <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                                {record.age_group} • {record.gender === 'M' ? 'Boys' : 'Girls'}
+                                {record.age_group} • {(record.gender === 'M' || record.gender === 'Male') ? 'Boys' : 'Girls'}
                               </span>
                             </div>
                             <div className="text-sm text-slate-600">
@@ -1521,7 +1521,7 @@ const TeamRecordsReport = ({ onBack }) => {
                       <div className="flex items-start gap-3">
                         <div className="text-2xl">🔥</div>
                         <p className="flex-1">
-                          The <span className="font-bold text-white">{recordData.mostCompetitiveEvent.age_group} {recordData.mostCompetitiveEvent.gender === 'M' ? 'Boys' : 'Girls'} {recordData.mostCompetitiveEvent.event}</span> record was broken{' '}
+                          The <span className="font-bold text-white">{recordData.mostCompetitiveEvent.age_group} {(recordData.mostCompetitiveEvent.gender === 'M' || recordData.mostCompetitiveEvent.gender === 'Male') ? 'Boys' : 'Girls'} {recordData.mostCompetitiveEvent.event}</span> record was broken{' '}
                           <span className="font-bold text-white">{recordData.mostCompetitiveEvent.breakCount} times this {dateRange.start.includes('-09-01') ? 'season' : 'period'}</span> by{' '}
                           <span className="font-bold text-white">{recordData.mostCompetitiveEvent.swimmerCount} different swimmer{recordData.mostCompetitiveEvent.swimmerCount !== 1 ? 's' : ''}</span> and improved by{' '}
                           <span className="font-bold text-white">{recordData.mostCompetitiveEvent.totalImprovement.toFixed(2)} seconds</span>!
@@ -1560,61 +1560,15 @@ const TeamRecordsReport = ({ onBack }) => {
 
       {/* Initial state */}
       {!loading && !recordData && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-12 text-center">
-            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Award size={32} className="text-amber-500" />
-            </div>
-            <h3 className="font-bold text-slate-800 text-xl mb-2">Team Records Analysis</h3>
-            <p className="text-slate-600 max-w-md mx-auto">
-              Select a date range above to analyze team record breaks, see who broke the most records, 
-              identify the most competitive events, and view the longest-held records.
-            </p>
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-12 text-center">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Award size={32} className="text-amber-500" />
           </div>
-
-          {/* Setup Guide */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6">
-            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Database className="text-blue-500" size={20} />
-              Quick Setup Check
-            </h4>
-            
-            <div className="space-y-4 text-sm">
-              <div className="bg-slate-50 rounded-lg p-4">
-                <p className="font-semibold text-slate-700 mb-2">1. Check if record_history table exists:</p>
-                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs overflow-x-auto">
-                  SELECT COUNT(*) as total_records FROM record_history;
-                </div>
-                <p className="text-slate-500 text-xs mt-2">Run this in Supabase SQL Editor. If you get an error, the table needs to be created.</p>
-              </div>
-
-              <div className="bg-slate-50 rounded-lg p-4">
-                <p className="font-semibold text-slate-700 mb-2">2. If table doesn't exist, create it:</p>
-                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs">
-                  Run: database/record_history_schema.sql
-                </div>
-                <p className="text-slate-500 text-xs mt-2">Copy the contents of this file and run it in Supabase SQL Editor.</p>
-              </div>
-
-              <div className="bg-slate-50 rounded-lg p-4">
-                <p className="font-semibold text-slate-700 mb-2">3. Check recent record breaks:</p>
-                <div className="bg-slate-800 text-slate-100 p-3 rounded font-mono text-xs overflow-x-auto">
-                  SELECT event, swimmer_name, time_display, broken_at<br/>
-                  FROM record_history<br/>
-                  ORDER BY broken_at DESC LIMIT 10;
-                </div>
-                <p className="text-slate-500 text-xs mt-2">This shows your 10 most recent record breaks.</p>
-              </div>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="font-bold text-blue-800 text-sm mb-2">💡 Note:</p>
-                <p className="text-blue-700 text-xs">
-                  Record history is automatically logged when you upload meet results and confirm record breaks in the Record Break Modal. 
-                  If you just set up the system, upload some recent meet results to populate the history!
-                </p>
-              </div>
-            </div>
-          </div>
+          <h3 className="font-bold text-slate-800 text-xl mb-2">Team Records Analysis</h3>
+          <p className="text-slate-600 max-w-md mx-auto">
+            Select a date range above to analyze team record breaks, see who broke the most records, 
+            identify the most competitive events, and view the longest-held records.
+          </p>
         </div>
       )}
     </div>
