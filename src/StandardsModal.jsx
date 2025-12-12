@@ -18,13 +18,16 @@ export default function StandardsModal({ isOpen, onClose, standards, bestTime, e
       else if (age <= 14) ageGroup = '13/14';
       else ageGroup = '15 & Over';
 
+      // Convert gender format: M/F -> Male/Female
+      const genderFull = gender === 'M' || gender === 'Male' ? 'Male' : 'Female';
+
       // Fetch team record from database
       const { data, error } = await supabase
         .from('team_records')
         .select('*')
         .eq('event', eventName)
         .eq('age_group', ageGroup)
-        .eq('gender', gender)
+        .eq('gender', genderFull)
         .eq('course', 'SCY')
         .single();
 
