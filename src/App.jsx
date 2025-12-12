@@ -29,6 +29,8 @@ import MeetsManager from './MeetsManager';
 import ParentMeetsView from './ParentMeetsView';
 import { checkMultipleResults } from './utils/teamRecordsManager';
 import RecordBreakModal from './RecordBreakModal';
+import PracticeHub from './PracticeHub';
+import PracticeBuilder from './PracticeBuilder';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -36,7 +38,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User, Calendar
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User, Calendar, Clipboard
 } from 'lucide-react'
 
 
@@ -56,7 +58,8 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'image': ImageIcon, 
     'camera': Camera, 
     'user': User, 
-    'calendar': Calendar  
+    'calendar': Calendar,
+    'clipboard': Clipboard  
   };
   
   const LucideIcon = icons[name] || Waves;
@@ -71,6 +74,7 @@ export default function App() {
   const [currentAnalysis, setCurrentAnalysis] = useState(null) 
   const [loading, setLoading] = useState(true)
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [selectedPracticeId, setSelectedPracticeId] = useState(null);
   
   // User role state
   const [userRole, setUserRole] = useState(null) // 'coach' or 'parent'
@@ -461,6 +465,37 @@ const fetchUserRole = async () => {
 {view === 'ai-chat' && (
   <AIChat onBack={() => navigateTo('dashboard')} />
 )}
+
+        {/* PRACTICE HUB */}
+        {view === 'practice-hub' && (
+          <PracticeHub
+            onBack={() => navigateTo('dashboard')}
+            onCreateNew={() => {
+              setSelectedPracticeId(null);
+              setView('practice-builder');
+            }}
+            onEditPractice={(practiceId) => {
+              setSelectedPracticeId(practiceId);
+              setView('practice-builder');
+            }}
+            swimmers={swimmers}
+          />
+        )}
+
+        {/* PRACTICE BUILDER */}
+        {view === 'practice-builder' && (
+          <PracticeBuilder
+            practiceId={selectedPracticeId}
+            onBack={() => {
+              setSelectedPracticeId(null);
+              setView('practice-hub');
+            }}
+            onSave={() => {
+              setView('practice-hub');
+            }}
+            swimmers={swimmers}
+          />
+        )}
         
         
       </main>
@@ -499,7 +534,7 @@ const fetchUserRole = async () => {
 const MobileNav = ({ activeTab, setActiveTab }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
-    { id: 'announcements', icon: 'megaphone', label: 'Updates' },
+    { id: 'practice-hub', icon: 'clipboard', label: 'Practice' },
     { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'analysis', icon: 'video', label: 'Analyze' },
     { id: 'roster', icon: 'users', label: 'Roster' },
@@ -526,6 +561,7 @@ const MobileNav = ({ activeTab, setActiveTab }) => {
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const items = [
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
+    { id: 'practice-hub', icon: 'clipboard', label: 'Practices' },
     { id: 'announcements', icon: 'megaphone', label: 'Announcements' },
     { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'meet-entries', icon: 'file-text', label: 'Meet Entries' },
@@ -679,6 +715,10 @@ const Dashboard = ({ navigateTo, swimmers, stats, onLogout, onInviteParent }) =>
       <div className="mt-8">
          <h3 className="font-bold text-slate-800 text-lg mb-4">Quick Actions</h3>
          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div onClick={() => navigateTo('practice-hub')} className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:from-blue-600 hover:to-blue-700 transition-colors text-white shadow-lg shadow-blue-200">
+                <div className="w-10 h-10 bg-white/20 text-white rounded-full flex items-center justify-center"><Icon name="clipboard" size={20}/></div>
+                <div className="font-bold">Plan Practice</div>
+            </div>
             <div onClick={() => navigateTo('test-set')} className="bg-gradient-to-br from-indigo-500 to-purple-600 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:from-indigo-600 hover:to-purple-700 transition-colors text-white shadow-lg shadow-indigo-200">
                 <div className="w-10 h-10 bg-white/20 text-white rounded-full flex items-center justify-center"><Timer size={20}/></div>
                 <div className="font-bold">New Test Set</div>
