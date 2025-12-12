@@ -115,21 +115,20 @@ This creates an item with:
 
 ## 🎯 Stroke Names
 
-### Full Names
-- free (or freestyle)
-- back (or backstroke)
-- breast (or breaststroke)
-- fly (or butterfly)
-- IM
-- choice
-- drill
-- kick
+**Valid Strokes** (any of these work, any case):
 
-### Shortcuts
-- fr → free
-- bk → back
-- br → breast
-- fl → fly
+| Type | You Can Type | We Save As |
+|------|-------------|------------|
+| Freestyle | free, freestyle, fr, Free, FR | free |
+| Backstroke | back, backstroke, bk, Back, BK | back |
+| Breaststroke | breast, breaststroke, br, Breast, BR | breast |
+| Butterfly | fly, butterfly, fl, Fly, FL | fly |
+| Individual Medley | IM, im, Im | IM |
+| Choice | choice, Choice | choice |
+| Drill | drill, dr, Drill | drill |
+| Kick | kick, ki, Kick | kick |
+
+**Important**: The parser automatically converts your input to match database requirements. Type any variation - it will work!
 
 ---
 
@@ -212,12 +211,17 @@ Click "Parse & Save" frequently to check your work. If there are errors, you'll 
 ### "Unknown stroke"
 **Problem**: Stroke name not recognized
 
-**Fix**: Use valid stroke names or shortcuts
+**Fix**: Use valid stroke names (any case/variation works)
 ```
 ✅ 4x100 Free
+✅ 4x100 free
+✅ 4x100 freestyle
 ✅ 4x100 fr
-❌ 4x100 freestyle (use 'free' or 'freestyle')
+✅ 4x100 FR
+❌ 4x100 crawl (not a valid name)
 ```
+
+Valid strokes: free, back, breast, fly, IM, choice, drill, kick (plus variations)
 
 ### Parse Errors Show Up
 **What**: Red error box appears with line numbers

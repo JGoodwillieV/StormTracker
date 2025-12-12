@@ -199,7 +199,14 @@ export default function PracticeQuickEntry({ practiceId, practice, onBack, onSwi
     let equipment = [];
     const equipmentMatch = line.match(/\[([^\]]+)\]/);
     if (equipmentMatch) {
-      equipment = equipmentMatch[1].split(',').map(e => e.trim().toLowerCase());
+      const rawEquipment = equipmentMatch[1].split(',').map(e => e.trim().toLowerCase());
+      // Validate equipment (must match valid options)
+      const validEquipment = ['fins', 'paddles', 'snorkel', 'kickboard', 'pull_buoy', 'band'];
+      const invalidEquipment = rawEquipment.filter(eq => !validEquipment.includes(eq));
+      if (invalidEquipment.length > 0) {
+        throw new Error(`Unknown equipment: "${invalidEquipment.join(', ')}". Use: fins, paddles, snorkel, kickboard, pull_buoy, band`);
+      }
+      equipment = rawEquipment;
       line = line.replace(/\[([^\]]+)\]/, '').trim();
     }
 
@@ -207,7 +214,14 @@ export default function PracticeQuickEntry({ practiceId, practice, onBack, onSwi
     let intensity = null;
     const intensityMatch = line.match(/\(([^)]+)\)/);
     if (intensityMatch) {
-      intensity = intensityMatch[1].trim().toLowerCase().replace(' ', '_');
+      const rawIntensity = intensityMatch[1].trim().toLowerCase().replace(/\s+/g, '_');
+      // Validate intensity values (must match DB or be null)
+      const validIntensities = ['easy', 'moderate', 'fast', 'sprint', 'race_pace'];
+      if (validIntensities.includes(rawIntensity)) {
+        intensity = rawIntensity;
+      } else {
+        throw new Error(`Unknown intensity: "${intensityMatch[1]}". Use: easy, moderate, fast, sprint, race_pace`);
+      }
       line = line.replace(/\([^)]+\)/, '').trim();
     }
 
@@ -246,17 +260,35 @@ export default function PracticeQuickEntry({ practiceId, practice, onBack, onSwi
       throw new Error(`Could not parse: "${line}". Format: "4x100 Free @1:30"`);
     }
 
-    // Validate stroke
-    const validStrokes = ['free', 'back', 'breast', 'fly', 'im', 'choice', 'drill', 'kick', 'freestyle', 'backstroke', 'breaststroke', 'butterfly'];
-    if (!validStrokes.includes(stroke)) {
-      // Try to fix common variations
-      if (stroke === 'fr') stroke = 'free';
-      else if (stroke === 'bk') stroke = 'back';
-      else if (stroke === 'br') stroke = 'breast';
-      else if (stroke === 'fl') stroke = 'fly';
-      else if (stroke === 'ki') stroke = 'kick';
-      else if (stroke === 'dr') stroke = 'drill';
-      else throw new Error(`Unknown stroke: "${stroke}". Use: free, back, breast, fly, IM, choice, drill, kick`);
+    // Normalize and validate stroke (DB constraint requires exact values)
+    const strokeLower = stroke.toLowerCase();
+    
+    // Map variations to valid DB values
+    const strokeMap = {
+      'free': 'free',
+      'freestyle': 'free',
+      'fr': 'free',
+      'back': 'back',
+      'backstroke': 'back',
+      'bk': 'back',
+      'breast': 'breast',
+      'breaststroke': 'breast',
+      'br': 'breast',
+      'fly': 'fly',
+      'butterfly': 'fly',
+      'fl': 'fly',
+      'im': 'IM',  // Must be uppercase for DB
+      'choice': 'choice',
+      'drill': 'drill',
+      'dr': 'drill',
+      'kick': 'kick',
+      'ki': 'kick'
+    };
+    
+    if (strokeMap[strokeLower]) {
+      stroke = strokeMap[strokeLower];
+    } else {
+      throw new Error(`Unknown stroke: "${stroke}". Use: free, back, breast, fly, IM, choice, drill, kick`);
     }
 
     return {
@@ -365,6 +397,7 @@ export default function PracticeQuickEntry({ practiceId, practice, onBack, onSwi
               <p>• Start sets with <code className="bg-slate-200 px-1 rounded">## SET NAME</code></p>
               <p>• Format items: <code className="bg-slate-200 px-1 rounded">4x100 Free @1:30 - descend (moderate) [fins]</code></p>
               <p>• Strokes: free, back, breast, fly, IM, choice, drill, kick</p>
+              <p className="text-xs text-orange-600 font-medium">⚠️ Must match valid values or you'll get an error!</p>
             </div>
           </div>
           
@@ -472,27 +505,20 @@ Example:
             </div>
 
             <div>
-              <h4 className="font-medium text-slate-900 mb-2">Strokes</h4>
+              <h4 className="font-medium text-slate-900 mb-2">Strokes (any case works)</h4>
               <div className="text-sm text-slate-600">
-                <p>• free (or freestyle)</p>
-                <p>• back (or backstroke)</p>
-                <p>• breast (or breaststroke)</p>
-                <p>• fly (or butterfly)</p>
-                <p>• IM</p>
+                <p>• free (or freestyle, fr)</p>
+                <p>• back (or backstroke, bk)</p>
+                <p>• breast (or breaststroke, br)</p>
+                <p>• fly (or butterfly, fl)</p>
+                <p>• IM (or im)</p>
                 <p>• choice</p>
-                <p>• drill</p>
-                <p>• kick</p>
+                <p>• drill (or dr)</p>
+                <p>• kick (or ki)</p>
               </div>
-            </div>
-
-            <div>
-              <h4 className="font-medium text-slate-900 mb-2">Shortcuts</h4>
-              <div className="text-sm text-slate-600">
-                <p>• fr → free</p>
-                <p>• bk → back</p>
-                <p>• br → breast</p>
-                <p>• fl → fly</p>
-              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                💡 All variations work! Type "Free", "free", "Freestyle", or "fr"
+              </p>
             </div>
           </div>
         </div>
