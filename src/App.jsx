@@ -862,16 +862,26 @@ const Roster = ({ swimmers, setSwimmers, setViewSwimmer, navigateTo, supabase })
                 if (error) {
                     alert("Database error: " + error.message);
                 } else { 
-                    alert(`Success! Imported ${newEntries.length} results. (${entriesToInsert.length - newEntries.length} skipped as duplicates)`); 
+                    // Check for team record breaks BEFORE showing success message
+                    console.log('🔍 Checking for team record breaks...');
+                    console.log('New entries to check:', newEntries);
                     
-                    // Check for team record breaks
-                    console.log('Checking for team record breaks...');
-                    const breaks = await checkMultipleResults(newEntries);
-                    
-                    if (breaks && breaks.length > 0) {
-                        console.log(`Found ${breaks.length} team record(s) broken!`, breaks);
-                        setRecordBreaks(breaks);
-                        setShowRecordModal(true);
+                    try {
+                        const breaks = await checkMultipleResults(newEntries);
+                        console.log('✅ Record check complete. Breaks found:', breaks);
+                        
+                        if (breaks && breaks.length > 0) {
+                            console.log(`🎉 Found ${breaks.length} team record(s) broken!`, breaks);
+                            setRecordBreaks(breaks);
+                            setShowRecordModal(true);
+                            alert(`Success! Imported ${newEntries.length} results.\n\n🎉 ${breaks.length} TEAM RECORD(S) BROKEN! Check the modal.`);
+                        } else {
+                            console.log('No records broken');
+                            alert(`Success! Imported ${newEntries.length} results. (${entriesToInsert.length - newEntries.length} skipped as duplicates)`);
+                        }
+                    } catch (err) {
+                        console.error('❌ Error checking for record breaks:', err);
+                        alert(`Success! Imported ${newEntries.length} results.\n\nNote: Could not check for record breaks. Error: ${err.message}`);
                     }
                     
                     setShowImport(false); 

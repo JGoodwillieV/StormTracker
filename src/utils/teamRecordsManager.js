@@ -94,6 +94,8 @@ export function normalizeGender(gender) {
  */
 export async function checkForRecordBreak(result) {
   try {
+    console.log('  Checking result:', result);
+    
     // 1. Get swimmer info
     const { data: swimmer, error: swimmerError } = await supabase
       .from('swimmers')
@@ -102,9 +104,11 @@ export async function checkForRecordBreak(result) {
       .single();
     
     if (swimmerError || !swimmer) {
-      console.error('Error fetching swimmer:', swimmerError);
+      console.error('  ❌ Error fetching swimmer:', swimmerError);
       return null;
     }
+    
+    console.log('  ✅ Swimmer:', swimmer.name, 'Gender:', swimmer.gender);
     
     // 2. Calculate swimmer's age on the date of the swim
     const swimDate = new Date(result.date);
@@ -114,22 +118,31 @@ export async function checkForRecordBreak(result) {
     if (monthDiff < 0 || (monthDiff === 0 && swimDate.getDate() < birthDate.getDate())) {
       age--;
     }
+    console.log('  ✅ Age on', result.date, ':', age);
     
     // 3. Extract event name and convert time to seconds
     const eventName = extractEventName(result.event);
     const timeSeconds = timeToSeconds(result.time);
+    console.log('  ✅ Event extracted:', result.event, '→', eventName);
+    console.log('  ✅ Time converted:', result.time, '→', timeSeconds, 'seconds');
     
     if (timeSeconds >= 999999 || !eventName) {
+      console.log('  ❌ Invalid time or event');
       return null; // Invalid time or event
     }
     
     // 4. Determine age group and normalize gender
     const ageGroup = getAgeGroup(age);
     const gender = normalizeGender(swimmer.gender);
+    console.log('  ✅ Age group:', ageGroup, '| Gender:', gender);
     
-    if (!gender) return null;
+    if (!gender) {
+      console.log('  ❌ Invalid gender');
+      return null;
+    }
     
     // 5. Fetch current team record
+    console.log('  🔍 Looking for record:', eventName, ageGroup, gender);
     const { data: currentRecord, error: recordError } = await supabase
       .from('team_records')
       .select('*')
@@ -140,15 +153,22 @@ export async function checkForRecordBreak(result) {
       .maybeSingle(); // Use maybeSingle to avoid error if no record exists
     
     if (recordError) {
-      console.error('Error fetching team record:', recordError);
+      console.error('  ❌ Error fetching team record:', recordError);
       return null;
+    }
+    
+    if (currentRecord) {
+      console.log('  ✅ Found current record:', currentRecord.time_seconds, 'by', currentRecord.swimmer_name);
+    } else {
+      console.log('  ℹ️  No existing record for this event/age/gender');
     }
     
     // 6. Check if the new time is faster
     const isNewRecord = !currentRecord || timeSeconds < currentRecord.time_seconds;
+    console.log('  📊 Comparison:', timeSeconds, 'vs', currentRecord?.time_seconds, '→ New record?', isNewRecord);
     
     if (isNewRecord) {
-      return {
+      const recordBreak = {
         swimmer_id: result.swimmer_id,
         swimmer_name: swimmer.name,
         event: eventName,
@@ -160,11 +180,14 @@ export async function checkForRecordBreak(result) {
         previous_record: currentRecord,
         improvement: currentRecord ? currentRecord.time_seconds - timeSeconds : null
       };
+      console.log('  🎉 RECORD BROKEN!', recordBreak);
+      return recordBreak;
     }
     
+    console.log('  ℹ️  No record broken for this result');
     return null;
   } catch (error) {
-    console.error('Error checking for record break:', error);
+    console.error('  ❌ Error checking for record break:', error);
     return null;
   }
 }
@@ -175,15 +198,20 @@ export async function checkForRecordBreak(result) {
  * @returns {Promise<Array>} Array of record breaks found
  */
 export async function checkMultipleResults(results) {
+  console.log('📋 Checking', results.length, 'results for record breaks...');
   const recordBreaks = [];
   
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    console.log(`\n[${i + 1}/${results.length}] Checking result:`, result.event, result.time);
     const recordBreak = await checkForRecordBreak(result);
     if (recordBreak) {
       recordBreaks.push(recordBreak);
+      console.log('  ✅ Added to record breaks list');
     }
   }
   
+  console.log('\n🏁 Record check complete. Total breaks:', recordBreaks.length);
   return recordBreaks;
 }
 
