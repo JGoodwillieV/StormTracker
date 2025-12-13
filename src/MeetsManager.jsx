@@ -11,6 +11,7 @@ import {
   DollarSign, Award, Timer, Play, Video, ExternalLink, List
 } from 'lucide-react';
 import { parseMeetInfoPDF, parseTimelinePDF, parseHeatSheetPDF, matchHeatSheetEntries } from './utils/meetPdfParser';
+import AutoGenerateEventsModal from './AutoGenerateEventsModal';
 
 // ============================================
 // SHARED COMPONENTS
@@ -1110,6 +1111,7 @@ const EntriesTab = ({ meet, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [selectedSwimmer, setSelectedSwimmer] = useState(null);
+  const [showAutoGenerate, setShowAutoGenerate] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -1180,13 +1182,24 @@ const EntriesTab = ({ meet, onRefresh }) => {
           <span className="text-lg font-semibold text-slate-800">{entries.length} Entries</span>
           <span className="text-slate-500 ml-2">from {groupedEntries.length} swimmers</span>
         </div>
-        <button
-          onClick={() => setShowAddEntry(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          Add Entries
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAutoGenerate(true)}
+            disabled={swimmers.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            title={swimmers.length === 0 ? "No committed swimmers yet" : "Auto-generate event entries using AI"}
+          >
+            <Award size={16} />
+            Auto-Generate
+          </button>
+          <button
+            onClick={() => setShowAddEntry(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            Add Entries
+          </button>
+        </div>
       </div>
 
       {/* Entries by Swimmer */}
@@ -1306,6 +1319,28 @@ const EntriesTab = ({ meet, onRefresh }) => {
           onClose={() => setSelectedSwimmer(null)}
           onSave={() => {
             setSelectedSwimmer(null);
+            loadData();
+            onRefresh();
+          }}
+        />
+      )}
+
+      {/* Auto-Generate Events Modal */}
+      {showAutoGenerate && (
+        <AutoGenerateEventsModal
+          meet={meet}
+          committedSwimmers={swimmers.map(s => ({
+            id: s.swimmer_id,
+            name: s.swimmer_name,
+            age: s.swimmer_age,
+            gender: s.swimmer_gender,
+            group_name: s.group_name,
+            usa_swimming_id: s.swimmer_usa_id
+          }))}
+          onClose={() => setShowAutoGenerate(false)}
+          onSuccess={(message) => {
+            alert(message);
+            setShowAutoGenerate(false);
             loadData();
             onRefresh();
           }}
