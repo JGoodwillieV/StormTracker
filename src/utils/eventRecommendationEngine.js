@@ -85,19 +85,34 @@ export const getSwimmerAgeGroups = (age) => {
   
   const groups = [];
   
-  // Standard age groups
-  if (age <= 8) groups.push('8 & Under', '8&U');
-  if (age >= 9 && age <= 10) groups.push('9-10');
-  if (age >= 11 && age <= 12) groups.push('11-12');
-  if (age >= 13 && age <= 14) groups.push('13-14');
-  if (age >= 15 && age <= 18) groups.push('15-18', '15-16', '17-18');
-  if (age >= 15) groups.push('Senior', 'Open');
-  if (age >= 13) groups.push('13-Over', '13 & Over');
-  if (age >= 11) groups.push('11-Over', '11 & Over');
+  // Standard age groups with common variations
+  if (age <= 8) {
+    groups.push('8 & Under', '8&U', '8 and Under', '8U');
+  }
+  if (age <= 10) {
+    groups.push('10 & Under', '10&U', '10 and Under', '10U');
+  }
+  if (age <= 12) {
+    groups.push('12 & Under', '12&U', '12 and Under', '12U');
+  }
+  
+  // Two-year age bands
+  if (age >= 9 && age <= 10) groups.push('9-10', '9/10');
+  if (age >= 11 && age <= 12) groups.push('11-12', '11/12');
+  if (age >= 13 && age <= 14) groups.push('13-14', '13/14');
+  if (age >= 15 && age <= 16) groups.push('15-16', '15/16');
+  if (age >= 17 && age <= 18) groups.push('17-18', '17/18');
+  if (age >= 15 && age <= 18) groups.push('15-18');
+  
+  // "Over" groups
+  if (age >= 15) groups.push('Senior', 'Open', '15-Over', '15 & Over');
+  if (age >= 13) groups.push('13-Over', '13 & Over', '13+');
+  if (age >= 11) groups.push('11-Over', '11 & Over', '11+');
   
   // Add specific age
   groups.push(`${age}`);
   groups.push(`${age} Year Old`);
+  groups.push(`Age ${age}`);
   
   return groups;
 };
