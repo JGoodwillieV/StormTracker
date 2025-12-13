@@ -131,9 +131,23 @@ export const isEligibleForEvent = (swimmer, meetEvent) => {
   
   // Age group match - be flexible if no age group specified
   if (meetEvent.age_group) {
-    const swimmerAge = parseInt(swimmer.age) || 0;
+    const swimmerAge = parseInt(swimmer.age);
+    
+    // If swimmer has no valid age, skip age checking (assume eligible)
+    if (!swimmerAge || isNaN(swimmerAge) || swimmerAge <= 0) {
+      console.warn('⚠️ Swimmer has no valid age, allowing all age groups');
+      return true;
+    }
+    
     const ageGroups = getSwimmerAgeGroups(swimmerAge);
     const eventAgeGroup = meetEvent.age_group.toString();
+    
+    // Check for "Open" or "All" age groups first
+    if (eventAgeGroup.toLowerCase().includes('open') || 
+        eventAgeGroup.toLowerCase().includes('all') ||
+        eventAgeGroup.trim() === '') {
+      return true;
+    }
     
     // More flexible matching
     const matches = ageGroups.some(ag => {
@@ -147,23 +161,11 @@ export const isEligibleForEvent = (swimmer, meetEvent) => {
           agStr.toLowerCase().includes(eventAgeGroup.toLowerCase())) {
         return true;
       }
-      // Check for "Open" or "All" age groups
-      if (eventAgeGroup.toLowerCase().includes('open') || 
-          eventAgeGroup.toLowerCase().includes('all')) {
-        return true;
-      }
       return false;
     });
     
-    // If no match found, but event is "Open" or blank, allow it
     if (!matches) {
-      const isOpenEvent = !eventAgeGroup || 
-                         eventAgeGroup.toLowerCase().includes('open') || 
-                         eventAgeGroup.toLowerCase().includes('all') ||
-                         eventAgeGroup.trim() === '';
-      if (!isOpenEvent) {
-        return false;
-      }
+      return false;
     }
   }
   
@@ -427,7 +429,8 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       age: swimmer.age,
       gender: swimmer.gender,
       mode,
-      maxEvents
+      maxEvents,
+      fullSwimmer: swimmer
     });
     
     // 1. Load meet events
@@ -448,8 +451,15 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       console.log('📋 Sample events:', meetEvents.slice(0, 3).map(e => ({
         name: e.event_name,
         age_group: e.age_group,
-        gender: e.gender
+        gender: e.gender,
+        is_relay: e.is_relay
       })));
+      
+      // Show swimmer's eligible age groups
+      const swimmerAge = parseInt(swimmer.age) || 0;
+      const swimmerAgeGroups = getSwimmerAgeGroups(swimmerAge);
+      console.log('👤 Swimmer age groups:', swimmerAgeGroups);
+      console.log('👤 Swimmer gender:', swimmer.gender);
     }
     
     // 2. Load swimmer's historical results
@@ -504,11 +514,17 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       
       if (!isEligible) {
         // Track why events are ineligible for debugging
+        const swimmerAge = parseInt(swimmer.age) || 0;
+        const swimmerAgeGroups = getSwimmerAgeGroups(swimmerAge);
+        
         ineligibleReasons.push({
           event: meetEvent.event_name,
-          age_group: meetEvent.age_group,
-          gender: meetEvent.gender,
-          is_relay: meetEvent.is_relay
+          event_age_group: meetEvent.age_group,
+          event_gender: meetEvent.gender,
+          is_relay: meetEvent.is_relay,
+          swimmer_age: swimmerAge,
+          swimmer_age_groups: swimmerAgeGroups.slice(0, 3), // First 3 for brevity
+          swimmer_gender: swimmer.gender
         });
         continue;
       }
@@ -745,6 +761,8 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     // If no eligible events, log why
     if (eligibleCount === 0) {
       console.warn('⚠️ No eligible events found. Sample reasons:', ineligibleReasons.slice(0, 5));
+      console.warn('💡 Tip: Check if swimmer age/gender match event requirements');
+      console.warn('💡 Event age groups in meet:', [...new Set(meetEvents.slice(0, 10).map(e => e.age_group))]);
     }
     
     return {
