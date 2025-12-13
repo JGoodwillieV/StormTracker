@@ -460,6 +460,19 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       const swimmerAgeGroups = getSwimmerAgeGroups(swimmerAge);
       console.log('👤 Swimmer age groups:', swimmerAgeGroups);
       console.log('👤 Swimmer gender:', swimmer.gender);
+      
+      // DETAILED COMPARISON
+      console.log('🔍 DETAILED ELIGIBILITY CHECK:');
+      console.log(`   Swimmer: ${swimmer.name}, Age: ${swimmer.age} (parsed: ${swimmerAge}), Gender: ${swimmer.gender}`);
+      console.log(`   Age Groups: ${swimmerAgeGroups.join(', ')}`);
+      console.log(`   First Event: "${meetEvents[0].event_name}"`);
+      console.log(`   Event Age Group: "${meetEvents[0].age_group}"`);
+      console.log(`   Event Gender: "${meetEvents[0].gender}"`);
+      console.log(`   Is Relay: ${meetEvents[0].is_relay}`);
+      
+      // Check if first event matches
+      const testMatch = isEligibleForEvent(swimmer, meetEvents[0]);
+      console.log(`   Would Match First Event? ${testMatch}`);
     }
     
     // 2. Load swimmer's historical results
@@ -762,7 +775,26 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     if (eligibleCount === 0) {
       console.warn('⚠️ No eligible events found. Sample reasons:', ineligibleReasons.slice(0, 5));
       console.warn('💡 Tip: Check if swimmer age/gender match event requirements');
-      console.warn('💡 Event age groups in meet:', [...new Set(meetEvents.slice(0, 10).map(e => e.age_group))]);
+      
+      const uniqueAgeGroups = [...new Set(meetEvents.map(e => e.age_group))];
+      console.warn('💡 Event age groups in meet:', uniqueAgeGroups);
+      
+      const swimmerAge = parseInt(swimmer.age) || 0;
+      console.warn(`💡 Swimmer is ${swimmerAge} years old. Does this match any of the age groups above?`);
+      
+      // Print a clear comparison table
+      console.table([{
+        'Swimmer': swimmer.name,
+        'Age': swimmer.age,
+        'Gender': swimmer.gender,
+        'Meet Age Groups': uniqueAgeGroups.join(', '),
+        'Match?': 'Check above'
+      }]);
+      
+      console.warn('📝 SOLUTION: Either:');
+      console.warn('   1. Verify swimmer age is correct in their profile');
+      console.warn('   2. Add "Open" age group events to the meet');
+      console.warn('   3. Add age group events that match the swimmer\'s age');
     }
     
     return {
