@@ -550,6 +550,14 @@ const SwimmerRecommendation = ({ swimmerRec }) => {
           <div className="flex-1">
             <div className="font-semibold text-slate-800">{swimmer.name}</div>
             <div className="text-sm text-amber-700">No eligible events found</div>
+            {stats?.eligibleEvents !== undefined && (
+              <div className="text-xs text-amber-600 mt-1">
+                {stats.eligibleEvents === 0 
+                  ? 'No events match swimmer\'s age/gender. Check meet events setup.'
+                  : `Found ${stats.eligibleEvents} eligible events but no recommendations. Try Developmental mode or check if swimmer has any results.`
+                }
+              </div>
+            )}
           </div>
         </div>
       </div>

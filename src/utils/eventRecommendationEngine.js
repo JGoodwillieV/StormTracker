@@ -106,34 +106,65 @@ export const getSwimmerAgeGroups = (age) => {
  * Check if swimmer is eligible for an event based on age and gender
  */
 export const isEligibleForEvent = (swimmer, meetEvent) => {
-  // Gender match
-  if (meetEvent.gender && meetEvent.gender.toUpperCase() !== 'X') {
-    const swimmerGender = (swimmer.gender || 'M').toUpperCase();
-    const eventGender = meetEvent.gender.toUpperCase();
-    
-    if (swimmerGender !== eventGender) {
-      return false;
-    }
-  }
-  
-  // Age group match
-  if (meetEvent.age_group) {
-    const ageGroups = getSwimmerAgeGroups(swimmer.age);
-    const eventAgeGroup = meetEvent.age_group;
-    
-    // Check if any swimmer age group matches the event age group
-    const matches = ageGroups.some(ag => 
-      eventAgeGroup.includes(ag) || ag.includes(eventAgeGroup)
-    );
-    
-    if (!matches) {
-      return false;
-    }
-  }
-  
   // Skip relays for now (can add relay logic later)
   if (meetEvent.is_relay) {
     return false;
+  }
+  
+  // Gender match
+  if (meetEvent.gender && meetEvent.gender.toUpperCase() !== 'X' && meetEvent.gender.toUpperCase() !== 'MIXED') {
+    const swimmerGender = (swimmer.gender || 'M').toUpperCase();
+    const eventGender = meetEvent.gender.toUpperCase();
+    
+    // Handle common gender variations
+    const genderMatch = 
+      swimmerGender === eventGender ||
+      (swimmerGender === 'M' && (eventGender === 'MALE' || eventGender === 'BOYS' || eventGender === 'MEN')) ||
+      (swimmerGender === 'F' && (eventGender === 'FEMALE' || eventGender === 'GIRLS' || eventGender === 'WOMEN')) ||
+      (swimmerGender === 'MALE' && (eventGender === 'M' || eventGender === 'BOYS' || eventGender === 'MEN')) ||
+      (swimmerGender === 'FEMALE' && (eventGender === 'F' || eventGender === 'GIRLS' || eventGender === 'WOMEN'));
+    
+    if (!genderMatch) {
+      return false;
+    }
+  }
+  
+  // Age group match - be flexible if no age group specified
+  if (meetEvent.age_group) {
+    const swimmerAge = parseInt(swimmer.age) || 0;
+    const ageGroups = getSwimmerAgeGroups(swimmerAge);
+    const eventAgeGroup = meetEvent.age_group.toString();
+    
+    // More flexible matching
+    const matches = ageGroups.some(ag => {
+      const agStr = ag.toString();
+      // Direct match
+      if (eventAgeGroup.includes(agStr) || agStr.includes(eventAgeGroup)) {
+        return true;
+      }
+      // Case insensitive match
+      if (eventAgeGroup.toLowerCase().includes(agStr.toLowerCase()) || 
+          agStr.toLowerCase().includes(eventAgeGroup.toLowerCase())) {
+        return true;
+      }
+      // Check for "Open" or "All" age groups
+      if (eventAgeGroup.toLowerCase().includes('open') || 
+          eventAgeGroup.toLowerCase().includes('all')) {
+        return true;
+      }
+      return false;
+    });
+    
+    // If no match found, but event is "Open" or blank, allow it
+    if (!matches) {
+      const isOpenEvent = !eventAgeGroup || 
+                         eventAgeGroup.toLowerCase().includes('open') || 
+                         eventAgeGroup.toLowerCase().includes('all') ||
+                         eventAgeGroup.trim() === '';
+      if (!isOpenEvent) {
+        return false;
+      }
+    }
   }
   
   return true;
@@ -392,6 +423,13 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
   } = options;
   
   try {
+    console.log('🔍 Generating recommendations for:', swimmer.name, {
+      age: swimmer.age,
+      gender: swimmer.gender,
+      mode,
+      maxEvents
+    });
+    
     // 1. Load meet events
     const { data: meetEvents } = await supabase
       .from('meet_events')
@@ -399,8 +437,19 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       .eq('meet_id', meet.id)
       .order('event_number');
     
+    console.log('📋 Found meet events:', meetEvents?.length || 0);
+    
     if (!meetEvents || meetEvents.length === 0) {
       return { swimmer, recommendations: [], error: 'No events found for this meet' };
+    }
+    
+    // Debug: Show first few events
+    if (meetEvents.length > 0) {
+      console.log('📋 Sample events:', meetEvents.slice(0, 3).map(e => ({
+        name: e.event_name,
+        age_group: e.age_group,
+        gender: e.gender
+      })));
     }
     
     // 2. Load swimmer's historical results
@@ -446,12 +495,25 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     // 6. Calculate scores for each eligible event
     const scoredEvents = [];
     const allEventScores = []; // For signature event calculation
+    let eligibleCount = 0;
+    let ineligibleReasons = [];
     
     for (const meetEvent of meetEvents) {
       // Check eligibility
-      if (!isEligibleForEvent(swimmer, meetEvent)) {
+      const isEligible = isEligibleForEvent(swimmer, meetEvent);
+      
+      if (!isEligible) {
+        // Track why events are ineligible for debugging
+        ineligibleReasons.push({
+          event: meetEvent.event_name,
+          age_group: meetEvent.age_group,
+          gender: meetEvent.gender,
+          is_relay: meetEvent.is_relay
+        });
         continue;
       }
+      
+      eligibleCount++;
       
       // Normalize meet event name
       const eventName = normalizeEventName(meetEvent.event_name);
@@ -671,7 +733,19 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     
     // Calculate total difficulty
     const totalDifficulty = recommendations.reduce((sum, r) => sum + r.difficulty, 0);
-    const avgDifficulty = totalDifficulty / recommendations.length;
+    const avgDifficulty = recommendations.length > 0 ? totalDifficulty / recommendations.length : 0;
+    
+    console.log('✅ Generated recommendations:', {
+      swimmer: swimmer.name,
+      eligible: eligibleCount,
+      scored: scoredEvents.length,
+      recommended: recommendations.length
+    });
+    
+    // If no eligible events, log why
+    if (eligibleCount === 0) {
+      console.warn('⚠️ No eligible events found. Sample reasons:', ineligibleReasons.slice(0, 5));
+    }
     
     return {
       swimmer,
@@ -682,7 +756,9 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
         eventsWithHistory: scoredEvents.filter(e => e.hasPreviousTime).length,
         newEvents: scoredEvents.filter(e => !e.hasPreviousTime).length,
         totalDifficulty: totalDifficulty.toFixed(1),
-        avgDifficulty: avgDifficulty.toFixed(1)
+        avgDifficulty: avgDifficulty.toFixed(1),
+        eligibleEvents: eligibleCount,
+        ineligibleSample: ineligibleReasons.slice(0, 3)
       }
     };
     
