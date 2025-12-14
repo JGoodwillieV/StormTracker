@@ -618,9 +618,11 @@ export default function CalendarManager() {
   };
 
   const filteredEvents = events.filter(event => {
-    const eventDate = new Date(event.end_date || event.start_date);
+    // Use end_date if available, otherwise use start_date
+    const eventDateStr = event.end_date || event.start_date;
+    const eventDate = new Date(eventDateStr + 'T23:59:59'); // End of day
     const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0); // Start of today
 
     if (filter === 'upcoming') {
       return eventDate >= now;
