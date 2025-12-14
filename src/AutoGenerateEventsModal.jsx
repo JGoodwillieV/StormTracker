@@ -274,22 +274,29 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
                     <div className="flex items-center gap-2 ml-2">
                       <span className="text-sm text-slate-500">or</span>
                       <input
-                        type="number"
-                        min="1"
-                        max="15"
+                        type="text"
+                        inputMode="numeric"
                         value={maxEvents}
                         onChange={(e) => {
-                          const val = parseInt(e.target.value) || '';
-                          if (val === '' || (val >= 1 && val <= 15)) {
-                            setMaxEvents(val || 1);
+                          const val = e.target.value;
+                          // Allow empty or valid numbers
+                          if (val === '' || /^\d+$/.test(val)) {
+                            const num = parseInt(val);
+                            if (val === '') {
+                              setMaxEvents(''); // Allow empty temporarily
+                            } else if (num >= 1 && num <= 15) {
+                              setMaxEvents(num);
+                            }
                           }
                         }}
                         onBlur={(e) => {
                           // Ensure we have a valid value on blur
                           const val = parseInt(e.target.value);
                           if (!val || val < 1) setMaxEvents(1);
-                          if (val > 15) setMaxEvents(15);
+                          else if (val > 15) setMaxEvents(15);
+                          else setMaxEvents(val);
                         }}
+                        placeholder="1-15"
                         className="w-16 px-3 py-2 border border-slate-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -527,44 +534,46 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
 
 // Component to display recommendations
 const RecommendationsDisplay = ({ recommendations }) => {
-  const [sortBy, setSortBy] = useState('score'); // 'score' or 'event_number'
+  const [sortBy, setSortBy] = useState('event_number'); // Default to event_number for chronological order
   const totalEntries = recommendations.reduce((sum, r) => sum + r.recommendations.length, 0);
 
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
           <div className="flex items-center gap-3">
             <Check className="text-green-600" size={20} />
             <h3 className="font-semibold text-slate-800">Recommendations Generated</h3>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-600">Sort by:</span>
-            <button
-              onClick={() => setSortBy('score')}
-              className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                sortBy === 'score'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Score
-            </button>
+          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+            <span className="text-xs text-slate-600 font-medium ml-2">Sort:</span>
             <button
               onClick={() => setSortBy('event_number')}
-              className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${
                 sortBy === 'event_number'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-slate-600 hover:bg-slate-100'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              Event #
+              📅 Event Order
+            </button>
+            <button
+              onClick={() => setSortBy('score')}
+              className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${
+                sortBy === 'score'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              ⭐ Best Score
             </button>
           </div>
         </div>
         <p className="text-sm text-slate-600">
           Generated {totalEntries} event entries for {recommendations.length} swimmer{recommendations.length !== 1 ? 's' : ''}.
-          Review below and click "Apply" to add them to the meet.
+          {sortBy === 'event_number' 
+            ? ' Sorted by event number (chronological order).'
+            : ' Sorted by recommendation score (best first).'}
         </p>
       </div>
 
