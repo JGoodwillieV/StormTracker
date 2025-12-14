@@ -529,7 +529,8 @@ const loadParentData = async () => {
     );
   }
 
-  const swimmerGroupIds = swimmers.map(s => s.group_id).filter(Boolean);
+  // Get unique group names from all swimmers
+  const swimmerGroupIds = [...new Set(swimmers.map(s => s.group_name).filter(Boolean))];
 
   // ============================================
   // SIMPLE VIEW - Just swimmers and activity
