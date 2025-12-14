@@ -11,7 +11,9 @@ import {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  // Parse date as local time to avoid timezone shift
+  const [year, month, day] = dateStr.split('T')[0].split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
   return date.toLocaleDateString('en-US', { 
     month: 'short', 
     day: 'numeric',
@@ -544,15 +546,10 @@ function EventCard({ event, onEdit, onDelete }) {
             </p>
           )}
 
-          <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <div className="mt-2">
             <span className={`inline-block px-2 py-0.5 text-xs rounded-full bg-${typeInfo.color}-100 text-${typeInfo.color}-700`}>
               {typeInfo.label}
             </span>
-            {!event.isEditable && (
-              <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">
-                Read-only
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -642,10 +639,13 @@ export default function CalendarManager() {
         }))
       ];
 
-      // Sort by date
+      // Sort by date (parse as local time)
       allEvents.sort((a, b) => {
-        const dateA = new Date(a.start_date);
-        const dateB = new Date(b.start_date);
+        const [yearA, monthA, dayA] = a.start_date.split('T')[0].split('-');
+        const [yearB, monthB, dayB] = b.start_date.split('T')[0].split('-');
+        const dateA = new Date(parseInt(yearA), parseInt(monthA) - 1, parseInt(dayA));
+        const dateB = new Date(parseInt(yearB), parseInt(monthB) - 1, parseInt(dayB));
+        
         if (dateA.getTime() !== dateB.getTime()) {
           return dateA - dateB;
         }
@@ -706,7 +706,9 @@ export default function CalendarManager() {
   const filteredEvents = events.filter(event => {
     // Use end_date if available, otherwise use start_date
     const eventDateStr = event.end_date || event.start_date;
-    const eventDate = new Date(eventDateStr + 'T23:59:59'); // End of day
+    // Parse date as local time to avoid timezone shift
+    const [year, month, day] = eventDateStr.split('T')[0].split('-');
+    const eventDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 23, 59, 59);
     const now = new Date();
     now.setHours(0, 0, 0, 0); // Start of today
 

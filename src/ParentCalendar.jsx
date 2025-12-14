@@ -17,7 +17,9 @@ import {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  // Parse date as local time to avoid timezone shift
+  const [year, month, day] = dateStr.split('T')[0].split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
   return date.toLocaleDateString('en-US', { 
     month: 'short', 
     day: 'numeric',
@@ -351,7 +353,10 @@ export default function ParentCalendar({ userId, swimmerGroups = [] }) {
   };
 
   const filteredEvents = events.filter(event => {
-    const eventDate = new Date(event.end_date || event.start_date);
+    // Parse date as local time to avoid timezone shift
+    const eventDateStr = event.end_date || event.start_date;
+    const [year, month, day] = eventDateStr.split('T')[0].split('-');
+    const eventDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 23, 59, 59);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -363,9 +368,10 @@ export default function ParentCalendar({ userId, swimmerGroups = [] }) {
     return true;
   });
 
-  // Group events by month
+  // Group events by month (parse as local time)
   const groupedEvents = filteredEvents.reduce((groups, event) => {
-    const date = new Date(event.start_date);
+    const [year, month, day] = event.start_date.split('T')[0].split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     const key = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
     if (!groups[key]) groups[key] = [];
     groups[key].push(event);
