@@ -32,6 +32,7 @@ import RecordBreakModal from './RecordBreakModal';
 import PracticeHub from './PracticeHub';
 import PracticeBuilder from './PracticeBuilder';
 import PracticeRunMode from './PracticeRunMode';
+import TemplateLibrary from './TemplateLibrary';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -479,6 +480,7 @@ const fetchUserRole = async () => {
               setSelectedPracticeId(practiceId);
               setView('practice-builder');
             }}
+            navigateTo={navigateTo}
             swimmers={swimmers}
           />
         )}
@@ -512,6 +514,17 @@ const fetchUserRole = async () => {
             onLaunchTestSet={(config) => {
               // Future: Launch Test Set Tracker with pre-populated config
               console.log('Launch test set with config:', config);
+            }}
+          />
+        )}
+
+        {/* TEMPLATE LIBRARY */}
+        {view === 'template-library' && (
+          <TemplateLibrary
+            onBack={() => setView('practice-hub')}
+            onCreateFromTemplate={(practiceId) => {
+              setSelectedPracticeId(practiceId);
+              setView('practice-builder');
             }}
           />
         )}

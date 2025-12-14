@@ -4,7 +4,7 @@ import { Calendar, Plus, Copy, Sparkles, BookTemplate, ChevronLeft, ChevronRight
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
-export default function PracticeHub({ onBack, onCreateNew, onEditPractice, swimmers }) {
+export default function PracticeHub({ onBack, onCreateNew, onEditPractice, swimmers, navigateTo }) {
   const [currentWeek, setCurrentWeek] = useState(getWeekDates(new Date()));
   const [practices, setPractices] = useState([]);
   const [recentPractices, setRecentPractices] = useState([]);
@@ -257,8 +257,8 @@ export default function PracticeHub({ onBack, onCreateNew, onEditPractice, swimm
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <button
-          onClick={() => alert('Templates feature coming soon!')}
+          <button
+          onClick={() => navigateTo('template-library')}
           className="bg-gradient-to-br from-purple-500 to-purple-600 p-6 rounded-xl flex items-center gap-4 cursor-pointer hover:from-purple-600 hover:to-purple-700 transition-colors text-white shadow-lg shadow-purple-200"
         >
           <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
