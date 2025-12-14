@@ -472,44 +472,46 @@ function EventCard({ event, onEdit, onDelete }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <h3 className="font-semibold text-slate-800">{event.title}</h3>
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="p-1 hover:bg-slate-100 rounded transition"
-              >
-                <MoreVertical size={16} />
-              </button>
-              {showMenu && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-10" 
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-1 bg-white border rounded-lg shadow-lg py-1 z-20 w-32">
-                    <button
-                      onClick={() => {
-                        onEdit(event);
-                        setShowMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Edit2 size={14} />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => {
-                        onDelete(event);
-                        setShowMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-red-600 flex items-center gap-2"
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            {event.isEditable && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="p-1 hover:bg-slate-100 rounded transition"
+                >
+                  <MoreVertical size={16} />
+                </button>
+                {showMenu && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-10" 
+                      onClick={() => setShowMenu(false)}
+                    />
+                    <div className="absolute right-0 mt-1 bg-white border rounded-lg shadow-lg py-1 z-20 w-32">
+                      <button
+                        onClick={() => {
+                          onEdit(event);
+                          setShowMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Edit2 size={14} />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          onDelete(event);
+                          setShowMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-red-600 flex items-center gap-2"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1 text-sm text-slate-600">
@@ -542,10 +544,15 @@ function EventCard({ event, onEdit, onDelete }) {
             </p>
           )}
 
-          <div className="mt-2">
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
             <span className={`inline-block px-2 py-0.5 text-xs rounded-full bg-${typeInfo.color}-100 text-${typeInfo.color}-700`}>
               {typeInfo.label}
             </span>
+            {!event.isEditable && (
+              <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">
+                Read-only
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -570,13 +577,86 @@ export default function CalendarManager() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Load custom team events
+      const { data: teamEvents, error: teamEventsError } = await supabase
         .from('team_events')
         .select('*')
         .order('start_date', { ascending: true });
 
-      if (error) throw error;
-      setEvents(data || []);
+      if (teamEventsError) throw teamEventsError;
+
+      // Load meets
+      const { data: meets, error: meetsError } = await supabase
+        .from('meets')
+        .select('*')
+        .in('status', ['open', 'closed', 'completed'])
+        .order('start_date', { ascending: true });
+
+      if (meetsError) console.error('Error loading meets:', meetsError);
+
+      // Load practices
+      const { data: practices, error: practicesError } = await supabase
+        .from('practices')
+        .select('*')
+        .eq('status', 'scheduled')
+        .order('scheduled_date', { ascending: true });
+
+      if (practicesError) console.error('Error loading practices:', practicesError);
+
+      // Combine all events
+      const allEvents = [
+        ...(teamEvents || []).map(e => ({ ...e, source: 'team_event', isEditable: true })),
+        ...(meets || []).map(m => ({
+          id: m.id,
+          source: 'meet',
+          title: m.name,
+          description: `Swim meet - ${m.name}`,
+          event_type: 'meet',
+          start_date: m.start_date,
+          end_date: m.end_date,
+          start_time: null,
+          end_time: null,
+          all_day: true,
+          location_name: m.location_name,
+          location_address: m.location_address,
+          target_groups: [],
+          visible_to: 'everyone',
+          isEditable: false
+        })),
+        ...(practices || []).map(p => ({
+          id: p.id,
+          source: 'practice',
+          title: p.title,
+          description: `Practice - ${p.training_group_id || 'All Groups'}`,
+          event_type: 'practice',
+          start_date: p.scheduled_date,
+          end_date: null,
+          start_time: p.scheduled_time,
+          end_time: null,
+          all_day: false,
+          location_name: null,
+          location_address: null,
+          target_groups: p.training_group_id ? [p.training_group_id] : [],
+          visible_to: 'everyone',
+          isEditable: false
+        }))
+      ];
+
+      // Sort by date
+      allEvents.sort((a, b) => {
+        const dateA = new Date(a.start_date);
+        const dateB = new Date(b.start_date);
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA - dateB;
+        }
+        // If same date, sort by time
+        if (a.start_time && b.start_time) {
+          return a.start_time.localeCompare(b.start_time);
+        }
+        return 0;
+      });
+
+      setEvents(allEvents);
     } catch (error) {
       console.error('Error loading events:', error);
     } finally {
@@ -601,6 +681,12 @@ export default function CalendarManager() {
   };
 
   const handleDelete = async (event) => {
+    // Only allow deleting team events
+    if (!event.isEditable) {
+      alert('This event cannot be deleted from the calendar. Please manage it in the Meets or Practices section.');
+      return;
+    }
+
     if (!confirm(`Delete "${event.title}"?`)) return;
 
     try {
@@ -648,10 +734,10 @@ export default function CalendarManager() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
               <Calendar size={28} />
-              Calendar Events
+              Team Calendar
             </h1>
             <p className="text-slate-600 mt-1">
-              Manage team events, office hours, and social activities
+              All meets, practices, and team events. Create custom events like office hours and social activities.
             </p>
           </div>
           <button
