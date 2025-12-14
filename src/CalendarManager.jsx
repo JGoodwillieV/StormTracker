@@ -91,6 +91,8 @@ function EventFormModal({ event, onSave, onClose, groups }) {
         contact_email: formData.contact_email || null,
         contact_phone: formData.contact_phone || null,
         external_link: formData.external_link || null,
+        // Ensure target_groups is always an array, never a string
+        target_groups: Array.isArray(formData.target_groups) ? formData.target_groups : [],
       };
       
       if (event?.id) {

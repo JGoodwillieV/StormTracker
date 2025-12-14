@@ -255,19 +255,11 @@ export default function ParentCalendar({ userId, swimmerGroups = [] }) {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      // Load all event types
-      const now = new Date().toISOString().split('T')[0];
-
-      // Team Events
+      // Team Events - load all and filter in JS
       const { data: teamEvents } = await supabase
         .from('team_events')
         .select('*')
-        .gte('start_date', now)
-        .or(
-          swimmerGroups.length > 0
-            ? `target_groups.cs.{${swimmerGroups.join(',')}},target_groups.eq.{}`
-            : ''
-        );
+        .order('start_date', { ascending: true });
 
       // Meets
       const { data: meets } = await supabase
@@ -291,9 +283,22 @@ export default function ParentCalendar({ userId, swimmerGroups = [] }) {
 
       const { data: practices } = await practicesQuery;
 
+      // Filter team events by target groups
+      const filteredTeamEvents = (teamEvents || []).filter(event => {
+        // If target_groups is empty array or null, show to everyone
+        if (!event.target_groups || event.target_groups.length === 0) {
+          return true;
+        }
+        // If parent has swimmers in specified groups, show event
+        if (swimmerGroups.length > 0) {
+          return event.target_groups.some(group => swimmerGroups.includes(group));
+        }
+        return false;
+      });
+
       // Combine and format all events
       const allEvents = [
-        ...(teamEvents || []).map(e => ({
+        ...filteredTeamEvents.map(e => ({
           ...e,
           source: 'team_event',
           icon_type: e.event_type
