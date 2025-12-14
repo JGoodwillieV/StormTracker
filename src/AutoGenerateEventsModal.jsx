@@ -97,13 +97,22 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
     if (recommendations) {
       const initialSelected = {};
       recommendations.forEach((swimmerRec) => {
+        if (!swimmerRec?.swimmer?.id) {
+          console.error('Missing swimmer ID:', swimmerRec);
+          return;
+        }
         swimmerRec.recommendations.forEach((rec) => {
+          if (!rec?.meetEvent?.id) {
+            console.error('Missing meetEvent ID:', rec);
+            return;
+          }
           // Use swimmer ID + meet event ID as stable key
           const key = `${swimmerRec.swimmer.id}-${rec.meetEvent.id}`;
           initialSelected[key] = true; // All selected by default
         });
       });
       setSelectedRecommendations(initialSelected);
+      console.log('✅ Initialized selections:', Object.keys(initialSelected).length, 'events');
     }
   }, [recommendations]);
 
@@ -494,7 +503,12 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
             </>
           ) : (
             /* Recommendations Display */
-            <RecommendationsDisplay recommendations={recommendations} meet={meet} />
+            <RecommendationsDisplay 
+              recommendations={recommendations} 
+              meet={meet}
+              selectedRecommendations={selectedRecommendations}
+              toggleRecommendation={toggleRecommendation}
+            />
           )}
         </div>
 
@@ -582,9 +596,17 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
 };
 
 // Component to display recommendations
-const RecommendationsDisplay = ({ recommendations, meet }) => {
+const RecommendationsDisplay = ({ recommendations, meet, selectedRecommendations, toggleRecommendation }) => {
   const [sortBy, setSortBy] = useState('event_number'); // Default to event_number for chronological order
-  const totalEntries = recommendations.reduce((sum, r) => sum + r.recommendations.length, 0);
+  const totalEntries = recommendations?.reduce((sum, r) => sum + (r?.recommendations?.length || 0), 0) || 0;
+  
+  if (!recommendations || recommendations.length === 0) {
+    return (
+      <div className="text-center py-12 text-slate-500">
+        No recommendations to display
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -627,17 +649,22 @@ const RecommendationsDisplay = ({ recommendations, meet }) => {
       </div>
 
       <div className="space-y-4">
-        {recommendations.map((swimmerRec, idx) => (
-          <SwimmerRecommendation 
-            key={idx} 
-            swimmerRec={swimmerRec} 
-            sortBy={sortBy}
-            swimmerIdx={idx}
-            selectedRecommendations={selectedRecommendations}
-            toggleRecommendation={toggleRecommendation}
-            meet={meet}
-          />
-        ))}
+        {recommendations.map((swimmerRec, idx) => {
+          if (!swimmerRec?.swimmer?.id) {
+            console.error('Invalid swimmer rec at index', idx, swimmerRec);
+            return null;
+          }
+          return (
+            <SwimmerRecommendation 
+              key={swimmerRec.swimmer.id} 
+              swimmerRec={swimmerRec} 
+              sortBy={sortBy}
+              selectedRecommendations={selectedRecommendations}
+              toggleRecommendation={toggleRecommendation}
+              meet={meet}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -647,12 +674,16 @@ const RecommendationsDisplay = ({ recommendations, meet }) => {
 const SwimmerRecommendation = ({ 
   swimmerRec, 
   sortBy = 'score',
-  swimmerIdx,
-  selectedRecommendations,
+  selectedRecommendations = {},
   toggleRecommendation,
   meet
 }) => {
-  const { swimmer, recommendations, stats, error } = swimmerRec;
+  const { swimmer, recommendations = [], stats, error } = swimmerRec || {};
+  
+  if (!swimmer || !recommendations) {
+    console.error('Invalid swimmerRec:', swimmerRec);
+    return null;
+  }
   
   // Get events per day limit from meet (default to 3 if not set)
   const eventsPerDayLimit = meet?.events_per_day_limit || 3;
@@ -763,8 +794,12 @@ const SwimmerRecommendation = ({
       <div className="divide-y divide-slate-100">
         {sortedRecommendations.map((rec, idx) => {
           // Use stable key based on swimmer ID and event ID
+          if (!rec?.meetEvent?.id) {
+            console.error('Missing meetEvent ID in rec:', rec);
+            return null;
+          }
           const key = `${swimmer.id}-${rec.meetEvent.id}`;
-          const isSelected = selectedRecommendations[key];
+          const isSelected = selectedRecommendations[key] !== false; // Default to true if undefined
           
           return (
           <div 
