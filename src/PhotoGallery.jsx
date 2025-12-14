@@ -9,6 +9,7 @@ export default function PhotoGallery({ swimmerId, roster }) {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null); // Track clicked photo
+  const [fullRoster, setFullRoster] = useState([]); // Full team roster for tagging
   
   // Upload State
   const [uploading, setUploading] = useState(false);
@@ -47,6 +48,36 @@ export default function PhotoGallery({ swimmerId, roster }) {
 
     fetchPhotos();
   }, [swimmerId]);
+
+  // 2. Fetch Full Team Roster for Tagging
+  useEffect(() => {
+    const fetchFullRoster = async () => {
+      if (!swimmerId) return;
+      
+      // Get the current swimmer to find their coach_id
+      const { data: currentSwimmer } = await supabase
+        .from('swimmers')
+        .select('coach_id')
+        .eq('id', swimmerId)
+        .single();
+
+      if (!currentSwimmer?.coach_id) {
+        setFullRoster(roster || []);
+        return;
+      }
+
+      // Fetch all swimmers with the same coach
+      const { data: teamRoster } = await supabase
+        .from('swimmers')
+        .select('*')
+        .eq('coach_id', currentSwimmer.coach_id)
+        .order('name');
+
+      setFullRoster(teamRoster || []);
+    };
+
+    fetchFullRoster();
+  }, [swimmerId, roster]);
 
   const toggleTag = (swimmer) => {
     if (taggedSwimmers.find(s => s.id === swimmer.id)) {
@@ -106,7 +137,7 @@ export default function PhotoGallery({ swimmerId, roster }) {
     }
   };
 
-  const safeRoster = roster || [];
+  const safeRoster = fullRoster.length > 0 ? fullRoster : (roster || []);
   const filteredRoster = safeRoster.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
     s.id !== swimmerId 
