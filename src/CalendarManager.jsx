@@ -102,24 +102,34 @@ function EventFormModal({ event, onSave, onClose, groups }) {
     setLoading(true);
     setError(null);
     
+    let eventData; // Declare outside try block for error logging
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
       // Filter out empty links
-      const validLinks = formData.links.filter(link => link.title && link.url);
+      const validLinks = (formData.links || []).filter(link => link.title && link.url);
 
-      const eventData = {
-        ...formData,
+      // Only include fields that should be saved (exclude source, isEditable, etc.)
+      eventData = {
+        title: formData.title,
+        description: formData.description || null,
+        event_type: formData.event_type,
+        start_date: formData.start_date,
         end_date: formData.end_date || null,
         start_time: formData.all_day ? null : formData.start_time || null,
         end_time: formData.all_day ? null : formData.end_time || null,
+        all_day: formData.all_day,
+        location_name: formData.location_name || null,
+        location_address: formData.location_address || null,
+        target_groups: Array.isArray(formData.target_groups) ? formData.target_groups : [],
+        visible_to: formData.visible_to,
         contact_name: formData.contact_name || null,
         contact_email: formData.contact_email || null,
         contact_phone: formData.contact_phone || null,
-        external_link: formData.external_link || null,
         links: validLinks,
-        // Ensure target_groups is always an array, never a string
-        target_groups: Array.isArray(formData.target_groups) ? formData.target_groups : [],
+        external_link: formData.external_link || null,
+        updated_at: new Date().toISOString()
       };
       
       if (event?.id) {
@@ -142,7 +152,17 @@ function EventFormModal({ event, onSave, onClose, groups }) {
       onSave();
     } catch (err) {
       console.error('Error saving event:', err);
-      setError(err.message);
+      // Show more detailed error message
+      const errorMessage = err.message || 'Failed to save event. Please check all fields and try again.';
+      setError(errorMessage);
+      
+      // Also log the full error details for debugging
+      console.error('Full error details:', {
+        error: err,
+        eventData,
+        formData,
+        isUpdate: !!event?.id
+      });
     } finally {
       setLoading(false);
     }
