@@ -812,47 +812,48 @@ const SwimmerRecommendation = ({
                   </div>
                 </div>
 
-            {/* Score Breakdown */}
-            <div className="flex gap-2 mb-2">
-              <ScorePill label="Performance" score={rec.scores.performance} max={40} />
-              <ScorePill label="Opportunity" score={rec.scores.opportunity} max={30} />
-              <ScorePill label="Strategic" score={rec.scores.strategic} max={20} />
-            </div>
+                {/* Score Breakdown */}
+                <div className="flex gap-2 mb-2">
+                  <ScorePill label="Performance" score={rec.scores.performance} max={40} />
+                  <ScorePill label="Opportunity" score={rec.scores.opportunity} max={30} />
+                  <ScorePill label="Strategic" score={rec.scores.strategic} max={20} />
+                </div>
 
-            {/* Reasons */}
-            <div className="space-y-1">
-              {rec.improvementReason && (
-                <div className="text-xs text-slate-600 flex items-center gap-1">
-                  <TrendingUp size={12} className="text-green-600" />
-                  {rec.improvementReason}
-                </div>
-              )}
-              {rec.opportunityReasons && rec.opportunityReasons.map((reason, i) => (
-                <div key={i} className="text-xs text-slate-600 flex items-center gap-1">
-                  <Target size={12} className="text-amber-600" />
-                  {reason}
-                </div>
-              ))}
-              {rec.strategicReasons && rec.strategicReasons.map((reason, i) => (
-                <div key={i} className="text-xs text-slate-600 flex items-center gap-1">
-                  <Award size={12} className="text-purple-600" />
-                  {reason}
-                </div>
-              ))}
-              {rec.hasSpacingWarning && (
-                <div className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  May be close to another event
-                </div>
-              )}
-              {rec.difficulty && (
-                <div className="text-xs text-slate-500 flex items-center gap-1">
-                  Difficulty: {rec.difficulty.toFixed(1)}/5
-                </div>
-              )}
+                {/* Reasons */}
+                <div className="space-y-1">
+                  {rec.improvementReason && (
+                    <div className="text-xs text-slate-600 flex items-center gap-1">
+                      <TrendingUp size={12} className="text-green-600" />
+                      {rec.improvementReason}
+                    </div>
+                  )}
+                  {rec.opportunityReasons && rec.opportunityReasons.map((reason, i) => (
+                    <div key={i} className="text-xs text-slate-600 flex items-center gap-1">
+                      <Target size={12} className="text-amber-600" />
+                      {reason}
+                    </div>
+                  ))}
+                  {rec.strategicReasons && rec.strategicReasons.map((reason, i) => (
+                    <div key={i} className="text-xs text-slate-600 flex items-center gap-1">
+                      <Award size={12} className="text-purple-600" />
+                      {reason}
+                    </div>
+                  ))}
+                  {rec.hasSpacingWarning && (
+                    <div className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      May be close to another event
+                    </div>
+                  )}
+                  {rec.difficulty && (
+                    <div className="text-xs text-slate-500 flex items-center gap-1">
+                      Difficulty: {rec.difficulty.toFixed(1)}/5
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+          </div>
           );
         })}
       </div>
