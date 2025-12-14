@@ -33,6 +33,7 @@ import PracticeHub from './PracticeHub';
 import PracticeBuilder from './PracticeBuilder';
 import PracticeRunMode from './PracticeRunMode';
 import TemplateLibrary from './TemplateLibrary';
+import CalendarManager from './CalendarManager';
 
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -432,6 +433,12 @@ const fetchUserRole = async () => {
         {view === 'reports' && (
   <Reports onBack={() => navigateTo('dashboard')} />
         )}
+        
+        {/* CALENDAR MANAGER */}
+        {view === 'calendar' && (
+          <CalendarManager />
+        )}
+        
         {view === 'meets' && (
           <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
             <MeetsManager />
@@ -595,7 +602,8 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { id: 'practice-hub', icon: 'clipboard', label: 'Practices' },
     { id: 'announcements', icon: 'megaphone', label: 'Announcements' },
-    { id: 'meets', icon: 'calendar', label: 'Meets' },
+    { id: 'calendar', icon: 'calendar', label: 'Calendar' },
+    { id: 'meets', icon: 'trophy', label: 'Meets' },
     { id: 'meet-entries', icon: 'file-text', label: 'Meet Entries' },
     { id: 'analysis', icon: 'video', label: 'AI Analysis' },
     { id: 'roster', icon: 'users', label: 'Roster' },

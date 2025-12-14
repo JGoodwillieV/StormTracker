@@ -5,6 +5,7 @@ import { supabase } from './supabase';
 import DailyBrief from './DailyBrief';
 import ActionRequiredBanner from './ActionRequiredBanner';
 import ActionCenter from './ActionCenter';
+import ParentCalendar from './ParentCalendar';
 import {
   User, Clock, Trophy, TrendingUp, Camera, Calendar,
   ChevronRight, Star, Award, Zap, Target, Medal,
@@ -185,86 +186,7 @@ function ActivityItem({ activity }) {
   );
 }
 
-// Calendar Placeholder Component
-function CalendarPlaceholder() {
-  const upcomingEvents = [
-    { type: 'meet', title: 'Nutcracker Classic', date: 'Dec 4-7', location: 'Jeff Rouse Swim Center' },
-    { type: 'practice', title: 'Taper Schedule Begins', date: 'Dec 4', location: '' },
-    { type: 'social', title: 'Holiday Party (HS)', date: 'Dec 27', location: 'Timberlake House' },
-    { type: 'meet', title: 'Duck Bowl', date: 'Jan 17-18', location: 'Jeff Rouse Swim Center' },
-  ];
-
-  const getEventIcon = (type) => {
-    switch (type) {
-      case 'meet': return <Trophy size={16} className="text-blue-500" />;
-      case 'practice': return <Waves size={16} className="text-amber-500" />;
-      case 'social': return <Users size={16} className="text-purple-500" />;
-      default: return <Calendar size={16} className="text-slate-400" />;
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Coming Soon Banner */}
-      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
-        <div className="flex items-center gap-3 mb-2">
-          <Calendar size={24} />
-          <h3 className="font-bold text-lg">Team Calendar</h3>
-        </div>
-        <p className="text-indigo-100 text-sm">
-          Full calendar coming soon! You'll see meets, practice schedules for your swimmer's group, office hours, and team events all in one place.
-        </p>
-      </div>
-
-      {/* Preview of upcoming events */}
-      <div>
-        <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Coming Up</h4>
-        <div className="space-y-2">
-          {upcomingEvents.map((event, index) => (
-            <div 
-              key={index}
-              className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-4"
-            >
-              <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center">
-                {getEventIcon(event.type)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-slate-800">{event.title}</h4>
-                <p className="text-sm text-slate-500">
-                  {event.date}
-                  {event.location && ` • ${event.location}`}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* What's Coming */}
-      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-        <h4 className="font-semibold text-slate-700 mb-2">What to expect:</h4>
-        <ul className="space-y-2 text-sm text-slate-600">
-          <li className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
-            Meet schedules with warmup times & locations
-          </li>
-          <li className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-            Practice times filtered to your swimmer's group
-          </li>
-          <li className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-            Office hours & coach availability
-          </li>
-          <li className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
-            Team social events & parties
-          </li>
-        </ul>
-      </div>
-    </div>
-  );
-}
+// Calendar component is now imported from ParentCalendar.jsx
 
 // Resources Placeholder Component
 function ResourcesPlaceholder() {
@@ -711,7 +633,10 @@ const loadParentData = async () => {
       )}
 
       {activeTab === 'calendar' && (
-        <CalendarPlaceholder />
+        <ParentCalendar 
+          userId={user.id}
+          swimmerGroups={swimmerGroupIds}
+        />
       )}
 
       {activeTab === 'resources' && (
