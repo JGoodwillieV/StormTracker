@@ -110,10 +110,15 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
   // Toggle individual recommendation
   const toggleRecommendation = (swimmerId, meetEventId) => {
     const key = `${swimmerId}-${meetEventId}`;
-    setSelectedRecommendations(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    console.log('🔄 Toggle checkbox:', key, 'Current:', selectedRecommendations[key], '→ New:', !selectedRecommendations[key]);
+    setSelectedRecommendations(prev => {
+      const newState = {
+        ...prev,
+        [key]: !prev[key]
+      };
+      console.log('✅ Updated state:', newState);
+      return newState;
+    });
   };
 
   // Apply only selected recommendations
@@ -773,9 +778,13 @@ const SwimmerRecommendation = ({
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
-                checked={isSelected || false}
-                onChange={() => toggleRecommendation(swimmer.id, rec.meetEvent.id)}
-                className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                checked={isSelected !== false} // Handle undefined as true
+                onChange={(e) => {
+                  e.stopPropagation();
+                  console.log('📝 Checkbox clicked:', swimmer.name, rec.eventName, 'Key:', key);
+                  toggleRecommendation(swimmer.id, rec.meetEvent.id);
+                }}
+                className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer flex-shrink-0"
               />
               
               <div className="flex-1">

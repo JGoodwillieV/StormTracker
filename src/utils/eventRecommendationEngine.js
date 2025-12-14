@@ -741,14 +741,31 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     // 9. Sort by score and intelligently select top N with event pairing
     filteredEvents.sort((a, b) => b.scores.total - a.scores.total);
     
-    // Smart selection with event pairing intelligence
+    // Get session limit from meet (default to 3)
+    const sessionLimit = meet?.events_per_day_limit || 3;
+    
+    // Smart selection with event pairing intelligence and session limits
     const recommendations = [];
     const selectedEventNames = [];
     const selectedMeetEvents = [];
+    const sessionCounts = {}; // Track events per session
     let skippedForSpacing = 0;
+    let skippedForSessionLimit = 0;
     
     for (const event of filteredEvents) {
       if (recommendations.length >= maxEvents) break;
+      
+      // Check session limit
+      const sessionNum = event.meetEvent.session_number;
+      if (sessionNum) {
+        const currentSessionCount = sessionCounts[sessionNum] || 0;
+        if (currentSessionCount >= sessionLimit) {
+          // Skip this event - session is full
+          skippedForSessionLimit++;
+          event.strategicReasons.push(`⚠️ Session ${sessionNum} already has ${sessionLimit} events`);
+          continue;
+        }
+      }
       
       // Calculate pairing score with already selected events
       const pairingScore = calculateEventPairingScore(event.eventName, selectedEventNames);
@@ -771,17 +788,24 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       if (mode === 'championship' && spacingCheck === false) {
         skippedForSpacing++;
         // Only skip if we have plenty of other options
-        if (filteredEvents.length - skippedForSpacing > maxEvents) {
+        if (filteredEvents.length - skippedForSpacing - skippedForSessionLimit > maxEvents) {
           continue; // Skip this event
         }
       }
       
+      // Add event to recommendations
       recommendations.push(event);
       selectedEventNames.push(event.eventName);
       selectedMeetEvents.push(event.meetEvent);
+      
+      // Increment session count
+      if (sessionNum) {
+        sessionCounts[sessionNum] = (sessionCounts[sessionNum] || 0) + 1;
+      }
     }
     
-    console.log(`📊 Selection: Requested ${maxEvents}, Generated ${recommendations.length}, Skipped ${skippedForSpacing} for spacing`);
+    console.log(`📊 Selection: Requested ${maxEvents}, Generated ${recommendations.length}, Skipped ${skippedForSpacing} for spacing, ${skippedForSessionLimit} for session limits`);
+    console.log(`📅 Session distribution:`, sessionCounts, `(Limit: ${sessionLimit} per session)`);
     
     // Calculate total difficulty
     const totalDifficulty = recommendations.reduce((sum, r) => sum + r.difficulty, 0);
