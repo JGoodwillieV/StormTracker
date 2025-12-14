@@ -487,7 +487,7 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
             </>
           ) : (
             /* Recommendations Display */
-            <RecommendationsDisplay recommendations={recommendations} />
+            <RecommendationsDisplay recommendations={recommendations} meet={meet} />
           )}
         </div>
 
@@ -575,7 +575,7 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
 };
 
 // Component to display recommendations
-const RecommendationsDisplay = ({ recommendations }) => {
+const RecommendationsDisplay = ({ recommendations, meet }) => {
   const [sortBy, setSortBy] = useState('event_number'); // Default to event_number for chronological order
   const totalEntries = recommendations.reduce((sum, r) => sum + r.recommendations.length, 0);
 
@@ -628,6 +628,7 @@ const RecommendationsDisplay = ({ recommendations }) => {
             swimmerIdx={idx}
             selectedRecommendations={selectedRecommendations}
             toggleRecommendation={toggleRecommendation}
+            meet={meet}
           />
         ))}
       </div>
@@ -641,9 +642,13 @@ const SwimmerRecommendation = ({
   sortBy = 'score',
   swimmerIdx,
   selectedRecommendations,
-  toggleRecommendation
+  toggleRecommendation,
+  meet
 }) => {
   const { swimmer, recommendations, stats, error } = swimmerRec;
+  
+  // Get events per day limit from meet (default to 3 if not set)
+  const eventsPerDayLimit = meet?.events_per_day_limit || 3;
   
   // Sort recommendations based on sortBy prop
   const sortedRecommendations = [...recommendations].sort((a, b) => {
@@ -667,7 +672,7 @@ const SwimmerRecommendation = ({
     }
   });
   
-  const hasSessionOverload = Object.values(sessionCounts).some(count => count > 3);
+  const hasSessionOverload = Object.values(sessionCounts).some(count => count > eventsPerDayLimit);
 
   if (error) {
     return (
@@ -717,7 +722,7 @@ const SwimmerRecommendation = ({
             {hasSessionOverload && (
               <div className="mt-1 text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">
                 <AlertCircle size={12} />
-                ⚠️ More than 3 events in one session
+                ⚠️ More than {eventsPerDayLimit} events in one session (meet limit)
               </div>
             )}
           </div>
@@ -730,7 +735,7 @@ const SwimmerRecommendation = ({
               <div className="text-xs text-slate-400 mt-1">
                 {Object.entries(sessionCounts).map(([session, count]) => (
                   <div key={session}>
-                    S{session}: {count} {count > 3 ? '⚠️' : ''}
+                    S{session}: {count} {count > eventsPerDayLimit ? '⚠️' : ''}
                   </div>
                 ))}
               </div>
