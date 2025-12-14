@@ -89,16 +89,17 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
     }
   };
 
-  // Track which recommendations are selected
+  // Track which recommendations are selected (using stable event IDs)
   const [selectedRecommendations, setSelectedRecommendations] = useState({});
 
   // Initialize selected state when recommendations are generated
   useEffect(() => {
     if (recommendations) {
       const initialSelected = {};
-      recommendations.forEach((swimmerRec, swimmerIdx) => {
-        swimmerRec.recommendations.forEach((rec, recIdx) => {
-          const key = `${swimmerIdx}-${recIdx}`;
+      recommendations.forEach((swimmerRec) => {
+        swimmerRec.recommendations.forEach((rec) => {
+          // Use swimmer ID + meet event ID as stable key
+          const key = `${swimmerRec.swimmer.id}-${rec.meetEvent.id}`;
           initialSelected[key] = true; // All selected by default
         });
       });
@@ -107,8 +108,8 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
   }, [recommendations]);
 
   // Toggle individual recommendation
-  const toggleRecommendation = (swimmerIdx, recIdx) => {
-    const key = `${swimmerIdx}-${recIdx}`;
+  const toggleRecommendation = (swimmerId, meetEventId) => {
+    const key = `${swimmerId}-${meetEventId}`;
     setSelectedRecommendations(prev => ({
       ...prev,
       [key]: !prev[key]
@@ -123,15 +124,16 @@ const AutoGenerateEventsModal = ({ meet, committedSwimmers, onClose, onSuccess }
 
     try {
       // Flatten all recommendations and filter only selected ones
-      const allRecs = recommendations.flatMap((r, swimmerIdx) => 
+      const allRecs = recommendations.flatMap((r) => 
         r.recommendations
-          .map((rec, recIdx) => ({
+          .filter((rec) => {
+            const key = `${r.swimmer.id}-${rec.meetEvent.id}`;
+            return selectedRecommendations[key];
+          })
+          .map((rec) => ({
             ...rec,
-            swimmer: r.swimmer,
-            swimmerIdx,
-            recIdx
+            swimmer: r.swimmer
           }))
-          .filter((rec) => selectedRecommendations[`${rec.swimmerIdx}-${rec.recIdx}`])
       );
 
       if (allRecs.length === 0) {
@@ -659,18 +661,27 @@ const SwimmerRecommendation = ({
   });
   
   // Count selected events for this swimmer
-  const selectedCount = recommendations.filter((_, idx) => 
-    selectedRecommendations[`${swimmerIdx}-${idx}`]
-  ).length;
+  const selectedCount = recommendations.filter((rec) => {
+    const key = `${swimmer.id}-${rec.meetEvent.id}`;
+    return selectedRecommendations[key];
+  }).length;
   
-  // Check session distribution
+  // Check session distribution (only count selected events)
   const sessionCounts = {};
-  recommendations.forEach((rec, idx) => {
-    if (selectedRecommendations[`${swimmerIdx}-${idx}`]) {
-      const session = rec.meetEvent.session_number || 'Unknown';
-      sessionCounts[session] = (sessionCounts[session] || 0) + 1;
+  recommendations.forEach((rec) => {
+    const key = `${swimmer.id}-${rec.meetEvent.id}`;
+    if (selectedRecommendations[key]) {
+      const session = rec.meetEvent?.session_number;
+      if (session) { // Only count if session_number exists
+        sessionCounts[session] = (sessionCounts[session] || 0) + 1;
+      }
     }
   });
+  
+  // Log for debugging
+  if (Object.keys(sessionCounts).length > 0) {
+    console.log('Session distribution:', sessionCounts, 'Limit:', eventsPerDayLimit);
+  }
   
   const hasSessionOverload = Object.values(sessionCounts).some(count => count > eventsPerDayLimit);
 
@@ -746,9 +757,9 @@ const SwimmerRecommendation = ({
 
       <div className="divide-y divide-slate-100">
         {sortedRecommendations.map((rec, idx) => {
-          // Find original index for checkbox state
-          const originalIdx = recommendations.indexOf(rec);
-          const isSelected = selectedRecommendations[`${swimmerIdx}-${originalIdx}`];
+          // Use stable key based on swimmer ID and event ID
+          const key = `${swimmer.id}-${rec.meetEvent.id}`;
+          const isSelected = selectedRecommendations[key];
           
           return (
           <div 
@@ -762,8 +773,8 @@ const SwimmerRecommendation = ({
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
-                checked={isSelected}
-                onChange={() => toggleRecommendation(swimmerIdx, originalIdx)}
+                checked={isSelected || false}
+                onChange={() => toggleRecommendation(swimmer.id, rec.meetEvent.id)}
                 className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
               />
               
