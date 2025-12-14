@@ -194,7 +194,13 @@ export function SwimmerPracticeTab({ swimmerId, swimmerName }) {
         .eq('swimmer_id', swimmerId)
         .order('created_at', { ascending: false });
 
-      if (!error && results) {
+      if (error) {
+        console.error('Error fetching test sets:', error);
+        setLoading(false);
+        return;
+      }
+
+      if (results) {
         // Group by test set
         const setMap = {};
         results.forEach(r => {
