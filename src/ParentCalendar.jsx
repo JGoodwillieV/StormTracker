@@ -168,8 +168,29 @@ function EventDetailModal({ event, onClose }) {
             </div>
           )}
 
-          {/* External Link */}
-          {event.external_link && (
+          {/* Links */}
+          {(event.links && event.links.length > 0) && (
+            <div>
+              <h3 className="font-semibold text-slate-700 mb-2">Links</h3>
+              <div className="space-y-2">
+                {event.links.map((link, index) => (
+                  <a
+                    key={index}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    <ExternalLink size={16} />
+                    {link.title}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Backwards compatibility: Show old external_link if no new links */}
+          {(!event.links || event.links.length === 0) && event.external_link && (
             <a
               href={event.external_link}
               target="_blank"

@@ -61,12 +61,35 @@ function EventFormModal({ event, onSave, onClose, groups }) {
     contact_name: '',
     contact_email: '',
     contact_phone: '',
-    external_link: '',
-    ...event
+    links: [],
+    external_link: '', // Keep for backwards compatibility
+    ...event,
+    // Ensure links is always an array
+    links: event?.links || []
   });
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const handleAddLink = () => {
+    setFormData({
+      ...formData,
+      links: [...formData.links, { title: '', url: '' }]
+    });
+  };
+
+  const handleRemoveLink = (index) => {
+    setFormData({
+      ...formData,
+      links: formData.links.filter((_, i) => i !== index)
+    });
+  };
+
+  const handleUpdateLink = (index, field, value) => {
+    const updatedLinks = [...formData.links];
+    updatedLinks[index] = { ...updatedLinks[index], [field]: value };
+    setFormData({ ...formData, links: updatedLinks });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -82,6 +105,9 @@ function EventFormModal({ event, onSave, onClose, groups }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // Filter out empty links
+      const validLinks = formData.links.filter(link => link.title && link.url);
+
       const eventData = {
         ...formData,
         end_date: formData.end_date || null,
@@ -91,6 +117,7 @@ function EventFormModal({ event, onSave, onClose, groups }) {
         contact_email: formData.contact_email || null,
         contact_phone: formData.contact_phone || null,
         external_link: formData.external_link || null,
+        links: validLinks,
         // Ensure target_groups is always an array, never a string
         target_groups: Array.isArray(formData.target_groups) ? formData.target_groups : [],
       };
@@ -402,17 +429,57 @@ function EventFormModal({ event, onSave, onClose, groups }) {
               />
             </div>
 
+            {/* Multiple Links Section */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                External Link (Registration, More Info, etc.)
-              </label>
-              <input
-                type="url"
-                value={formData.external_link}
-                onChange={(e) => setFormData({ ...formData, external_link: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="https://..."
-              />
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-slate-700">
+                  Links (Optional)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddLink}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <Plus size={16} />
+                  Add Link
+                </button>
+              </div>
+              
+              {formData.links.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">
+                  Add links for RSVP, sign-ups, directions, etc.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {formData.links.map((link, index) => (
+                    <div key={index} className="flex gap-2 items-start">
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={link.title}
+                          onChange={(e) => handleUpdateLink(index, 'title', e.target.value)}
+                          className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          placeholder="Link Title (e.g., RSVP)"
+                        />
+                        <input
+                          type="url"
+                          value={link.url}
+                          onChange={(e) => handleUpdateLink(index, 'url', e.target.value)}
+                          className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          placeholder="https://..."
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLink(index)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </form>
@@ -546,6 +613,28 @@ function EventCard({ event, onEdit, onDelete }) {
             <p className="mt-2 text-sm text-slate-600 line-clamp-2">
               {event.description}
             </p>
+          )}
+
+          {/* Show links if available */}
+          {event.links && event.links.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {event.links.slice(0, 2).map((link, index) => (
+                <a
+                  key={index}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                  <ExternalLink size={12} />
+                  {link.title}
+                </a>
+              ))}
+              {event.links.length > 2 && (
+                <span className="text-xs text-slate-500">+{event.links.length - 2} more</span>
+              )}
+            </div>
           )}
 
           <div className="mt-2">
