@@ -745,6 +745,7 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
     const recommendations = [];
     const selectedEventNames = [];
     const selectedMeetEvents = [];
+    let skippedForSpacing = 0;
     
     for (const event of filteredEvents) {
       if (recommendations.length >= maxEvents) break;
@@ -766,14 +767,21 @@ export const generateRecommendationsForSwimmer = async (swimmer, meet, options =
       }
       
       // In championship mode, avoid events with spacing issues
+      // But still add them if we haven't reached maxEvents and no other options
       if (mode === 'championship' && spacingCheck === false) {
-        continue; // Skip this event
+        skippedForSpacing++;
+        // Only skip if we have plenty of other options
+        if (filteredEvents.length - skippedForSpacing > maxEvents) {
+          continue; // Skip this event
+        }
       }
       
       recommendations.push(event);
       selectedEventNames.push(event.eventName);
       selectedMeetEvents.push(event.meetEvent);
     }
+    
+    console.log(`📊 Selection: Requested ${maxEvents}, Generated ${recommendations.length}, Skipped ${skippedForSpacing} for spacing`);
     
     // Calculate total difficulty
     const totalDifficulty = recommendations.reduce((sum, r) => sum + r.difficulty, 0);
