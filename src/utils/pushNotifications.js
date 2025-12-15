@@ -74,18 +74,22 @@ export async function getParentUserIds(swimmerIds) {
     }
 
     // Get parent_id from swimmer_parents table
+    console.log(`[Push] Querying swimmer_parents for ${swimmerIds.length} swimmer IDs`);
     const { data: swimmerParents, error: spError } = await supabase
       .from('swimmer_parents')
-      .select('parent_id')
+      .select('parent_id, swimmer_id')
       .in('swimmer_id', swimmerIds);
 
     if (spError) {
       console.error('[Push] Error fetching parent IDs from swimmer_parents:', spError);
+      console.error('[Push] Error details:', JSON.stringify(spError));
       return [];
     }
 
+    console.log(`[Push] Found ${swimmerParents?.length || 0} swimmer-parent links`);
+    
     if (!swimmerParents || swimmerParents.length === 0) {
-      console.log('[Push] No parent links found');
+      console.log('[Push] No parent links found - this might be an RLS issue');
       return [];
     }
 
