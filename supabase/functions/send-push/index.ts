@@ -1,11 +1,21 @@
 // supabase/functions/send-push/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0'
+import webpush from 'npm:web-push@3.6.6'
 
 // VAPID keys (set these in Supabase secrets)
 const VAPID_PUBLIC_KEY = Deno.env.get('VAPID_PUBLIC_KEY') || ''
 const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY') || ''
 const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') || 'mailto:admin@stormtracker.com'
+
+// Configure web-push with VAPID keys
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    VAPID_SUBJECT,
+    VAPID_PUBLIC_KEY,
+    VAPID_PRIVATE_KEY
+  )
+}
 
 interface PushPayload {
   user_ids: string[]
@@ -191,30 +201,30 @@ async function sendPushNotification(
       actions: payload.actions || []
     })
 
-    // Encrypt payload using Web Push encryption
-    const encryptedPayload = await encryptPayload(
+    // Convert subscription to web-push format
+    const webPushSubscription = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.p256dh,
+        auth: subscription.auth
+      }
+    }
+
+    // Send notification using web-push library
+    const response = await webpush.sendNotification(
+      webPushSubscription,
       pushPayload,
-      subscription.p256dh,
-      subscription.auth
+      {
+        TTL: 86400, // 24 hours
+      }
     )
 
-    // Generate VAPID authorization header
-    const vapidAuth = await generateVAPIDAuth(subscription.endpoint)
+    console.log('✅ Push sent successfully')
+    return true
 
-    // Send the push notification
-    const response = await fetch(subscription.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Encoding': 'aes128gcm',
-        'TTL': '86400', // 24 hours
-        'Authorization': vapidAuth,
-      },
-      body: encryptedPayload,
-    })
-
-    // Handle gone subscriptions (410)
-    if (response.status === 410 || response.status === 404) {
+  } catch (error: any) {
+    // Handle gone subscriptions (410, 404)
+    if (error?.statusCode === 410 || error?.statusCode === 404) {
       console.log('🗑️ Removing expired subscription:', subscription.endpoint.substring(0, 50))
       await supabase
         .from('push_subscriptions')
@@ -223,91 +233,10 @@ async function sendPushNotification(
       return false
     }
 
-    if (!response.ok) {
-      console.error(`❌ Push failed (${response.status}):`, await response.text())
-      return false
-    }
-
-    console.log('✅ Push sent successfully')
-    return true
-
-  } catch (error) {
-    console.error('❌ Error sending push:', error)
+    console.error(`❌ Push failed (${error?.statusCode || 'unknown'}):`, error?.body || error?.message || error)
     return false
   }
 }
 
-/**
- * Generate VAPID Authorization header (JWT)
- */
-async function generateVAPIDAuth(endpoint: string): Promise<string> {
-  const url = new URL(endpoint)
-  const audience = `${url.protocol}//${url.host}`
-
-  // Create JWT header
-  const header = {
-    typ: 'JWT',
-    alg: 'ES256',
-  }
-
-  // Create JWT payload
-  const jwtPayload = {
-    aud: audience,
-    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60, // 12 hours
-    sub: VAPID_SUBJECT,
-  }
-
-  // Encode header and payload
-  const encodedHeader = base64UrlEncode(JSON.stringify(header))
-  const encodedPayload = base64UrlEncode(JSON.stringify(jwtPayload))
-  const unsignedToken = `${encodedHeader}.${encodedPayload}`
-
-  // Sign with VAPID private key
-  const signature = await signJWT(unsignedToken, VAPID_PRIVATE_KEY)
-  const jwt = `${unsignedToken}.${signature}`
-
-  return `vapid t=${jwt}, k=${VAPID_PUBLIC_KEY}`
-}
-
-/**
- * Sign JWT using ES256 (simplified version - you may need web-push library)
- */
-async function signJWT(data: string, privateKey: string): Promise<string> {
-  // This is a simplified placeholder
-  // In production, use a proper JWT signing library or web-push
-  const encoder = new TextEncoder()
-  const dataBuffer = encoder.encode(data)
-  
-  // For now, return a base64url encoded hash
-  // NOTE: This is NOT proper ES256 signing - use web-push library in production
-  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer)
-  return base64UrlEncode(String.fromCharCode(...new Uint8Array(hashBuffer)))
-}
-
-/**
- * Encrypt payload for Web Push (simplified)
- */
-async function encryptPayload(
-  payload: string,
-  userPublicKey: string,
-  userAuth: string
-): Promise<Uint8Array> {
-  // This is a simplified version
-  // In production, use proper Web Push encryption (aes128gcm)
-  // Consider using the 'web-push' npm package
-  
-  const encoder = new TextEncoder()
-  return encoder.encode(payload)
-}
-
-/**
- * Base64 URL encode
- */
-function base64UrlEncode(str: string): string {
-  const base64 = btoa(str)
-  return base64
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
-}
+// All VAPID signing and encryption is now handled by the web-push library
 
