@@ -219,9 +219,10 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
             const { data: swimmers } = await supabase
               .from('swimmers')
               .select('id')
-              .in('team_group_id', targetGroups);
+              .in('group_id', targetGroups); // Fixed: group_id not team_group_id
             
             swimmerIds = swimmers?.map(s => s.id) || [];
+            console.log(`[Push] Found ${swimmerIds.length} swimmers in targeted groups`);
           } else {
             // Get all swimmers
             const { data: swimmers } = await supabase
@@ -229,11 +230,15 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
               .select('id');
             
             swimmerIds = swimmers?.map(s => s.id) || [];
+            console.log(`[Push] Found ${swimmerIds.length} total swimmers`);
           }
 
           // Send notification to parents
           if (swimmerIds.length > 0) {
+            console.log(`[Push] Sending notification for announcement: ${newAnnouncement.title || newAnnouncement.type}`);
             await notifyDailyBrief(newAnnouncement, swimmerIds);
+          } else {
+            console.log('[Push] No swimmers found to notify');
           }
         } catch (notifyError) {
           console.error('Error sending push notification:', notifyError);
