@@ -448,28 +448,50 @@ const generateClassicPDFContent = (data) => {
   
   // Process new standards for classic format
   const standardsBySwimmer = {};
+  const levelOrder = { 'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 };
+  
   (data.newStandards || []).forEach(ns => {
     const swimmerId = ns.swimmer.id;
     if (!standardsBySwimmer[swimmerId]) {
       standardsBySwimmer[swimmerId] = {
         name: ns.swimmer.name,
-        standards: []
+        standards: [],
+        eventLevels: {} // Track highest level per event
       };
     }
     
     // Extract level from standard name (e.g., "Boys 11-12 50 Freestyle BB" -> "BB")
     const standardParts = ns.standard.split(' ');
     const level = standardParts[standardParts.length - 1]; // Last part is the level
+    const event = abbrevEvent(ns.event);
     
-    standardsBySwimmer[swimmerId].standards.push({
-      level: level,
-      event: abbrevEvent(ns.event)
-    });
+    // Only keep the highest standard for each event
+    const currentLevel = levelOrder[level] || 0;
+    const existingLevel = standardsBySwimmer[swimmerId].eventLevels[event];
+    
+    if (!existingLevel || currentLevel > existingLevel.order) {
+      // Remove any existing lower standard for this event
+      standardsBySwimmer[swimmerId].standards = standardsBySwimmer[swimmerId].standards.filter(
+        std => std.event !== event
+      );
+      // Add the new higher standard
+      standardsBySwimmer[swimmerId].standards.push({
+        level: level,
+        event: event
+      });
+      standardsBySwimmer[swimmerId].eventLevels[event] = { level, order: currentLevel };
+    }
   });
 
-  // Sort swimmers by name
+  // Helper to extract last name (assumes format: "FirstName MiddleInitial LastName" or "FirstName LastName")
+  const getLastName = (fullName) => {
+    const parts = fullName.trim().split(' ');
+    return parts[parts.length - 1]; // Last part is the last name
+  };
+
+  // Sort swimmers by last name
   const swimmersList = Object.values(standardsBySwimmer).sort((a, b) => 
-    a.name.localeCompare(b.name)
+    getLastName(a.name).localeCompare(getLastName(b.name))
   );
   
   // Process meet cuts data for classic format
@@ -978,10 +1000,46 @@ export default function MeetReportGenerator({ onBack }) {
       avgDrop: stats.bestTimes > 0 ? stats.totalDrop / stats.bestTimes : 0
     }));
 
+    // Group standards by level, keeping only highest standard per swimmer/event
     const standardsByLevel = {};
+    const levelOrder = { 'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 };
+    const swimmerEventStandards = {}; // Track highest standard per swimmer/event
+    
     newStandards.forEach(ns => {
-      if (!standardsByLevel[ns.standard]) standardsByLevel[ns.standard] = [];
-      standardsByLevel[ns.standard].push(ns);
+      // Extract level from standard name (e.g., "Boys 11-12 50 Freestyle BB" -> "BB")
+      const standardParts = ns.standard.split(' ');
+      const level = standardParts[standardParts.length - 1];
+      
+      const key = `${ns.swimmer.id}-${ns.event}`;
+      const currentLevel = levelOrder[level] || 0;
+      const existing = swimmerEventStandards[key];
+      
+      // Only keep the highest standard for each swimmer/event combination
+      if (!existing || currentLevel > existing.order) {
+        swimmerEventStandards[key] = {
+          ...ns,
+          level,
+          order: currentLevel
+        };
+      }
+    });
+    
+    // Group by level and sort swimmers alphabetically by last name
+    Object.values(swimmerEventStandards).forEach(ns => {
+      if (!standardsByLevel[ns.level]) standardsByLevel[ns.level] = [];
+      standardsByLevel[ns.level].push(ns);
+    });
+    
+    // Sort swimmers within each level by last name
+    const getLastName = (fullName) => {
+      const parts = fullName.trim().split(' ');
+      return parts[parts.length - 1];
+    };
+    
+    Object.keys(standardsByLevel).forEach(level => {
+      standardsByLevel[level].sort((a, b) => 
+        getLastName(a.swimmer.name).localeCompare(getLastName(b.swimmer.name))
+      );
     });
 
     const biggestMovers = Object.values(swimmerPerformance)
