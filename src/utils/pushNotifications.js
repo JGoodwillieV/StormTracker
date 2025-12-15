@@ -73,19 +73,40 @@ export async function getParentUserIds(swimmerIds) {
       return [];
     }
 
-    const { data, error } = await supabase
-      .from('parent_swimmers')
+    // Get parent_id from swimmer_parents table
+    const { data: swimmerParents, error: spError } = await supabase
+      .from('swimmer_parents')
       .select('parent_id')
       .in('swimmer_id', swimmerIds);
 
-    if (error) {
-      console.error('[Push] Error fetching parent IDs:', error);
+    if (spError) {
+      console.error('[Push] Error fetching parent IDs from swimmer_parents:', spError);
       return [];
     }
 
-    // Remove duplicates
-    const uniqueParentIds = [...new Set(data.map(ps => ps.parent_id))];
-    return uniqueParentIds;
+    if (!swimmerParents || swimmerParents.length === 0) {
+      console.log('[Push] No parent links found');
+      return [];
+    }
+
+    // Get unique parent IDs
+    const uniqueParentIds = [...new Set(swimmerParents.map(sp => sp.parent_id))];
+
+    // Now get the user_id for each parent from the parents table
+    const { data: parents, error: parentsError } = await supabase
+      .from('parents')
+      .select('user_id')
+      .in('id', uniqueParentIds);
+
+    if (parentsError) {
+      console.error('[Push] Error fetching user IDs from parents:', parentsError);
+      return [];
+    }
+
+    // Return the user_ids (needed for push subscriptions)
+    const userIds = parents?.map(p => p.user_id).filter(Boolean) || [];
+    console.log(`[Push] Found ${userIds.length} parent user IDs for ${swimmerIds.length} swimmers`);
+    return userIds;
 
   } catch (err) {
     console.error('[Push] Error getting parent IDs:', err);
