@@ -542,11 +542,17 @@ const generateClassicPDFContent = (data) => {
       line-height: 1.6;
     }
     .swimmer-entry {
-      margin-bottom: 8px;
-      line-height: 1.6;
+      margin-bottom: 10px;
+      line-height: 1.7;
+      padding: 6px 0;
     }
     .swimmer-name {
       font-weight: 700;
+      color: #000;
+    }
+    .swimmer-entry strong {
+      font-weight: 700;
+      color: #000;
     }
     .standards-list {
       display: inline;
@@ -554,6 +560,10 @@ const generateClassicPDFContent = (data) => {
     .standard-badge {
       font-weight: 700;
       margin-right: 4px;
+    }
+    ul {
+      padding-left: 0;
+      list-style: none;
     }
     .info-section {
       background: #f5f5f5;
@@ -597,29 +607,45 @@ const generateClassicPDFContent = (data) => {
   </div>
   ` : ''}
 
+  ${data.recordsBroken && data.recordsBroken.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Team Records Broken:</div>
+    <ul style="list-style: none; padding: 0; margin: 0;">
+      ${data.recordsBroken.map(record => `
+        <li class="swimmer-entry">
+          <strong class="swimmer-name">${record.swimmer_name}:</strong> ${abbrevEvent(record.event)} - ${record.new_time}
+          ${record.old_time ? ` <span style="color: #64748b;">(Old: ${record.old_time})</span>` : ''}
+        </li>
+      `).join('')}
+    </ul>
+  </div>
+  ` : ''}
+
   ${enabledSections.some(s => s.id === 'new-standards') && swimmersList.length > 0 ? `
   <div class="section">
     <div class="section-title">New Motivational Time Standards:</div>
-    ${swimmersList.map(swimmer => {
-      // Group standards by level for this swimmer
-      const byLevel = {};
-      swimmer.standards.forEach(std => {
-        if (!byLevel[std.level]) byLevel[std.level] = [];
-        byLevel[std.level].push(std.event);
-      });
-      
-      // Build the standards text
-      const standardsText = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B']
-        .filter(level => byLevel[level])
-        .map(level => `<span class="standard-badge">${level}</span> ${byLevel[level].join(' ')}`)
-        .join(' ');
-      
-      return `
-        <div class="swimmer-entry">
-          <span class="swimmer-name">${swimmer.name}:</span> ${standardsText || ''}
-        </div>
-      `;
-    }).join('')}
+    <ul style="list-style: none; padding: 0; margin: 0;">
+      ${swimmersList.map(swimmer => {
+        // Group standards by level for this swimmer
+        const byLevel = {};
+        swimmer.standards.forEach(std => {
+          if (!byLevel[std.level]) byLevel[std.level] = [];
+          byLevel[std.level].push(std.event);
+        });
+        
+        // Build the standards text - format: "AA 200 Free A 100 Fly 200 IM"
+        const standardsText = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B']
+          .filter(level => byLevel[level])
+          .map(level => `<strong>${level}</strong> ${byLevel[level].join(' ')}`)
+          .join(' ');
+        
+        return `
+          <li class="swimmer-entry">
+            <strong class="swimmer-name">${swimmer.name}:</strong> ${standardsText || ''}
+          </li>
+        `;
+      }).join('')}
+    </ul>
   </div>
   ` : (enabledSections.some(s => s.id === 'new-standards') ? `
   <div class="section">
@@ -632,15 +658,17 @@ const generateClassicPDFContent = (data) => {
   <div class="section">
     <div class="section-title">New Meet Cuts</div>
     ${Object.entries(meetCutsProcessed).map(([meetName, swimmersList]) => `
-      <div style="margin-bottom: 24px;">
-        <div style="font-weight: 700; font-size: 16px; margin-bottom: 12px; text-decoration: underline;">
+      <div style="margin-bottom: 28px;">
+        <h3 style="font-weight: 700; font-size: 17px; margin-bottom: 14px; color: #1e293b;">
           ${meetName}
-        </div>
-        ${swimmersList.map(s => `
-          <div class="swimmer-entry">
-            <span class="swimmer-name">${s.name}:</span> ${s.events.join(' ')}
-          </div>
-        `).join('')}
+        </h3>
+        <ul style="list-style: none; padding: 0; margin: 0;">
+          ${swimmersList.map(s => `
+            <li class="swimmer-entry">
+              <strong class="swimmer-name">${s.name}:</strong> ${s.events.join(' ')}
+            </li>
+          `).join('')}
+        </ul>
       </div>
     `).join('')}
   </div>

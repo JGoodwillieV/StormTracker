@@ -313,6 +313,33 @@ export const generateBiggestMoversHTML = (data, config) => {
   `;
 };
 
+// Section: Team Records Broken
+export const generateRecordsBrokenHTML = (data, config) => {
+  const records = data.recordsBroken || [];
+  
+  if (records.length === 0) return '';
+  
+  return `
+  <div class="section">
+    <div class="section-header">🏆 Team Records Broken</div>
+    <div class="section-content">
+      ${records.map((record, idx) => `
+        <div class="item" style="background: linear-gradient(135deg, #fffbeb, #fef3c7); border: 2px solid #fbbf24; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+          <div>
+            <span class="name">${record.swimmer_name}</span>
+            <span class="event">- ${abbreviateEvent(record.event)}</span>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-family: monospace; font-weight: 700; color: #d97706; font-size: 16px;">${record.new_time}</div>
+            ${record.old_time ? `<div style="font-size: 11px; color: #64748b;">Old: ${record.old_time}</div>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+  `;
+};
+
 // HTML Generator: Records Broken
 const generateRecordsBrokenHTML = (data) => {
   const records = data.recordsBroken || [];

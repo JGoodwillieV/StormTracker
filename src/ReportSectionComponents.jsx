@@ -429,7 +429,7 @@ export const BiggestMoversSection = ({ data, config }) => {
   );
 };
 
-// Section: Records Broken
+// Section: Team Records Broken
 export const RecordsBrokenSection = ({ data }) => {
   const records = data.recordsBroken || [];
   

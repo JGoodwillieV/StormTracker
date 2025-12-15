@@ -56,6 +56,17 @@ export const REPORT_SECTIONS = {
   },
   
   // Standards & Achievements
+  'records-broken': {
+    id: 'records-broken',
+    name: 'Team Records Broken',
+    category: 'achievements',
+    description: 'Team records broken during this meet',
+    icon: 'Trophy',
+    defaultEnabled: true,
+    configurable: false,
+    availableIn: ['modern', 'classic']
+  },
+  
   'new-standards': {
     id: 'new-standards',
     name: 'New Time Standards',
