@@ -69,12 +69,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Get push subscriptions for users who want this notification type
+    // Get push subscriptions for all target users
     const { data: subscriptions, error: subError } = await supabase
       .from('push_subscriptions')
-      .select('endpoint, p256dh, auth, user_id, notification_preferences!inner(*)')
+      .select('endpoint, p256dh, auth, user_id')
       .in('user_id', payload.user_ids)
-      .eq(`notification_preferences.${payload.notification_type}`, true)
 
     if (subError) {
       console.error('❌ Error fetching subscriptions:', subError)
@@ -89,23 +88,31 @@ serve(async (req) => {
       )
     }
 
-    // Filter by quiet hours using database function
-    const filteredSubscriptions: PushSubscription[] = []
-    
-    for (const sub of subscriptions) {
-      const { data: shouldSend } = await supabase.rpc('should_send_notification', {
-        p_user_id: sub.user_id,
-        p_notification_type: payload.notification_type
-      })
+    console.log(`📋 Found ${subscriptions.length} subscriptions`)
 
-      if (shouldSend) {
-        filteredSubscriptions.push(sub as PushSubscription)
-      } else {
-        console.log(`⏰ Skipping notification for user ${sub.user_id} (quiet hours or disabled)`)
+    // Get notification preferences for these users
+    const { data: preferences } = await supabase
+      .from('notification_preferences')
+      .select('user_id, ' + payload.notification_type)
+      .in('user_id', payload.user_ids)
+
+    // Create a map of user preferences (default to true if no preference set)
+    const preferenceMap = new Map<string, boolean>()
+    preferences?.forEach(pref => {
+      preferenceMap.set(pref.user_id, pref[payload.notification_type] !== false)
+    })
+
+    // Filter subscriptions based on preferences
+    const filteredSubscriptions: PushSubscription[] = subscriptions.filter(sub => {
+      // If no preference set, default to sending (opt-in by default)
+      const shouldSend = preferenceMap.get(sub.user_id) !== false
+      if (!shouldSend) {
+        console.log(`🔕 Notification disabled for user ${sub.user_id}`)
       }
-    }
+      return shouldSend
+    })
 
-    console.log(`📊 Sending to ${filteredSubscriptions.length} out of ${subscriptions.length} subscriptions`)
+    console.log(`📊 Sending to ${filteredSubscriptions.length} out of ${subscriptions.length} subscriptions (after preference filtering)`)
 
     // Send push notifications
     const results = await Promise.allSettled(
