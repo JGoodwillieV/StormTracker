@@ -613,8 +613,8 @@ const generateClassicPDFContent = (data) => {
     <ul style="list-style: none; padding: 0; margin: 0;">
       ${data.recordsBroken.map(record => `
         <li class="swimmer-entry">
-          <strong class="swimmer-name">${record.swimmer_name}:</strong> ${abbrevEvent(record.event)} - ${record.new_time}
-          ${record.old_time ? ` <span style="color: #64748b;">(Old: ${record.old_time})</span>` : ''}
+          <strong class="swimmer-name">${record.swimmer_name}:</strong> ${abbrevEvent(record.event)} - ${record.time_display}
+          ${record.previous_time_display ? ` <span style="color: #64748b;">(Old: ${record.previous_time_display})</span>` : ''}
         </li>
       `).join('')}
     </ul>

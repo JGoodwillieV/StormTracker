@@ -330,8 +330,8 @@ export const generateRecordsBrokenHTML = (data, config) => {
             <span class="event">- ${abbreviateEvent(record.event)}</span>
           </div>
           <div style="text-align: right;">
-            <div style="font-family: monospace; font-weight: 700; color: #d97706; font-size: 16px;">${record.new_time}</div>
-            ${record.old_time ? `<div style="font-size: 11px; color: #64748b;">Old: ${record.old_time}</div>` : ''}
+            <div style="font-family: monospace; font-weight: 700; color: #d97706; font-size: 16px;">${record.time_display}</div>
+            ${record.previous_time_display ? `<div style="font-size: 11px; color: #64748b;">Old: ${record.previous_time_display}</div>` : ''}
           </div>
         </div>
       `).join('')}
