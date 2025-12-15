@@ -363,7 +363,8 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
         console.log('[ParentDashboard] Badge count not available yet:', err);
       });
     }
-  }, [user, clearBadge]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Only depend on user, not clearBadge (which changes on every render)
 
   const loadUnreadCount = async () => {
     try {

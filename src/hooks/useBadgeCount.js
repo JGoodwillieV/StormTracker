@@ -1,5 +1,5 @@
 // src/hooks/useBadgeCount.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabase';
 
 export function useBadgeCount() {
@@ -44,9 +44,10 @@ export function useBadgeCount() {
         subscription.unsubscribe().catch(() => {});
       }
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // loadBadgeCount and updateBadge are stable due to useCallback
 
-  const loadBadgeCount = async () => {
+  const loadBadgeCount = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -64,9 +65,9 @@ export function useBadgeCount() {
       // Silently fail if table doesn't exist yet
       console.log('[Badge] Table not available yet:', err.message);
     }
-  };
+  }, [updateBadge]);
 
-  const updateBadge = async (count) => {
+  const updateBadge = useCallback(async (count) => {
     setBadgeCount(count);
 
     if (!isSupported) {
@@ -85,9 +86,9 @@ export function useBadgeCount() {
     } catch (err) {
       console.error('[Badge] Failed to update:', err);
     }
-  };
+  }, [isSupported]);
 
-  const clearBadge = async () => {
+  const clearBadge = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -111,9 +112,9 @@ export function useBadgeCount() {
       // Still clear locally even if database fails
       updateBadge(0);
     }
-  };
+  }, [updateBadge]);
 
-  const incrementBadge = async (amount = 1) => {
+  const incrementBadge = useCallback(async (amount = 1) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -132,7 +133,7 @@ export function useBadgeCount() {
     } catch (err) {
       console.error('[Badge] Failed to increment:', err);
     }
-  };
+  }, []);
 
   return {
     badgeCount,
