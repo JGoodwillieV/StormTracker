@@ -2,6 +2,7 @@
 // Coach interface for creating announcements
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
+import { notifyDailyBrief } from './utils/pushNotifications';
 import {
   Send, X, AlertTriangle, RefreshCw, Calendar, PartyPopper,
   Settings, Info, Pin, Bell, ChevronDown, Check, Users,
@@ -186,7 +187,7 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
         author_name: profile?.display_name || user.email?.split('@')[0] || 'Coach'
       };
 
-      let error;
+      let error, newAnnouncement;
       if (editingAnnouncement) {
         // Update existing
         ({ error } = await supabase
@@ -195,12 +196,50 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
           .eq('id', editingAnnouncement.id));
       } else {
         // Create new
-        ({ error } = await supabase
+        const result = await supabase
           .from('announcements')
-          .insert(announcementData));
+          .insert(announcementData)
+          .select()
+          .single();
+        
+        error = result.error;
+        newAnnouncement = result.data;
       }
 
       if (error) throw error;
+
+      // Send push notifications for new announcements (not edits)
+      if (newAnnouncement && !editingAnnouncement) {
+        try {
+          // Get swimmer IDs for the targeted groups (or all swimmers if no groups specified)
+          let swimmerIds = [];
+          
+          if (targetGroups.length > 0) {
+            // Get swimmers in the specified groups
+            const { data: swimmers } = await supabase
+              .from('swimmers')
+              .select('id')
+              .in('team_group_id', targetGroups);
+            
+            swimmerIds = swimmers?.map(s => s.id) || [];
+          } else {
+            // Get all swimmers
+            const { data: swimmers } = await supabase
+              .from('swimmers')
+              .select('id');
+            
+            swimmerIds = swimmers?.map(s => s.id) || [];
+          }
+
+          // Send notification to parents
+          if (swimmerIds.length > 0) {
+            await notifyDailyBrief(newAnnouncement, swimmerIds);
+          }
+        } catch (notifyError) {
+          console.error('Error sending push notification:', notifyError);
+          // Don't fail the whole operation if notification fails
+        }
+      }
 
       if (onSuccess) onSuccess();
       if (onClose) onClose();

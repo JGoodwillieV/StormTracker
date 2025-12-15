@@ -2,6 +2,7 @@
 // Updated Parent Dashboard with Daily Brief integration
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
+import { useBadgeCount } from './hooks/useBadgeCount';
 import DailyBrief from './DailyBrief';
 import ActionRequiredBanner from './ActionRequiredBanner';
 import ActionCenter from './ActionCenter';
@@ -334,12 +335,20 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const [activeTab, setActiveTab] = useState('updates');
   const [unreadCount, setUnreadCount] = useState(0);
   const [actionCount, setActionCount] = useState(0);
+  
+  // Badge count hook - clears badge when dashboard is viewed
+  const { clearBadge } = useBadgeCount();
 
   useEffect(() => {
     loadParentData();
     loadUnreadCount();
     loadActionCount();
-  }, [user]);
+    
+    // Clear badge when parent opens dashboard
+    if (clearBadge) {
+      clearBadge();
+    }
+  }, [user, clearBadge]);
 
   const loadUnreadCount = async () => {
     try {

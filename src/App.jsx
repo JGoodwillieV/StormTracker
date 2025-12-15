@@ -15,6 +15,7 @@ import TestSetTracker from './TestSetTracker'
 import { RecentTestSets, TestSetsList, SwimmerPracticeTab } from './TestSetDisplay'
 import ParentDashboard from './ParentDashboard'
 import InstallPrompt from './InstallPrompt'
+import NotificationSettings from './NotificationSettings'
 import { FileText, Timer } from 'lucide-react' // Ensure FileText is imported
 import * as XLSX from 'xlsx'
 import AIChat from './AIChat';
@@ -41,7 +42,7 @@ import {
 import { 
   LayoutDashboard, Video, Users, FileVideo, Waves, Settings, Search, Plus, 
   ChevronLeft, Trophy, FileUp, X, Play, Send, Loader2, Check, TrendingDown,
-  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User, Calendar, Clipboard
+  PlayCircle, ClipboardList, Key, UploadCloud, Cpu, Sparkles, Scan, PenTool, Share2, Download, TrendingUp, LogOut, Image as ImageIcon, Camera, User, Calendar, Clipboard, Bell
 } from 'lucide-react'
 
 
@@ -62,7 +63,8 @@ const Icon = ({ name, size = 20, className = "" }) => {
     'camera': Camera, 
     'user': User, 
     'calendar': Calendar,
-    'clipboard': Clipboard  
+    'clipboard': Clipboard,
+    'bell': Bell
   };
   
   const LucideIcon = icons[name] || Waves;
@@ -320,6 +322,12 @@ const fetchUserRole = async () => {
           {view === 'meets' && (
             <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
               <ParentMeetsView user={session.user} />
+            </div>
+          )}
+
+          {view === 'notifications' && (
+            <div className="overflow-y-auto h-full pb-24 md:pb-8">
+              <NotificationSettings />
             </div>
           )}
           
@@ -642,6 +650,7 @@ const ParentMobileNav = ({ activeTab, setActiveTab }) => {
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Home' },
     { id: 'meets', icon: 'calendar', label: 'Meets' },
     { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
+    { id: 'notifications', icon: 'bell', label: 'Notifications' },
   ];
 
   return (
@@ -667,6 +676,7 @@ const ParentSidebar = ({ activeTab, setActiveTab, onLogout }) => {
     { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard' },
     { id: 'meets', icon: 'calendar', label: 'Swim Meets' },
     { id: 'my-swimmers', icon: 'user', label: 'My Swimmers' },
+    { id: 'notifications', icon: 'bell', label: 'Notifications' },
   ];
 
   return (

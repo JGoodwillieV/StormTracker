@@ -127,3 +127,65 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
+
+// ===== PUSH NOTIFICATION HANDLERS =====
+
+// Handle push notifications
+self.addEventListener('push', (event) => {
+  console.log('[SW] Push notification received:', event);
+  
+  const data = event.data?.json() ?? {};
+  
+  const options = {
+    body: data.body || 'New update from StormTracker',
+    icon: '/icons/192.png',
+    badge: '/icons/72.png',
+    tag: data.tag || 'stormtracker-notification',
+    data: { url: data.url || '/' },
+    actions: data.actions || [],
+    vibrate: [200, 100, 200],
+    requireInteraction: false,
+    silent: false
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'StormTracker', options)
+  );
+});
+
+// Handle notification clicks
+self.addEventListener('notificationclick', (event) => {
+  console.log('[SW] Notification clicked:', event.notification);
+  event.notification.close();
+  
+  const url = event.notification.data?.url || '/';
+  const fullUrl = new URL(url, self.location.origin).href;
+  
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Check if there's already a window open
+      for (const client of windowClients) {
+        if (client.url === fullUrl && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // If not, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(fullUrl);
+      }
+    })
+  );
+});
+
+// Handle push subscription changes
+self.addEventListener('pushsubscriptionchange', (event) => {
+  console.log('[SW] Push subscription changed');
+  event.waitUntil(
+    // Re-subscribe with new subscription
+    self.registration.pushManager.subscribe(event.oldSubscription.options)
+      .then((subscription) => {
+        console.log('[SW] Re-subscribed:', subscription);
+        // You may want to send the new subscription to your server here
+      })
+  );
+});
