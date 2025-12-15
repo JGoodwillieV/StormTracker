@@ -340,57 +340,6 @@ export const generateRecordsBrokenHTML = (data, config) => {
   `;
 };
 
-// HTML Generator: Records Broken
-const generateRecordsBrokenHTML = (data) => {
-  const records = data.recordsBroken || [];
-  
-  if (records.length === 0) return '';
-  
-  return `
-  <div class="section">
-    <div class="section-title">⭐ Team Records Broken</div>
-    <div class="content-grid">
-      ${records.map((record, idx) => `
-        <div class="swimmer-entry" style="background: linear-gradient(to right, #fef3c7, #fed7aa); border: 2px solid #fbbf24; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-          <div style="display: flex; justify-content: space-between; align-items: start;">
-            <div style="flex: 1;">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                <div style="background: #eab308; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">
-                  ${idx + 1}
-                </div>
-                <div>
-                  <div style="font-weight: bold; color: #1e293b; font-size: 16px;">${record.swimmer_name}</div>
-                  <div style="font-size: 12px; color: #64748b;">
-                    ${record.gender} ${record.age_group} • ${record.event}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div style="text-align: right;">
-              <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">New Record</div>
-              <div style="font-size: 24px; font-weight: bold; color: #10b981; font-family: monospace; margin-bottom: 8px;">
-                ${record.time_display}
-              </div>
-              <div style="font-size: 12px; display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                <span style="color: #64748b;">Previous:</span>
-                <span style="font-family: monospace; color: #64748b; text-decoration: line-through;">
-                  ${record.previous_time_display || 'N/A'}
-                </span>
-              </div>
-              ${record.improvement_seconds ? `
-                <div style="margin-top: 4px; font-size: 11px; font-weight: 600; color: #10b981;">
-                  ⬇️ Improved by ${record.improvement_seconds.toFixed(2)}s
-                </div>
-              ` : ''}
-            </div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  </div>
-  `;
-};
-
 // Section: Big Movers Report Full PDF
 export const generateBigMoversReportHTML = (data, config = {}) => {
   const { leaderboard = [], activeView = 'total', filters = {}, stats = {}, groupComparisons = [] } = data;

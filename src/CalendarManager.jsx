@@ -64,8 +64,7 @@ function EventFormModal({ event, onSave, onClose, groups }) {
     links: [],
     external_link: '', // Keep for backwards compatibility
     ...event,
-    // Ensure links is always an array
-    links: event?.links || []
+    // Ensure links is always an array (already set by spread or default above)
   });
   
   const [loading, setLoading] = useState(false);
