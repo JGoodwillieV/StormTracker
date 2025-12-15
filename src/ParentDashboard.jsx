@@ -340,15 +340,27 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const { clearBadge } = useBadgeCount();
 
   useEffect(() => {
-    loadParentData();
-    loadUnreadCount();
-    loadActionCount();
+    console.log('[ParentDashboard] useEffect triggered, loading data...');
+    
+    // Load data with error handling
+    loadParentData().catch(err => {
+      console.error('[ParentDashboard] Fatal error in loadParentData:', err);
+      setLoading(false);
+    });
+    
+    loadUnreadCount().catch(err => {
+      console.error('[ParentDashboard] Error in loadUnreadCount:', err);
+    });
+    
+    loadActionCount().catch(err => {
+      console.error('[ParentDashboard] Error in loadActionCount:', err);
+    });
     
     // Clear badge when parent opens dashboard (if database is set up)
     if (clearBadge) {
       clearBadge().catch(err => {
         // Silently fail if badge tables don't exist yet
-        console.log('Badge count not available yet:', err);
+        console.log('[ParentDashboard] Badge count not available yet:', err);
       });
     }
   }, [user, clearBadge]);
@@ -386,17 +398,27 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
 const loadParentData = async () => {
     try {
       setLoading(true);
+      console.log('[ParentDashboard] Loading parent data for user:', user.id);
 
-      const { data: parentData } = await supabase
+      const { data: parentData, error: parentError } = await supabase
         .from('parents')
         .select('*')
         .eq('user_id', user.id)
         .single();
 
-      if (!parentData) {
+      if (parentError) {
+        console.error('[ParentDashboard] Error loading parent data:', parentError);
         setLoading(false);
         return;
       }
+
+      if (!parentData) {
+        console.log('[ParentDashboard] No parent data found');
+        setLoading(false);
+        return;
+      }
+
+      console.log('[ParentDashboard] Parent data loaded:', parentData.account_name);
 
       setParentName(parentData.account_name);
       setParentId(parentData.id);
@@ -527,8 +549,11 @@ const loadParentData = async () => {
         setRecentActivity(activities.slice(0, 5));
       }
     } catch (error) {
-      console.error('Error loading parent data:', error);
+      console.error('[ParentDashboard] Error loading parent data:', error);
+      // Show error to user instead of infinite spinner
+      alert('Error loading dashboard. Please refresh the page. Error: ' + error.message);
     } finally {
+      console.log('[ParentDashboard] Finished loading, setting loading=false');
       setLoading(false);
     }
   };
