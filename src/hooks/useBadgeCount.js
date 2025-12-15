@@ -11,31 +11,38 @@ export function useBadgeCount() {
     const supported = 'setAppBadge' in navigator && 'clearAppBadge' in navigator;
     setIsSupported(supported);
 
-    // Load initial badge count
+    // Load initial badge count (fails gracefully if table doesn't exist)
     loadBadgeCount();
 
-    // Subscribe to realtime updates
-    const subscription = supabase
-      .channel('badge-count-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_badge_counts',
-          filter: `user_id=eq.${supabase.auth.getUser().then(r => r.data.user?.id)}`
-        },
-        (payload) => {
-          console.log('[Badge] Count updated:', payload);
-          if (payload.new) {
-            updateBadge(payload.new.unread_count || 0);
+    // Subscribe to realtime updates (only if table exists)
+    let subscription;
+    try {
+      subscription = supabase
+        .channel('badge-count-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_badge_counts',
+            filter: `user_id=eq.${supabase.auth.getUser().then(r => r.data.user?.id)}`
+          },
+          (payload) => {
+            console.log('[Badge] Count updated:', payload);
+            if (payload.new) {
+              updateBadge(payload.new.unread_count || 0);
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.log('[Badge] Realtime subscription not available yet');
+    }
 
     return () => {
-      subscription.unsubscribe();
+      if (subscription) {
+        subscription.unsubscribe().catch(() => {});
+      }
     };
   }, []);
 
@@ -54,7 +61,8 @@ export function useBadgeCount() {
         updateBadge(data.unread_count || 0);
       }
     } catch (err) {
-      console.error('[Badge] Failed to load count:', err);
+      // Silently fail if table doesn't exist yet
+      console.log('[Badge] Table not available yet:', err.message);
     }
   };
 
@@ -90,14 +98,18 @@ export function useBadgeCount() {
       });
 
       if (error) {
-        console.error('[Badge] Failed to clear in database:', error);
+        // If function doesn't exist yet, just clear locally
+        console.log('[Badge] Database function not available yet');
+        updateBadge(0);
         return;
       }
 
       // Update local state and native badge
       updateBadge(0);
     } catch (err) {
-      console.error('[Badge] Failed to clear:', err);
+      console.log('[Badge] Failed to clear:', err.message);
+      // Still clear locally even if database fails
+      updateBadge(0);
     }
   };
 

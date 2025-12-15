@@ -344,9 +344,12 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
     loadUnreadCount();
     loadActionCount();
     
-    // Clear badge when parent opens dashboard
+    // Clear badge when parent opens dashboard (if database is set up)
     if (clearBadge) {
-      clearBadge();
+      clearBadge().catch(err => {
+        // Silently fail if badge tables don't exist yet
+        console.log('Badge count not available yet:', err);
+      });
     }
   }, [user, clearBadge]);
 
