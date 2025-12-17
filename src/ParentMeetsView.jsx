@@ -10,16 +10,16 @@ import {
   Users, Award, ExternalLink, Info, ChevronDown
 } from 'lucide-react';
 
+// Import centralized utilities
+import { formatDateSafe } from './utils/dateUtils';
+
 // ============================================
 // HELPERS
 // ============================================
 
+// Format date with weekday for this view
 const formatDate = (date) => {
-  if (!date) return '';
-  // Parse YYYY-MM-DD directly without timezone conversion
-  const [year, month, day] = date.split('T')[0].split('-');
-  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-  return dateObj.toLocaleDateString('en-US', { 
+  return formatDateSafe(date, { 
     weekday: 'short',
     month: 'short', 
     day: 'numeric',

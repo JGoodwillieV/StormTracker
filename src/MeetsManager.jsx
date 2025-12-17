@@ -13,6 +13,9 @@ import {
 import { parseMeetInfoPDF, parseTimelinePDF, parseHeatSheetPDF, matchHeatSheetEntries } from './utils/meetPdfParser';
 import AutoGenerateEventsModal from './AutoGenerateEventsModal';
 
+// Import centralized utilities
+import { formatDateSafe, formatTimeOfDay } from './utils/dateUtils';
+
 // ============================================
 // SHARED COMPONENTS
 // ============================================
@@ -32,17 +35,8 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const formatDate = (date) => {
-  if (!date) return '';
-  // Parse YYYY-MM-DD directly without timezone conversion
-  const [year, month, day] = date.split('T')[0].split('-');
-  const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-  return dateObj.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    year: 'numeric'
-  });
-};
+// Alias for backward compatibility
+const formatDate = formatDateSafe;
 
 const formatTime = (time) => {
   if (!time) return '';

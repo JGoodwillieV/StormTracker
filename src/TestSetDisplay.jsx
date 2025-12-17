@@ -7,17 +7,14 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
-// Time formatting
-const formatTime = (ms) => {
-  if (ms === null || ms === undefined) return '--:--.--';
-  const totalSeconds = ms / 1000;
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = (totalSeconds % 60).toFixed(2);
-  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-};
+// Import centralized utilities
+import { formatTimeMs } from './utils/timeUtils';
+import { formatDateCompact } from './utils/dateUtils';
 
+// Alias for backward compatibility
+const formatTime = formatTimeMs;
 const formatDate = (dateStr) => {
-  // Parse timestamp directly without timezone conversion (created_at is already a timestamp)
+  // For timestamps, use Date directly (created_at is already a timestamp)
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', { 
     month: 'short', 

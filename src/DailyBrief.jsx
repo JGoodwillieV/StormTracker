@@ -5,7 +5,7 @@ import { supabase } from './supabase';
 import {
   Megaphone, AlertTriangle, Calendar, Users, PartyPopper, Settings,
   Info, ChevronRight, Clock, Check, CheckCheck, Filter, Bell,
-  Pin, X, RefreshCw
+  Pin, X, RefreshCw, Link2, FileText
 } from 'lucide-react';
 
 // Helper function to convert URLs in text to clickable links
@@ -115,11 +115,71 @@ function AnnouncementCard({ announcement, onMarkRead }) {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  // Clean up author name - if it's an email, extract and format the name part
+  const getDisplayName = (authorName) => {
+    if (!authorName) return 'Team';
+    
+    // If it contains @ symbol, it's an email - extract the name part
+    if (authorName.includes('@')) {
+      const namePart = authorName.split('@')[0];
+      // Replace dots, underscores, dashes with spaces and capitalize
+      return namePart.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    
+    return authorName;
+  };
+
   const handleClick = () => {
     setIsExpanded(!isExpanded);
     if (!announcement.is_read && onMarkRead) {
       onMarkRead(announcement.id);
     }
+  };
+
+  // Render attachments (links and files)
+  const renderAttachments = (isUrgent = false) => {
+    const hasLink = announcement.link_url;
+    const hasFile = announcement.attachment_url;
+    
+    if (!hasLink && !hasFile) return null;
+    
+    const linkClasses = isUrgent 
+      ? "flex items-center gap-2 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors" 
+      : "flex items-center gap-2 p-2 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors";
+    
+    const iconClasses = isUrgent ? "text-white" : "text-blue-600";
+    const textClasses = isUrgent ? "text-white text-sm font-medium" : "text-slate-700 text-sm font-medium";
+    
+    return (
+      <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+        {hasLink && (
+          <a 
+            href={announcement.link_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClasses}
+          >
+            <Link2 size={16} className={iconClasses} />
+            <span className={textClasses}>
+              {announcement.link_title || 'View Link'}
+            </span>
+          </a>
+        )}
+        {hasFile && (
+          <a 
+            href={announcement.attachment_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClasses}
+          >
+            <FileText size={16} className={iconClasses} />
+            <span className={textClasses}>
+              {announcement.attachment_filename || 'Download File'}
+            </span>
+          </a>
+        )}
+      </div>
+    );
   };
 
   // Urgent announcements get special treatment
@@ -151,10 +211,11 @@ function AnnouncementCard({ announcement, onMarkRead }) {
                 {isExpanded ? 'Show less' : 'Read more'}
               </button>
             )}
+            {renderAttachments(true)}
           </div>
         </div>
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/20">
-          <span className="text-xs text-red-100">From: {announcement.author_name || 'Coach'}</span>
+          <span className="text-xs text-red-100">From: {getDisplayName(announcement.author_name)}</span>
           {announcement.is_read ? (
             <CheckCheck size={16} className="text-white/50" />
           ) : (
@@ -192,6 +253,7 @@ function AnnouncementCard({ announcement, onMarkRead }) {
             <p className={`text-slate-600 text-sm ${isExpanded ? '' : 'line-clamp-2'}`}>
               <Linkify>{announcement.content}</Linkify>
             </p>
+            {renderAttachments(false)}
           </div>
         </div>
       </div>
@@ -233,11 +295,12 @@ function AnnouncementCard({ announcement, onMarkRead }) {
               Read more
             </button>
           )}
+          {renderAttachments(false)}
         </div>
       </div>
       <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
         <span className="text-xs text-slate-400">
-          {announcement.author_name || 'Team'}
+          {getDisplayName(announcement.author_name)}
         </span>
         {announcement.is_read && (
           <CheckCheck size={14} className="text-slate-300" />
@@ -300,7 +363,12 @@ export default function DailyBrief({ userId, swimmerGroups = [], compact = false
           author_name,
           created_at,
           expires_at,
-          target_groups
+          target_groups,
+          link_url,
+          link_title,
+          attachment_url,
+          attachment_filename,
+          attachment_type
         `)
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
         .order('is_pinned', { ascending: false })

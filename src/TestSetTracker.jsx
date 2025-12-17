@@ -8,27 +8,17 @@ import {
   AlertCircle, CheckCircle2, Trash2, Settings, ChevronDown, Zap, Move
 } from 'lucide-react';
 
+// Import centralized utilities
+import { formatTimeMs, formatTimeMsShort } from './utils/timeUtils';
+
+// Alias for backward compatibility
+const formatTime = formatTimeMs;
+const formatTimeShort = formatTimeMsShort;
+
 // Stroke options
 const STROKES = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly', 'IM'];
 const TYPES = ['Swim', 'Kick', 'Pull', 'Drill'];
 const DISTANCES = [25, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500];
-
-// Time formatting helpers
-const formatTime = (ms) => {
-  if (ms === null || ms === undefined) return '--:--.--';
-  const totalSeconds = ms / 1000;
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = (totalSeconds % 60).toFixed(2);
-  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-};
-
-const formatTimeShort = (ms) => {
-  if (ms === null || ms === undefined) return '--:--';
-  const totalSeconds = ms / 1000;
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = Math.floor(totalSeconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
 
 export default function TestSetTracker({ onBack, swimmers: allSwimmers, groups }) {
   const [step, setStep] = useState('setup'); // setup, timing, results

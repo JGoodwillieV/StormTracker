@@ -6,29 +6,16 @@ import { supabase } from './supabase';
 import {
   Calendar, Plus, Edit2, Trash2, Users, MapPin, Clock,
   ExternalLink, Phone, Mail, Loader2, X, Check, AlertCircle,
-  Trophy, Waves, User as UserIcon, DollarSign, Heart, MoreVertical
+  Trophy, Waves, User as UserIcon, DollarSign, Heart, MoreVertical,
+  ChevronLeft
 } from 'lucide-react';
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  // Parse date as local time to avoid timezone shift
-  const [year, month, day] = dateStr.split('T')[0].split('-');
-  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    year: 'numeric'
-  });
-};
+// Import centralized utilities
+import { formatDateSafe, formatTimeOfDay } from './utils/dateUtils';
 
-const formatTime = (timeStr) => {
-  if (!timeStr) return '';
-  const [hours, minutes] = timeStr.split(':');
-  const hour = parseInt(hours);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour % 12 || 12;
-  return `${displayHour}:${minutes} ${ampm}`;
-};
+// Alias for backward compatibility
+const formatDate = formatDateSafe;
+const formatTime = formatTimeOfDay;
 
 const EVENT_TYPES = [
   { value: 'social', label: 'Social Event', icon: Heart, color: 'purple' },
@@ -668,7 +655,7 @@ function EventCard({ event, onEdit, onDelete }) {
 }
 
 // Main Calendar Manager Component
-export default function CalendarManager() {
+export default function CalendarManager({ onBack }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -843,14 +830,24 @@ export default function CalendarManager() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-              <Calendar size={28} />
-              Team Calendar
-            </h1>
-            <p className="text-slate-600 mt-1">
-              All meets, practices, and team events. Create custom events like office hours and social activities.
-            </p>
+          <div className="flex items-center gap-4">
+            {onBack && (
+              <button 
+                onClick={onBack} 
+                className="p-2 hover:bg-slate-100 rounded-lg text-slate-500"
+              >
+                <ChevronLeft size={24} />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
+                <Calendar size={28} />
+                Team Events
+              </h1>
+              <p className="text-slate-600 mt-1">
+                Create and manage team events like socials, office hours, and fundraisers.
+              </p>
+            </div>
           </div>
           <button
             onClick={() => {

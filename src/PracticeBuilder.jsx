@@ -25,7 +25,7 @@ const FOCUS_TAGS = ['aerobic', 'threshold', 'speed', 'technique', 'IM', 'sprint'
 
 import PracticeQuickEntry from './PracticeQuickEntry';
 
-export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPractice, swimmers }) {
+export default function PracticeBuilder({ practiceId, preFillData, onBack, onSave, onRunPractice, swimmers }) {
   const [practice, setPractice] = useState(null);
   const [sets, setSets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -45,18 +45,49 @@ export default function PracticeBuilder({ practiceId, onBack, onSave, onRunPract
     }
   }, [practiceId]);
 
+  // Generate title from schedule data
+  const generateTitleFromSchedule = (scheduleData) => {
+    if (!scheduleData) return 'Untitled Practice';
+    
+    const activityLabels = {
+      'swim': 'Swim',
+      'dryland': 'Dryland',
+      'doubles_am': 'AM Swim',
+      'doubles_pm': 'PM Swim',
+      'am_swim': 'AM Swim',
+      'pm_swim': 'PM Swim'
+    };
+    
+    const dateObj = new Date(scheduleData.date + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const activityLabel = activityLabels[scheduleData.activityType] || 'Practice';
+    
+    return `${scheduleData.groupName} ${activityLabel} - ${dateStr}`;
+  };
+
   const createNewPractice = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // Use preFillData if provided
+      const title = preFillData 
+        ? generateTitleFromSchedule(preFillData)
+        : 'Untitled Practice';
+      
       const newPractice = {
         coach_id: user.id,
         created_by: user.id,
-        title: 'Untitled Practice',
-        description: '',
+        title: title,
+        description: preFillData?.groupName ? `Practice for ${preFillData.groupName}` : '',
         status: 'draft',
         focus_tags: [],
-        total_yards: 0
+        total_yards: 0,
+        // Add schedule-related fields if preFillData provided
+        ...(preFillData && {
+          scheduled_date: preFillData.date,
+          scheduled_time: preFillData.startTime,
+          training_group_id: preFillData.groupName
+        })
       };
 
       const { data, error } = await supabase

@@ -1,79 +1,21 @@
 // src/ParentDashboard.jsx
-// Updated Parent Dashboard with Daily Brief integration
+// Parent Dashboard - Home view with Actions and Resources
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { useBadgeCount } from './hooks/useBadgeCount';
-import DailyBrief from './DailyBrief';
 import ActionRequiredBanner from './ActionRequiredBanner';
 import ActionCenter from './ActionCenter';
-import ParentCalendar from './ParentCalendar';
 import {
   User, Clock, Trophy, TrendingUp, Camera, Calendar,
   ChevronRight, Star, Award, Zap, Target, Medal,
   Waves, Timer, ArrowUpRight, ArrowDownRight, Minus,
-  Megaphone, Bell, ChevronDown, Filter, FolderOpen,
+  Bell, ChevronDown, Filter, FolderOpen,
   FileText, Link, MapPin, Users, ExternalLink
 } from 'lucide-react';
 
-// Helper function to format time from seconds to MM:SS.ms
-const formatTime = (seconds) => {
-  if (!seconds) return '--:--.--';
-  const mins = Math.floor(seconds / 60);
-  const secs = (seconds % 60).toFixed(2);
-  if (mins > 0) {
-    return `${mins}:${secs.padStart(5, '0')}`;
-  }
-  return secs;
-};
-
-// Helper to convert time string (e.g. "1:02.50") to seconds for math
-const timeToSeconds = (timeStr) => {
-  if (!timeStr) return null;
-  
-  // Handle DQ, NS, etc.
-  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) {
-    return null;
-  }
-  
-  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
-  if (!cleanStr) return null;
-  
-  const parts = cleanStr.split(':');
-  let val = 0;
-  if (parts.length === 2) {
-    val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-  } else {
-    val = parseFloat(parts[0]);
-  }
-  return isNaN(val) ? null : val;
-};
-
-// Helper to strip " (Finals)" or " (Prelims)" so we can compare them
-const normalizeEventName = (evt) => {
-  if (!evt) return "";
-  
-  // First remove (Finals), (Prelims), (Prelim) - case insensitive
-  let clean = evt.replace(/\s*\((Finals|Prelims|Prelim)\)/gi, '').trim();
-  
-  // Now normalize the event name to extract distance + stroke
-  const match = clean.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
-  
-  if (match) {
-    const dist = match[1];
-    let stroke = match[2].toLowerCase();
-    
-    // Normalize stroke abbreviations to full names
-    if (stroke === 'free') stroke = 'freestyle';
-    if (stroke === 'back') stroke = 'backstroke';
-    if (stroke === 'breast') stroke = 'breaststroke';
-    if (stroke === 'fly') stroke = 'butterfly';
-    if (stroke === 'individual medley') stroke = 'im';
-    
-    return `${dist} ${stroke}`;
-  }
-  
-  return clean.toLowerCase();
-};
+// Import centralized utilities
+import { timeToSeconds, formatTime } from './utils/timeUtils';
+import { normalizeEventName } from './utils/eventUtils';
 
 
 // Helper to calculate age from DOB
@@ -285,11 +227,9 @@ function ResourcesPlaceholder() {
 }
 
 // Tab selector for dashboard sections
-function DashboardTabs({ activeTab, onChange, unreadCount, actionCount }) {
+function DashboardTabs({ activeTab, onChange, actionCount }) {
   const tabs = [
-    { id: 'updates', label: 'Updates', icon: Megaphone, badge: unreadCount },
     { id: 'actions', label: 'Actions', icon: Bell, badge: actionCount },
-    { id: 'calendar', label: 'Calendar', icon: Calendar, badge: 0 },
     { id: 'resources', label: 'Resources', icon: FolderOpen, badge: 0 }
   ];
 
@@ -332,8 +272,7 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
   const [loading, setLoading] = useState(true);
   const [parentName, setParentName] = useState('');
   const [parentId, setParentId] = useState(null);
-  const [activeTab, setActiveTab] = useState('updates');
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [activeTab, setActiveTab] = useState('actions');
   const [actionCount, setActionCount] = useState(0);
   
   // Badge count hook - clears badge when dashboard is viewed
@@ -346,10 +285,6 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
     loadParentData().catch(err => {
       console.error('[ParentDashboard] Fatal error in loadParentData:', err);
       setLoading(false);
-    });
-    
-    loadUnreadCount().catch(err => {
-      console.error('[ParentDashboard] Error in loadUnreadCount:', err);
     });
     
     loadActionCount().catch(err => {
@@ -366,35 +301,15 @@ export default function ParentDashboard({ user, onSelectSwimmer, simpleView = fa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]); // Only depend on user, not clearBadge (which changes on every render)
 
-  const loadUnreadCount = async () => {
+  const loadActionCount = async () => {
     try {
-      const { data: announcements } = await supabase
-        .from('announcements')
-        .select('id')
-        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
-
-      const { data: reads } = await supabase
-        .from('announcement_reads')
-        .select('announcement_id')
-        .eq('user_id', user.id);
-
-      const readIds = new Set((reads || []).map(r => r.announcement_id));
-      const unread = (announcements || []).filter(a => !readIds.has(a.id));
-      setUnreadCount(unread.length);
+      const { data } = await supabase
+        .rpc('get_parent_pending_actions', { parent_user_uuid: user.id });
+      setActionCount(data?.length || 0);
     } catch (error) {
-      console.error('Error loading unread count:', error);
+      console.error('Error loading action count:', error);
     }
   };
-
-  const loadActionCount = async () => {
-  try {
-    const { data } = await supabase
-      .rpc('get_parent_pending_actions', { parent_user_uuid: user.id });
-    setActionCount(data?.length || 0);
-  } catch (error) {
-    console.error('Error loading action count:', error);
-  }
-};
 
 const loadParentData = async () => {
     try {
@@ -633,15 +548,6 @@ const loadParentData = async () => {
               : `Tracking ${swimmers.length} swimmers`
             }
           </p>
-          <div className="flex gap-2 mt-4">
-            <button 
-              onClick={() => setActiveTab('updates')}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Bell size={14} />
-              {unreadCount > 0 ? `${unreadCount} updates` : 'All caught up'}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -655,27 +561,12 @@ const loadParentData = async () => {
       <DashboardTabs 
         activeTab={activeTab} 
         onChange={setActiveTab}
-        unreadCount={unreadCount}
         actionCount={actionCount}
       />
 
       {/* Tab Content */}
-      {activeTab === 'updates' && (
-        <DailyBrief 
-          userId={user.id} 
-          swimmerGroups={swimmerGroupIds}
-        />
-      )}
-
       {activeTab === 'actions' && (
         <ActionCenter userId={user.id} parentId={parentId} />
-      )}
-
-      {activeTab === 'calendar' && (
-        <ParentCalendar 
-          userId={user.id}
-          swimmerGroups={swimmerGroupIds}
-        />
       )}
 
       {activeTab === 'resources' && (

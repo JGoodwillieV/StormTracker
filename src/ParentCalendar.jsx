@@ -15,26 +15,12 @@ import {
   formatEventDateRange 
 } from './utils/calendarExport';
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  // Parse date as local time to avoid timezone shift
-  const [year, month, day] = dateStr.split('T')[0].split('-');
-  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    year: 'numeric'
-  });
-};
+// Import centralized utilities
+import { formatDateSafe, formatTimeOfDay } from './utils/dateUtils';
 
-const formatTime = (timeStr) => {
-  if (!timeStr) return '';
-  const [hours, minutes] = timeStr.split(':');
-  const hour = parseInt(hours);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour % 12 || 12;
-  return `${displayHour}:${minutes} ${ampm}`;
-};
+// Alias for backward compatibility
+const formatDate = formatDateSafe;
+const formatTime = formatTimeOfDay;
 
 // Get icon based on event type/source
 const getEventIcon = (event) => {

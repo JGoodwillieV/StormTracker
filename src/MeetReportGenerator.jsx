@@ -20,48 +20,27 @@ import { getDefaultLayout } from './reportSections';
 import DynamicMeetReport from './DynamicMeetReport';
 import { SECTION_HTML_GENERATORS } from './reportPDFGenerators';
 
-// ============================================
-// SHARED HELPERS
-// ============================================
+// Import centralized utilities
+import { 
+  timeToSecondsForSort as timeToSeconds, 
+  secondsToTime 
+} from './utils/timeUtils';
+import { parseEventName } from './utils/eventUtils';
 
-const timeToSeconds = (timeStr) => {
-  if (!timeStr) return 999999;
-  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
-  if (!cleanStr) return 999999;
-  const parts = cleanStr.split(':');
-  let val = 0;
-  if (parts.length === 2) {
-    val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-  } else {
-    val = parseFloat(parts[0]);
-  }
-  return isNaN(val) ? 999999 : val;
-};
-
-const secondsToTime = (val) => {
-  if (!val || val >= 999999) return "-";
-  const mins = Math.floor(val / 60);
-  const secs = (val % 60).toFixed(2);
-  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-};
-
+// Wrapper for backward compatibility with local parseEvent signature
 const parseEvent = (evt) => {
   if (!evt) return { dist: '', stroke: '' };
-  const clean = evt.toLowerCase().replace(/\(.*?\)/g, '').trim();
-  const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
-  if (match) {
-    const dist = match[1];
-    let stroke = match[2];
-    if (stroke.includes('free')) stroke = 'Freestyle';
-    else if (stroke.includes('back')) stroke = 'Backstroke';
-    else if (stroke.includes('breast')) stroke = 'Breaststroke';
-    else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'Butterfly';
-    else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'IM';
-    else return { dist: '', stroke: '' };
-    return { dist, stroke };
-  }
-  return { dist: '', stroke: '' };
+  const { distance: dist, stroke: rawStroke } = parseEventName(evt);
+  if (!dist || !rawStroke) return { dist: '', stroke: '' };
+  // Convert to title case for existing code
+  let stroke = rawStroke;
+  if (stroke === 'freestyle') stroke = 'Freestyle';
+  else if (stroke === 'backstroke') stroke = 'Backstroke';
+  else if (stroke === 'breaststroke') stroke = 'Breaststroke';
+  else if (stroke === 'butterfly') stroke = 'Butterfly';
+  else if (stroke === 'im') stroke = 'IM';
+  else return { dist: '', stroke: '' };
+  return { dist, stroke };
 };
 
 const getAgeGroup = (age) => {

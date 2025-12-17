@@ -5,6 +5,10 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabase';
 import { Timer, ChevronDown, ChevronUp, Target, TrendingUp } from 'lucide-react';
 
+// Import centralized utilities
+import { timeToSecondsForSort, secondsToTime } from './utils/timeUtils';
+import { normalizeEventName } from './utils/eventUtils';
+
 // Simplified standard columns - only fill colors for achieved states
 const STANDARD_COLS = [
   { key: 'B', label: 'B', achievedBg: 'bg-amber-500', achievedText: 'text-white' },
@@ -15,45 +19,9 @@ const STANDARD_COLS = [
   { key: 'AAAA', label: 'AAAA', achievedBg: 'bg-rose-500', achievedText: 'text-white' },
 ];
 
-// Time conversion helpers (unchanged)
-const timeToSeconds = (timeStr) => {
-  if (!timeStr) return 999999;
-  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
-  if (!cleanStr) return 999999;
-  const parts = cleanStr.split(':');
-  let val = 0;
-  if (parts.length === 2) {
-    val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-  } else {
-    val = parseFloat(parts[0]);
-  }
-  return isNaN(val) ? 999999 : val;
-};
-
-const secondsToTime = (val) => {
-  if (!val || val >= 999999) return "-";
-  const mins = Math.floor(val / 60);
-  const secs = (val % 60).toFixed(2);
-  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-};
-
-const normalizeEvent = (evt) => {
-  if (!evt) return '';
-  const clean = evt.toLowerCase().replace(/\(.*?\)/g, '').trim();
-  const match = clean.match(/(\d+)\s*(?:m|y)?\s*(freestyle|free|backstroke|back|breaststroke|breast|butterfly|fly|individual\s*medley|im)/i);
-  if (match) {
-    let dist = match[1];
-    let stroke = match[2];
-    if (stroke === 'free') stroke = 'freestyle';
-    if (stroke === 'back') stroke = 'backstroke';
-    if (stroke === 'breast') stroke = 'breaststroke';
-    if (stroke === 'fly') stroke = 'butterfly';
-    if (stroke === 'individual medley') stroke = 'im';
-    return `${dist} ${stroke}`;
-  }
-  return clean;
-};
+// Alias for backward compatibility
+const timeToSeconds = timeToSecondsForSort;
+const normalizeEvent = normalizeEventName;
 
 const formatEventDisplay = (evt) => {
   const parts = evt.split(' ');

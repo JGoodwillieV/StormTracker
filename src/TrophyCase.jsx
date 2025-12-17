@@ -3,6 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { Award, Lock, Star, Zap } from 'lucide-react';
 
+// Import centralized utilities
+import { timeToSecondsForSort } from './utils/timeUtils';
+import { normalizeEventName } from './utils/eventUtils';
+
+// Alias for backward compatibility
+const timeToSeconds = timeToSecondsForSort;
+
 // Badge Definitions (Colors & Labels) - Ordered from easiest to hardest
 // Motivational standards first, then championship-level standards
 const BADGES = [
@@ -30,39 +37,6 @@ const ALL_STANDARD_KEYS = BADGES.map(b => b.key);
 export default function TrophyCase({ swimmerId, age, gender }) {
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
-
-  // Helper: Convert time string to seconds
-  const timeToSeconds = (t) => {
-    if (!t) return 999999;
-    if (['DQ', 'NS', 'DFS'].some(s => t.toUpperCase().includes(s))) return 999999;
-    const parts = t.replace(/[A-Z]/g, '').trim().split(':');
-    return parts.length === 2 
-      ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
-      : parseFloat(parts[0]);
-  };
-
-  // Helper: Robust Event Name Cleaner
-  const normalizeEventName = (evt) => {
-    if (!evt) return "";
-    
-    const match = evt.match(/(\d+)\s*(?:M|Y)?\s*(Freestyle|Free|Backstroke|Back|Breaststroke|Breast|Butterfly|Fly|Individual\s*Medley|IM)/i);
-    
-    if (match) {
-        const dist = match[1];
-        let stroke = match[2].toLowerCase();
-
-        if (stroke === 'free') stroke = 'freestyle';
-        if (stroke === 'back') stroke = 'backstroke';
-        if (stroke === 'breast') stroke = 'breaststroke';
-        if (stroke === 'fly') stroke = 'butterfly';
-        if (stroke === 'individual medley') stroke = 'im'; 
-        if (stroke === 'im') return `${dist} im`;
-
-        return `${dist} ${stroke}`;
-    }
-    
-    return evt.toLowerCase();
-  };
 
   // Filter badges based on swimmer's age
   const getVisibleBadges = () => {

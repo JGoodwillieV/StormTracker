@@ -3,67 +3,34 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
 import MeetReportGenerator from './MeetReportGenerator';
 import { generateBigMoversReportHTML } from './reportPDFGenerators';
+import { CategoryProgressReport } from './CategoryProgressReport';
+import { TestSetProgressReport } from './TestSetProgressReport';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
-  ChevronDown, Search, User, X, Award, Calendar, Star, TrendingDown, Download
+  ChevronDown, Search, User, X, Award, Calendar, Star, TrendingDown, Download, Timer
 } from 'lucide-react';
 
-// --- SHARED HELPERS (Available to all components) ---
+// Import centralized utilities
+import { 
+  timeToSecondsForSort as timeToSeconds, 
+  secondsToTime 
+} from './utils/timeUtils';
+import { 
+  parseEventName,
+  STROKE_ORDER 
+} from './utils/eventUtils';
 
-const timeToSeconds = (timeStr) => {
-  if (!timeStr) return 999999;
-  if (['DQ', 'NS', 'DFS', 'SCR', 'DNF', 'NT'].some(s => timeStr.toUpperCase().includes(s))) return 999999;
-  
-  const cleanStr = timeStr.replace(/[A-Z]/g, '').trim();
-  if (!cleanStr) return 999999;
-
-  const parts = cleanStr.split(':');
-  let val = 0;
-  if (parts.length === 2) {
-      val = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-  } else {
-      val = parseFloat(parts[0]);
-  }
-  return isNaN(val) ? 999999 : val;
-};
-
-const secondsToTime = (val) => {
-  if (!val || val >= 999999) return "-";
-  const mins = Math.floor(val / 60);
-  const secs = (val % 60).toFixed(2);
-  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
-};
-
+// Wrapper for backward compatibility with local parseEvent signature
 const parseEvent = (evt) => {
-  if (!evt) return { dist: '', stroke: '' };
-  
-  // Non-greedy remove of parens
-  const clean = evt.toLowerCase().replace(/\(.*?\)/g, '').trim(); 
-  const match = clean.match(/\b(25|50|100|200|400|500|800|1000|1500|1650)\s+(.*)/);
-  
-  if (match) {
-      const dist = match[1];
-      let stroke = match[2];
-      if (stroke.includes('free')) stroke = 'free';
-      else if (stroke.includes('back')) stroke = 'back';
-      else if (stroke.includes('breast')) stroke = 'breast';
-      else if (stroke.includes('fly') || stroke.includes('butter')) stroke = 'fly';
-      else if (stroke.includes('im') || stroke.includes('medley')) stroke = 'im';
-      else return { dist: '', stroke: '' };
-      
-      return { dist, stroke: stroke.trim() };
-  }
-  return { dist: '', stroke: '' };
-};
-
-// Stroke order for sorting
-const STROKE_ORDER = {
-  'free': 1, 'freestyle': 1,
-  'back': 2, 'backstroke': 2,
-  'breast': 3, 'breaststroke': 3,
-  'fly': 4, 'butterfly': 4,
-  'im': 5, 'individual medley': 5
+  const { distance: dist, stroke } = parseEventName(evt);
+  // Convert stroke to short form for existing code
+  let shortStroke = stroke;
+  if (stroke === 'freestyle') shortStroke = 'free';
+  else if (stroke === 'backstroke') shortStroke = 'back';
+  else if (stroke === 'breaststroke') shortStroke = 'breast';
+  else if (stroke === 'butterfly') shortStroke = 'fly';
+  return { dist, stroke: shortStroke };
 };
 
 
@@ -83,6 +50,8 @@ export default function Reports({ onBack }) {
       case 'meetreport': return <MeetReportGenerator onBack={() => setCurrentReport(null)} />;
       case 'teamrecords': return <TeamRecordsReport onBack={() => setCurrentReport(null)} />;
       case 'toptimes': return <TopTimesReport onBack={() => setCurrentReport(null)} />;
+      case 'categoryprogress': return <CategoryProgressReport onBack={() => setCurrentReport(null)} />;
+      case 'testsetprogress': return <TestSetProgressReport onBack={() => setCurrentReport(null)} />;
       default: return null;
     }
   };
@@ -159,6 +128,20 @@ export default function Reports({ onBack }) {
                 <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Clock size={24}/></div>
                 <h3 className="font-bold text-lg text-slate-800">Top Times</h3>
                 <p className="text-slate-500 text-sm mt-1">View top 10 times by event, age, and date range.</p>
+            </div>
+
+            {/* 8. CATEGORY PROGRESS - NEW */}
+            <div onClick={() => setCurrentReport('categoryprogress')} className="bg-white p-6 rounded-2xl border hover:border-cyan-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Activity size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Category Progress</h3>
+                <p className="text-slate-500 text-sm mt-1">Track meet performance by stroke category over time.</p>
+            </div>
+
+            {/* 9. TEST SET PROGRESS */}
+            <div onClick={() => setCurrentReport('testsetprogress')} className="bg-white p-6 rounded-2xl border hover:border-indigo-400 cursor-pointer shadow-sm hover:shadow-md transition-all group">
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><Timer size={24}/></div>
+                <h3 className="font-bold text-lg text-slate-800">Test Set Progress</h3>
+                <p className="text-slate-500 text-sm mt-1">Analyze practice test set trends by stroke category.</p>
             </div>
         </div>
     </div>

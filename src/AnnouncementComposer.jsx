@@ -7,7 +7,7 @@ import {
   Send, X, AlertTriangle, RefreshCw, Calendar, PartyPopper,
   Settings, Info, Pin, Bell, ChevronDown, Check, Users,
   Megaphone, Clock, Eye, Loader2, ChevronLeft, Trash2,
-  Edit3, MoreVertical
+  Edit3, MoreVertical, Link2, Paperclip, Upload, File
 } from 'lucide-react';
 
 // Type options with styling
@@ -145,6 +145,17 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  
+  // Link and attachment states
+  const [linkUrl, setLinkUrl] = useState(editingAnnouncement?.link_url || '');
+  const [linkTitle, setLinkTitle] = useState(editingAnnouncement?.link_title || '');
+  const [attachmentFile, setAttachmentFile] = useState(null);
+  const [existingAttachment, setExistingAttachment] = useState(
+    editingAnnouncement?.attachment_url 
+      ? { url: editingAnnouncement.attachment_url, filename: editingAnnouncement.attachment_filename }
+      : null
+  );
+  const [uploading, setUploading] = useState(false);
 
   // Load groups on mount
   useEffect(() => {
@@ -159,12 +170,86 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
     if (data) setGroups(data);
   };
 
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    
+    const allowedExtensions = ['.pdf', '.csv', '.xlsx', '.xls', '.doc', '.docx'];
+    const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+      alert('Please select a PDF, CSV, Excel, or Word document');
+      return;
+    }
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size must be less than 10MB');
+      return;
+    }
+
+    setAttachmentFile(file);
+    setExistingAttachment(null); // Clear existing if new file selected
+  };
+
+  const uploadAttachment = async () => {
+    if (!attachmentFile) return null;
+
+    setUploading(true);
+    try {
+      const fileExt = attachmentFile.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('announcement-attachments')
+        .upload(filePath, attachmentFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) throw error;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('announcement-attachments')
+        .getPublicUrl(filePath);
+
+      return {
+        url: publicUrl,
+        filename: attachmentFile.name,
+        type: attachmentFile.type || fileExt
+      };
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!content.trim()) return;
 
     setLoading(true);
     try {
+      // Upload attachment if there's a new file
+      let attachmentData = existingAttachment;
+      if (attachmentFile) {
+        attachmentData = await uploadAttachment();
+      }
+
       // Get current user info
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -175,6 +260,15 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
         .eq('id', user.id)
         .single();
 
+      // Determine author name - never show full email
+      let authorName = 'Coach';
+      if (profile?.display_name && profile.display_name.trim()) {
+        authorName = profile.display_name.trim();
+      } else if (user.email) {
+        // Extract name from email (part before @)
+        authorName = user.email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      }
+
       const announcementData = {
         content: content.trim(),
         title: title.trim() || null,
@@ -184,7 +278,12 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
         is_urgent: isUrgent,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         author_id: user.id,
-        author_name: profile?.display_name || user.email?.split('@')[0] || 'Coach'
+        author_name: authorName,
+        link_url: linkUrl.trim() || null,
+        link_title: linkTitle.trim() || null,
+        attachment_url: attachmentData?.url || null,
+        attachment_filename: attachmentData?.filename || null,
+        attachment_type: attachmentData?.type || null
       };
 
       let error, newAnnouncement;
@@ -277,15 +376,20 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
           </div>
           <button
             onClick={handleSubmit}
-            disabled={loading || !content.trim() || isOverLimit}
+            disabled={loading || uploading || !content.trim() || isOverLimit}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? (
-              <Loader2 size={18} className="animate-spin" />
+            {(loading || uploading) ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                {uploading ? 'Uploading...' : 'Posting...'}
+              </>
             ) : (
-              <Send size={18} />
+              <>
+                <Send size={18} />
+                Post
+              </>
             )}
-            Post
           </button>
         </div>
 
@@ -337,6 +441,76 @@ export function AnnouncementComposer({ onClose, onSuccess, editingAnnouncement =
               selectedGroups={targetGroups}
               onChange={setTargetGroups}
             />
+          </div>
+
+          {/* Link Section */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Link2 size={16} />
+              Add Link (optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Link title"
+              value={linkTitle}
+              onChange={(e) => setLinkTitle(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+            <input
+              type="url"
+              placeholder="https://example.com"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+          </div>
+
+          {/* File Attachment Section */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Paperclip size={16} />
+              Attach File (optional)
+            </label>
+            
+            {existingAttachment && !attachmentFile ? (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <File size={18} className="text-blue-600" />
+                <span className="text-sm text-blue-900 flex-1 truncate">{existingAttachment.filename}</span>
+                <button
+                  type="button"
+                  onClick={() => setExistingAttachment(null)}
+                  className="p-1 hover:bg-blue-100 rounded transition-colors"
+                >
+                  <X size={16} className="text-blue-600" />
+                </button>
+              </div>
+            ) : attachmentFile ? (
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                <File size={18} className="text-green-600" />
+                <span className="text-sm text-green-900 flex-1 truncate">{attachmentFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachmentFile(null)}
+                  className="p-1 hover:bg-green-100 rounded transition-colors"
+                >
+                  <X size={16} className="text-green-600" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 hover:border-slate-400 transition-all">
+                <Upload size={18} className="text-slate-400" />
+                <span className="text-sm text-slate-600">Choose file or drag here</span>
+                <input
+                  type="file"
+                  onChange={handleFileSelect}
+                  accept=".pdf,.csv,.xlsx,.xls,.doc,.docx"
+                  className="hidden"
+                />
+              </label>
+            )}
+            <p className="text-xs text-slate-500">
+              Accepted: PDF, CSV, Excel, Word (max 10MB)
+            </p>
           </div>
 
           {/* Advanced Options Toggle */}
@@ -520,6 +694,35 @@ export function AnnouncementsList({ onEdit }) {
                     <h4 className="font-semibold text-slate-800 mb-1">{announcement.title}</h4>
                   )}
                   <p className="text-sm text-slate-600 line-clamp-2">{announcement.content}</p>
+                  
+                  {/* Link */}
+                  {announcement.link_url && (
+                    <a
+                      href={announcement.link_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 mt-2 text-sm text-blue-600 hover:text-blue-700"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Link2 size={14} />
+                      <span className="truncate">{announcement.link_title || 'View Link'}</span>
+                    </a>
+                  )}
+                  
+                  {/* Attachment */}
+                  {announcement.attachment_url && (
+                    <a
+                      href={announcement.attachment_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 mt-2 text-sm text-slate-600 hover:text-slate-800"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Paperclip size={14} />
+                      <span className="truncate">{announcement.attachment_filename || 'Attachment'}</span>
+                    </a>
+                  )}
+                  
                   <p className="text-xs text-slate-400 mt-2">
                     {announcement.target_groups 
                       ? `${announcement.target_groups.length} groups targeted`

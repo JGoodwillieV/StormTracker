@@ -6,6 +6,12 @@ import {
 import { supabase } from './supabase';
 import { Activity } from 'lucide-react';
 
+// Import centralized utilities
+import { timeToSecondsForSort } from './utils/timeUtils';
+
+// Alias for backward compatibility
+const timeToSeconds = timeToSecondsForSort;
+
 // Standard "Power Levels" for the chart
 const STANDARD_SCORES = {
   'B': 20,
@@ -47,14 +53,6 @@ export default function VersatilityChart({ swimmerId, age, gender }) {
     { label: 'Fly', dist: strokeDist, type: 'Fly' }, 
     { label: 'IM', dist: imDist, type: 'IM' },
   ];
-
-  const timeToSeconds = (t) => {
-    if (!t) return 999999;
-    const parts = t.replace(/[A-Z]/g, '').trim().split(':');
-    return parts.length === 2 
-      ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) 
-      : parseFloat(parts[0]);
-  };
 
   useEffect(() => {
     const calculateStrengths = async () => {
