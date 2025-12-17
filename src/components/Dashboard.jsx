@@ -391,6 +391,20 @@ export default function Dashboard({ navigateTo, swimmers, stats, onLogout, onInv
               </div>
               <ChevronRight size={16} className="text-slate-300" />
             </button>
+
+            <button 
+              onClick={() => navigateTo('practice-hub')} 
+              className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors text-left"
+            >
+              <div className="w-9 h-9 bg-sky-100 text-sky-600 rounded-lg flex items-center justify-center">
+                <Waves size={18}/>
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-slate-800 text-sm">Practice Builder</div>
+                <div className="text-slate-500 text-xs">Create & edit practices</div>
+              </div>
+              <ChevronRight size={16} className="text-slate-300" />
+            </button>
           </div>
           
           {/* AI Chat Card */}

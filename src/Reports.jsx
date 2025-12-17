@@ -168,13 +168,46 @@ const CloseCallsReport = ({ onBack }) => {
   // Fetch available standards on mount
   useEffect(() => {
     const fetchStandards = async () => {
-      const { data } = await supabase.from('time_standards').select('name');
-      if (data) {
-        const unique = [...new Set(data.map(d => d.name))].sort();
-        setStandardNames(unique);
-        // Default to first motivational standard if available
-        const motivational = ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA'];
-        const defaultStd = unique.find(s => motivational.includes(s)) || unique[0];
+      // Fetch ALL time standards with pagination to handle 1300+ rows
+      let allNames = [];
+      let page = 0;
+      let keepFetching = true;
+      
+      while (keepFetching) {
+        const { data: batch, error } = await supabase
+          .from('time_standards')
+          .select('name')
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error || !batch || batch.length === 0) {
+          keepFetching = false;
+        } else {
+          allNames = [...allNames, ...batch.map(d => d.name)];
+          page++;
+          if (batch.length < 1000) keepFetching = false; // Last page
+        }
+      }
+      
+      if (allNames.length > 0) {
+        const unique = [...new Set(allNames)];
+        
+        // Sort standards in a logical order: Championship standards first, then motivational
+        const standardOrder = ['Nationals', 'US JR', 'Winter JR', 'Futures', 'NCSA JR', 'Sectionals', 
+                               'VSI SC', 'VSI AG', 'AAAA', 'AAA', 'AA', 'A', 'BB', 'B'];
+        const sorted = unique.sort((a, b) => {
+          const aIndex = standardOrder.indexOf(a);
+          const bIndex = standardOrder.indexOf(b);
+          if (aIndex === -1 && bIndex === -1) return a.localeCompare(b); // alphabetical for unknowns
+          if (aIndex === -1) return 1; // unknowns go to end
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+        
+        setStandardNames(sorted);
+        // Default to Sectionals if available, otherwise first motivational standard
+        const defaultStd = sorted.find(s => s === 'Sectionals') || 
+                          sorted.find(s => ['B', 'BB', 'A', 'AA', 'AAA', 'AAAA'].includes(s)) || 
+                          sorted[0];
         if (defaultStd) setSelectedStandard(defaultStd);
       }
     };
@@ -288,7 +321,9 @@ const CloseCallsReport = ({ onBack }) => {
           const myBest = bestTimes[key];
 
           if (myBest) {
-            const diff = myBest.val - std.time_seconds;
+            // Ensure time_seconds is parsed as a number (it may be stored as string in DB)
+            const stdTimeSeconds = parseFloat(std.time_seconds);
+            const diff = myBest.val - stdTimeSeconds;
             
             // Only include if SLOWER than the cut (positive diff) and within threshold
             if (diff > 0 && diff <= withinSeconds) {
@@ -303,8 +338,8 @@ const CloseCallsReport = ({ onBack }) => {
                 bestTime: myBest.str,
                 bestTimeSeconds: myBest.val,
                 bestTimeDate: myBest.date,
-                cutTime: std.time_string || secondsToTime(std.time_seconds),
-                cutTimeSeconds: std.time_seconds,
+                cutTime: std.time_string || secondsToTime(stdTimeSeconds),
+                cutTimeSeconds: stdTimeSeconds,
                 diff: diff,
                 diffStr: diff.toFixed(2)
               });
@@ -632,12 +667,44 @@ const QualifiersReport = ({ onBack }) => {
 
   useEffect(() => {
     const fetchStandardsList = async () => {
-      const { data } = await supabase.from('time_standards').select('name');
-      if (data) {
-        const unique = [...new Set(data.map(d => d.name))].sort();
-        setStandardNames(unique);
-        if (unique.includes('Sectionals')) setSelectedStandard('Sectionals');
-        else if (unique.length > 0) setSelectedStandard(unique[0]);
+      // Fetch ALL time standards with pagination to handle 1300+ rows
+      let allNames = [];
+      let page = 0;
+      let keepFetching = true;
+      
+      while (keepFetching) {
+        const { data: batch, error } = await supabase
+          .from('time_standards')
+          .select('name')
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (error || !batch || batch.length === 0) {
+          keepFetching = false;
+        } else {
+          allNames = [...allNames, ...batch.map(d => d.name)];
+          page++;
+          if (batch.length < 1000) keepFetching = false; // Last page
+        }
+      }
+      
+      if (allNames.length > 0) {
+        const unique = [...new Set(allNames)];
+        
+        // Sort standards in a logical order: Championship standards first, then motivational
+        const standardOrder = ['Nationals', 'US JR', 'Winter JR', 'Futures', 'NCSA JR', 'Sectionals', 
+                               'VSI SC', 'VSI AG', 'AAAA', 'AAA', 'AA', 'A', 'BB', 'B'];
+        const sorted = unique.sort((a, b) => {
+          const aIndex = standardOrder.indexOf(a);
+          const bIndex = standardOrder.indexOf(b);
+          if (aIndex === -1 && bIndex === -1) return a.localeCompare(b); // alphabetical for unknowns
+          if (aIndex === -1) return 1; // unknowns go to end
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+        
+        setStandardNames(sorted);
+        if (sorted.includes('Sectionals')) setSelectedStandard('Sectionals');
+        else if (sorted.length > 0) setSelectedStandard(sorted[0]);
       }
     };
     fetchStandardsList();
@@ -713,14 +780,17 @@ const QualifiersReport = ({ onBack }) => {
             const myBest = myBestTimes[key];
 
             if (myBest) {
-                const diff = myBest.val - cut.time_seconds;
+                // Ensure time_seconds is parsed as a number (it may be stored as string in DB)
+                const cutTimeSeconds = parseFloat(cut.time_seconds);
+                const diff = myBest.val - cutTimeSeconds;
+                
                 if (diff <= 0.00001) {
                      if (!myQualifyingEvents.some(e => e.event === cut.event)) {
                         myQualifyingEvents.push({
                             event: cut.event,
                             time: myBest.str,
                             date: myBest.date,
-                            standard: cut.time_string,
+                            standard: cut.time_string || cutTimeSeconds.toFixed(2),
                             diff: Math.abs(diff).toFixed(2)
                         });
                      }
@@ -762,14 +832,19 @@ const QualifiersReport = ({ onBack }) => {
 
   return (
       <div className="space-y-4 animate-in fade-in">
-          <div className="flex items-center justify-between bg-white p-4 rounded-xl border shadow-sm">
-              <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline"><ArrowRight className="rotate-180" size={16}/> Back to Reports</button>
-              <div className="flex gap-4 items-center">
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none">
+          <div className="bg-white p-4 rounded-xl border shadow-sm">
+              {/* Back button - full width on mobile */}
+              <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline mb-3 md:mb-0">
+                <ChevronLeft size={16}/> Back to Reports
+              </button>
+              
+              {/* Controls - stack on mobile, inline on desktop */}
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mt-3">
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none whitespace-nowrap">
                     <input type="checkbox" checked={showQualifiersOnly} onChange={() => setShowQualifiersOnly(!showQualifiersOnly)} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"/>
                     Show Qualifiers Only
                 </label>
-                <select value={selectedStandard} onChange={(e) => setSelectedStandard(e.target.value)} className="bg-slate-50 border p-2 rounded-lg text-sm font-bold text-slate-800">
+                <select value={selectedStandard} onChange={(e) => setSelectedStandard(e.target.value)} className="bg-slate-50 border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-800 w-full sm:w-auto min-w-[200px]">
                     {standardNames.map(name => <option key={name} value={name}>{name} Standard</option>)}
                 </select>
               </div>
@@ -2643,7 +2718,7 @@ const TeamFunnelReport = ({ onBack }) => {
   const [viewMode, setViewMode] = useState('all'); // 'all', 'boys', 'girls'
   const [ageGroup, setAgeGroup] = useState('all');
 
-  // Standard hierarchy (from highest to lowest)
+  // Standard hierarchy (from highest to lowest) - Motivational times only
   const STANDARD_HIERARCHY = [
     { key: 'AAAA', label: 'AAAA', color: 'from-rose-500 to-rose-600', bg: 'bg-rose-500', text: 'text-rose-600', light: 'bg-rose-50' },
     { key: 'AAA', label: 'AAA', color: 'from-purple-500 to-purple-600', bg: 'bg-purple-500', text: 'text-purple-600', light: 'bg-purple-50' },

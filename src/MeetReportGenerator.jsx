@@ -72,8 +72,16 @@ const normalizeEvent = (evt) => {
 };
 
 // Standard hierarchy
-const STANDARD_HIERARCHY = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B'];
+const STANDARD_HIERARCHY = ['Nationals', 'US JR', 'Winter JR', 'Futures', 'NCSA JR', 'Sectionals', 'VSI SC', 'VSI AG', 'AAAA', 'AAA', 'AA', 'A', 'BB', 'B'];
 const STANDARD_COLORS = {
+  'Nationals': { bg: 'bg-amber-500', light: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', hex: '#f59e0b' },
+  'US JR': { bg: 'bg-violet-600', light: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200', hex: '#7c3aed' },
+  'Winter JR': { bg: 'bg-sky-600', light: 'bg-sky-50', text: 'text-sky-600', border: 'border-sky-200', hex: '#0284c7' },
+  'Futures': { bg: 'bg-emerald-600', light: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', hex: '#059669' },
+  'NCSA JR': { bg: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', hex: '#f97316' },
+  'Sectionals': { bg: 'bg-indigo-600', light: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-200', hex: '#4f46e5' },
+  'VSI SC': { bg: 'bg-cyan-600', light: 'bg-cyan-50', text: 'text-cyan-600', border: 'border-cyan-200', hex: '#0891b2' },
+  'VSI AG': { bg: 'bg-teal-500', light: 'bg-teal-50', text: 'text-teal-600', border: 'border-teal-200', hex: '#14b8a6' },
   'AAAA': { bg: 'bg-rose-500', light: 'bg-rose-50', text: 'text-rose-600', border: 'border-rose-200', hex: '#f43f5e' },
   'AAA': { bg: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-200', hex: '#a855f7' },
   'AA': { bg: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', hex: '#3b82f6' },
@@ -333,6 +341,14 @@ const generatePDFContent = (data) => {
       margin-right: 8px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
+    .badge-Nationals { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .badge-US-JR { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+    .badge-Winter-JR { background: linear-gradient(135deg, #0284c7, #0369a1); }
+    .badge-Futures { background: linear-gradient(135deg, #059669, #047857); }
+    .badge-NCSA-JR { background: linear-gradient(135deg, #f97316, #ea580c); }
+    .badge-Sectionals { background: linear-gradient(135deg, #4f46e5, #4338ca); }
+    .badge-VSI-SC { background: linear-gradient(135deg, #0891b2, #0e7490); }
+    .badge-VSI-AG { background: linear-gradient(135deg, #14b8a6, #0d9488); }
     .badge-AAAA { background: linear-gradient(135deg, #f43f5e, #e11d48); }
     .badge-AAA { background: linear-gradient(135deg, #a855f7, #9333ea); }
     .badge-AA { background: linear-gradient(135deg, #3b82f6, #2563eb); }
@@ -427,7 +443,11 @@ const generateClassicPDFContent = (data) => {
   
   // Process new standards for classic format
   const standardsBySwimmer = {};
-  const levelOrder = { 'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 };
+  const levelOrder = { 
+    'Nationals': 14, 'US JR': 13, 'Winter JR': 12, 'Futures': 11, 'NCSA JR': 10, 
+    'Sectionals': 9, 'VSI SC': 8, 'VSI AG': 7, 
+    'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 
+  };
   
   (data.newStandards || []).forEach(ns => {
     const swimmerId = ns.swimmer.id;
@@ -635,7 +655,7 @@ const generateClassicPDFContent = (data) => {
         });
         
         // Build the standards text - format: "AA 200 Free A 100 Fly 200 IM"
-        const standardsText = ['AAAA', 'AAA', 'AA', 'A', 'BB', 'B']
+        const standardsText = ['Nationals', 'US JR', 'Winter JR', 'Futures', 'NCSA JR', 'Sectionals', 'VSI SC', 'VSI AG', 'AAAA', 'AAA', 'AA', 'A', 'BB', 'B']
           .filter(level => byLevel[level])
           .map(level => `<strong>${level}</strong> ${byLevel[level].join(' ')}`)
           .join(' ');
@@ -981,7 +1001,11 @@ export default function MeetReportGenerator({ onBack }) {
 
     // Group standards by level, keeping only highest standard per swimmer/event
     const standardsByLevel = {};
-    const levelOrder = { 'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 };
+    const levelOrder = { 
+      'Nationals': 14, 'US JR': 13, 'Winter JR': 12, 'Futures': 11, 'NCSA JR': 10, 
+      'Sectionals': 9, 'VSI SC': 8, 'VSI AG': 7, 
+      'AAAA': 6, 'AAA': 5, 'AA': 4, 'A': 3, 'BB': 2, 'B': 1 
+    };
     const swimmerEventStandards = {}; // Track highest standard per swimmer/event
     
     newStandards.forEach(ns => {
@@ -1677,7 +1701,11 @@ function oldReportCode() {
                 <PieChart>
                   <Pie data={standardsPieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
                     {standardsPieData.map((entry, index) => {
-                      const colors = { 'AAAA': '#f43f5e', 'AAA': '#a855f7', 'AA': '#3b82f6', 'A': '#eab308', 'BB': '#94a3b8', 'B': '#d97706' };
+                      const colors = { 
+                        'Nationals': '#f59e0b', 'US JR': '#7c3aed', 'Winter JR': '#0284c7', 'Futures': '#059669', 
+                        'NCSA JR': '#f97316', 'Sectionals': '#4f46e5', 'VSI SC': '#0891b2', 'VSI AG': '#14b8a6',
+                        'AAAA': '#f43f5e', 'AAA': '#a855f7', 'AA': '#3b82f6', 'A': '#eab308', 'BB': '#94a3b8', 'B': '#d97706' 
+                      };
                       return <Cell key={`cell-${index}`} fill={colors[entry.name] || CHART_COLORS[index]} />;
                     })}
                   </Pie>

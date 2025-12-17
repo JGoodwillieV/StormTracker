@@ -1,67 +1,334 @@
 // src/CategoryProgressReport.jsx
-// Shows progress over time for each stroke category (Free, Back, Breast, Fly, IM) - MEET RESULTS
+// Shows progress over time for each TRAINING GROUP (Cat 1, Cat 2, etc.)
+// Tracks group improvement across the season using multiple metrics
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './supabase';
 import { 
   ChevronLeft, TrendingDown, TrendingUp, Activity, Trophy, 
-  Info, Zap, ChevronDown, ChevronUp, Calendar, Users
+  Info, Users, ChevronDown, ChevronUp, Calendar, Award,
+  Zap, Target, Star
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, AreaChart, Area } from 'recharts';
 import { timeToSecondsForSort as timeToSeconds } from './utils/timeUtils';
 import { parseEventName } from './utils/eventUtils';
 
-// Stroke display configuration
-const STROKE_CONFIG = {
-  free: { label: 'Freestyle', color: '#3b82f6', bgColor: 'bg-blue-100', textColor: 'text-blue-600' },
-  back: { label: 'Backstroke', color: '#8b5cf6', bgColor: 'bg-purple-100', textColor: 'text-purple-600' },
-  breast: { label: 'Breaststroke', color: '#10b981', bgColor: 'bg-emerald-100', textColor: 'text-emerald-600' },
-  fly: { label: 'Butterfly', color: '#f59e0b', bgColor: 'bg-amber-100', textColor: 'text-amber-600' },
-  IM: { label: 'Individual Medley', color: '#ec4899', bgColor: 'bg-pink-100', textColor: 'text-pink-600' }
-};
-
-const STROKE_ORDER = ['free', 'back', 'breast', 'fly', 'IM'];
-
-// Map full stroke names to short codes
-const mapStroke = (stroke) => {
-  if (!stroke) return null;
-  const lower = stroke.toLowerCase();
-  if (lower.includes('free')) return 'free';
-  if (lower.includes('back')) return 'back';
-  if (lower.includes('breast')) return 'breast';
-  if (lower.includes('fly') || lower.includes('butter')) return 'fly';
-  if (lower === 'im' || lower.includes('medley')) return 'IM';
-  return null;
-};
+// Color palette for training groups - distinct, professional colors
+const GROUP_COLORS = [
+  { color: '#3b82f6', bg: 'bg-blue-100', text: 'text-blue-600', border: 'border-blue-300' },
+  { color: '#10b981', bg: 'bg-emerald-100', text: 'text-emerald-600', border: 'border-emerald-300' },
+  { color: '#f59e0b', bg: 'bg-amber-100', text: 'text-amber-600', border: 'border-amber-300' },
+  { color: '#8b5cf6', bg: 'bg-purple-100', text: 'text-purple-600', border: 'border-purple-300' },
+  { color: '#ec4899', bg: 'bg-pink-100', text: 'text-pink-600', border: 'border-pink-300' },
+  { color: '#06b6d4', bg: 'bg-cyan-100', text: 'text-cyan-600', border: 'border-cyan-300' },
+  { color: '#84cc16', bg: 'bg-lime-100', text: 'text-lime-600', border: 'border-lime-300' },
+  { color: '#f43f5e', bg: 'bg-rose-100', text: 'text-rose-600', border: 'border-rose-300' },
+];
 
 // Format date for display
 const formatDate = (dateStr) => {
   const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric'
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+// Format time from seconds to MM:SS.ss
+const formatTime = (seconds) => {
+  if (!seconds || seconds <= 0) return '--';
+  const mins = Math.floor(seconds / 60);
+  const secs = (seconds % 60).toFixed(2);
+  return mins > 0 ? `${mins}:${secs.padStart(5, '0')}` : secs;
+};
+
+// Normalize event name for comparison (e.g., "50 Free" matches "50 Freestyle")
+const normalizeEvent = (eventName) => {
+  if (!eventName) return null;
+  const { distance, stroke } = parseEventName(eventName);
+  if (!distance || !stroke) return null;
+  return `${distance} ${stroke}`.toLowerCase();
+};
+
+// Calculate season date range (Sept 1 to Aug 31)
+const getSeasonDateRange = () => {
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  let seasonStart;
+  
+  if (currentMonth >= 8) { // Sept or later
+    seasonStart = new Date(now.getFullYear(), 8, 1);
+  } else {
+    seasonStart = new Date(now.getFullYear() - 1, 8, 1);
+  }
+  
+  return {
+    start: seasonStart,
+    end: now,
+    seasonLabel: `${seasonStart.getFullYear()}-${seasonStart.getFullYear() + 1}`
+  };
+};
+
+// =============================================
+// PROGRESS CALCULATION ALGORITHM
+// =============================================
+
+/**
+ * Age adjustment multiplier for time drops
+ * Older swimmers get more credit for the same % drop since improvements are harder
+ * 
+ * Research-based typical improvement rates by age:
+ * - Ages 8-10: 5-8% per season (baseline)
+ * - Ages 11-12: 3-5% per season
+ * - Ages 13-14: 2-4% per season
+ * - Ages 15+: 0.5-2% per season
+ */
+const getAgeAdjustmentFactor = (avgAge) => {
+  if (!avgAge || avgAge <= 10) return 1.0;   // Baseline - young kids naturally drop more
+  if (avgAge <= 12) return 1.5;               // 11-12 year olds get 1.5x credit
+  if (avgAge <= 14) return 2.0;               // 13-14 year olds get 2x credit
+  return 3.0;                                  // 15+ get 3x credit for same % drop
+};
+
+/**
+ * Calculate progress metrics for a group of swimmers
+ * 
+ * Algorithm Components (Age-Fair Weighting):
+ * 1. Age-Adjusted % Time Drop (25%) - Older groups get multiplier credit
+ * 2. Best Time Rate (50%) - Naturally age-neutral metric
+ * 3. Trend Score (25%) - Is the group's pace improving over time?
+ * 
+ * Returns a composite "Progress Score" from 0-100
+ */
+const calculateGroupProgress = (groupResults, allHistoricalResults, avgGroupAge = null) => {
+  if (!groupResults.length) {
+    return {
+      progressScore: 0,
+      avgPercentDrop: 0,
+      adjustedPercentDrop: 0,
+      ageFactor: 1,
+      bestTimeRate: 0,
+      trendDirection: 'neutral',
+      swimmerCount: 0,
+      swimCount: 0,
+      bestTimes: 0,
+      avgAge: avgGroupAge || 0,
+      weeklyData: []
+    };
+  }
+
+  // Sort results by date
+  const sorted = [...groupResults].sort((a, b) => new Date(a.date) - new Date(b.date));
+  
+  // Get unique swimmers in this group
+  const swimmerIds = [...new Set(sorted.map(r => r.swimmer_id))];
+  
+  // Divide season into thirds for baseline vs current comparison
+  const dates = sorted.map(r => new Date(r.date).getTime());
+  const minDate = Math.min(...dates);
+  const maxDate = Math.max(...dates);
+  const seasonLength = maxDate - minDate;
+  
+  const baselineEnd = minDate + (seasonLength / 3);
+  const currentStart = minDate + (2 * seasonLength / 3);
+  
+  // Calculate metrics per swimmer, then aggregate
+  let totalPercentDrop = 0;
+  let swimmersWithData = 0;
+  let totalBestTimes = 0;
+  let totalSwims = sorted.length;
+
+  // Build historical best times per swimmer/event for BT detection
+  const historicalBests = {};
+  allHistoricalResults.forEach(r => {
+    const key = `${r.swimmer_id}-${normalizeEvent(r.event)}`;
+    const seconds = timeToSeconds(r.time);
+    if (seconds && seconds < 999999) {
+      if (!historicalBests[key] || seconds < historicalBests[key]) {
+        historicalBests[key] = seconds;
+      }
+    }
   });
+
+  // Running bests for BT calculation during the season
+  const runningBests = { ...historicalBests };
+
+  // Track swims and BTs
+  sorted.forEach(r => {
+    const key = `${r.swimmer_id}-${normalizeEvent(r.event)}`;
+    const seconds = timeToSeconds(r.time);
+    
+    if (seconds && seconds < 999999) {
+      if (!runningBests[key] || seconds < runningBests[key]) {
+        totalBestTimes++;
+        runningBests[key] = seconds;
+      }
+    }
+  });
+
+  // Calculate % time drop per swimmer across their events
+  swimmerIds.forEach(swimmerId => {
+    const swimmerResults = sorted.filter(r => r.swimmer_id === swimmerId);
+    
+    // Group by normalized event
+    const eventGroups = {};
+    swimmerResults.forEach(r => {
+      const eventKey = normalizeEvent(r.event);
+      if (!eventKey) return;
+      
+      const seconds = timeToSeconds(r.time);
+      const dateMs = new Date(r.date).getTime();
+      
+      if (!eventGroups[eventKey]) eventGroups[eventKey] = [];
+      eventGroups[eventKey].push({ seconds, dateMs, date: r.date });
+    });
+
+    // Calculate improvement for each event (baseline vs current)
+    let swimmerDropSum = 0;
+    let swimmerEventCount = 0;
+
+    Object.values(eventGroups).forEach(swims => {
+      if (swims.length < 2) return; // Need at least 2 swims to compare
+      
+      // Get baseline swims (first third of their data for this event)
+      const baselineSwims = swims.filter(s => s.dateMs <= baselineEnd);
+      const currentSwims = swims.filter(s => s.dateMs >= currentStart);
+      
+      // If not enough data in baseline/current, use first vs last swim
+      let baselineTime, currentTime;
+      
+      if (baselineSwims.length > 0 && currentSwims.length > 0) {
+        baselineTime = Math.min(...baselineSwims.map(s => s.seconds));
+        currentTime = Math.min(...currentSwims.map(s => s.seconds));
+      } else {
+        // Fallback: compare first vs best recent
+        const sortedSwims = [...swims].sort((a, b) => a.dateMs - b.dateMs);
+        baselineTime = sortedSwims[0].seconds;
+        currentTime = Math.min(...sortedSwims.slice(-3).map(s => s.seconds)); // Best of last 3
+      }
+      
+      if (baselineTime && currentTime && baselineTime > 0) {
+        const percentDrop = ((baselineTime - currentTime) / baselineTime) * 100;
+        swimmerDropSum += percentDrop;
+        swimmerEventCount++;
+      }
+    });
+
+    if (swimmerEventCount > 0) {
+      totalPercentDrop += swimmerDropSum / swimmerEventCount;
+      swimmersWithData++;
+    }
+  });
+
+  // Calculate aggregate metrics
+  const avgPercentDrop = swimmersWithData > 0 ? totalPercentDrop / swimmersWithData : 0;
+  const bestTimeRate = totalSwims > 0 ? (totalBestTimes / totalSwims) * 100 : 0;
+
+  // Calculate weekly trend data for chart
+  const weeklyData = calculateWeeklyTrend(sorted);
+  
+  // Determine trend direction from weekly data
+  let trendDirection = 'neutral';
+  if (weeklyData.length >= 2) {
+    const firstHalf = weeklyData.slice(0, Math.floor(weeklyData.length / 2));
+    const secondHalf = weeklyData.slice(Math.floor(weeklyData.length / 2));
+    
+    const firstAvg = firstHalf.reduce((sum, w) => sum + w.avgPace, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((sum, w) => sum + w.avgPace, 0) / secondHalf.length;
+    
+    if (secondAvg < firstAvg * 0.98) trendDirection = 'improving';
+    else if (secondAvg > firstAvg * 1.02) trendDirection = 'declining';
+  }
+
+  // Calculate composite Progress Score (0-100)
+  // Age-Fair Weights: % Drop (25%), BT Rate (50%), Trend (25%)
+  let progressScore = 0;
+  
+  // Get age adjustment factor (older groups get more credit for same % drop)
+  const ageFactor = getAgeAdjustmentFactor(avgGroupAge);
+  const adjustedPercentDrop = avgPercentDrop * ageFactor;
+  
+  // % Drop component (25 points max): Age-adjusted, 2.5% adjusted drop = 25 points
+  const dropScore = Math.min(25, Math.max(0, adjustedPercentDrop * 10));
+  
+  // BT Rate component (50 points max): 25% BT rate = 50 points
+  // This is the primary metric since it's naturally age-neutral
+  const btScore = Math.min(50, Math.max(0, bestTimeRate * 2));
+  
+  // Trend component (25 points max): improving = 25, neutral = 12.5, declining = 0
+  const trendScore = trendDirection === 'improving' ? 25 : (trendDirection === 'neutral' ? 12.5 : 0);
+  
+  progressScore = Math.round(dropScore + btScore + trendScore);
+
+  return {
+    progressScore,
+    avgPercentDrop,
+    adjustedPercentDrop,
+    ageFactor,
+    bestTimeRate,
+    bestTimes: totalBestTimes,
+    trendDirection,
+    swimmerCount: swimmerIds.length,
+    swimCount: totalSwims,
+    avgAge: avgGroupAge || 0,
+    weeklyData
+  };
 };
 
-// Calculate average pace (time per 100 yards/meters) for comparison across distances
-const calculatePacePer100 = (timeSeconds, distance) => {
-  if (!timeSeconds || !distance || distance === 0) return null;
-  return (timeSeconds / distance) * 100;
+// Calculate weekly pace averages for trend chart
+const calculateWeeklyTrend = (results) => {
+  const weekBuckets = {};
+  
+  results.forEach(r => {
+    const seconds = timeToSeconds(r.time);
+    if (!seconds || seconds >= 999999) return;
+    
+    const { distance } = parseEventName(r.event);
+    if (!distance) return;
+    
+    // Normalize to pace per 100
+    const pace = (seconds / distance) * 100;
+    
+    const date = new Date(r.date);
+    const weekStart = new Date(date);
+    weekStart.setDate(date.getDate() - date.getDay());
+    const weekKey = weekStart.toISOString().split('T')[0];
+    
+    if (!weekBuckets[weekKey]) {
+      weekBuckets[weekKey] = { paces: [], swims: 0, bts: 0 };
+    }
+    weekBuckets[weekKey].paces.push(pace);
+    weekBuckets[weekKey].swims++;
+  });
+
+  return Object.entries(weekBuckets)
+    .map(([weekKey, data]) => ({
+      week: weekKey,
+      weekLabel: formatDate(weekKey),
+      avgPace: data.paces.reduce((a, b) => a + b, 0) / data.paces.length,
+      swimCount: data.swims
+    }))
+    .sort((a, b) => new Date(a.week) - new Date(b.week));
 };
 
-// Full Category Progress Report Component
+// =============================================
+// FULL REPORT COMPONENT
+// =============================================
+
 export function CategoryProgressReport({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState([]);
-  const [selectedStrokes, setSelectedStrokes] = useState(STROKE_ORDER);
-  const [expandedStroke, setExpandedStroke] = useState(null);
-  const [normalizeByDistance, setNormalizeByDistance] = useState(true);
-  const [timeRange, setTimeRange] = useState('season'); // 'season', '3months', '6months', 'year'
+  const [swimmers, setSwimmers] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [selectedGroups, setSelectedGroups] = useState([]);
+  const [expandedGroup, setExpandedGroup] = useState(null);
+  const [timeRange, setTimeRange] = useState('season');
+  const [historicalResults, setHistoricalResults] = useState([]);
+
+  const seasonInfo = getSeasonDateRange();
 
   useEffect(() => {
-    fetchCategoryData();
+    fetchData();
   }, [timeRange]);
 
-  const fetchCategoryData = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
       
@@ -82,201 +349,201 @@ export function CategoryProgressReport({ onBack }) {
           startDate = new Date(now);
           startDate.setFullYear(startDate.getFullYear() - 1);
           break;
-        default: // 'season' - current swim season (Sept to August)
-          const currentMonth = now.getMonth(); // 0-11
-          if (currentMonth >= 8) { // Sept or later
-            startDate = new Date(now.getFullYear(), 8, 1); // Sept 1 this year
-          } else {
-            startDate = new Date(now.getFullYear() - 1, 8, 1); // Sept 1 last year
+        default: // 'season'
+          startDate = seasonInfo.start;
+      }
+
+      // Fetch swimmers with group info
+      const { data: swimmerData } = await supabase
+        .from('swimmers')
+        .select('id, name, group_name, age, gender');
+
+      if (swimmerData) {
+        setSwimmers(swimmerData);
+        const uniqueGroups = [...new Set(swimmerData.map(s => s.group_name).filter(Boolean))].sort();
+        setGroups(uniqueGroups);
+        if (selectedGroups.length === 0) {
+          setSelectedGroups(uniqueGroups);
+        }
+      }
+
+      // Fetch ALL results for the period with pagination (Supabase limits to 1000 per query)
+      let allResults = [];
+      let page = 0;
+      let keepFetching = true;
+      const startDateStr = startDate ? startDate.toISOString().split('T')[0] : null;
+
+      while (keepFetching) {
+        let query = supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .order('date', { ascending: true })
+          .order('id', { ascending: true }) // Secondary sort for consistent pagination
+          .range(page * 1000, (page + 1) * 1000 - 1);
+
+        if (startDateStr) {
+          query = query.gte('date', startDateStr);
+        }
+
+        const { data: batch, error } = await query;
+        
+        if (error || !batch || batch.length === 0) {
+          keepFetching = false;
+        } else {
+          allResults = [...allResults, ...batch];
+          page++;
+          // If we got less than 1000, we've reached the end
+          if (batch.length < 1000) {
+            keepFetching = false;
           }
+        }
       }
 
-      // Fetch all results
-      let query = supabase
-        .from('results')
-        .select('swimmer_id, event, time, date, swimmers(id, name, group_name)')
-        .order('date', { ascending: true });
+      console.log(`[GroupProgress] Fetched ${allResults.length} results across ${page} pages`);
+      setResults(allResults);
 
+      // Fetch historical results (before this period) for BT comparison - with pagination
       if (startDate) {
-        query = query.gte('date', startDate.toISOString().split('T')[0]);
+        let allHistorical = [];
+        let histPage = 0;
+        let keepFetchingHist = true;
+
+        while (keepFetchingHist) {
+          const { data: batch, error } = await supabase
+            .from('results')
+            .select('swimmer_id, event, time, date')
+            .lt('date', startDateStr)
+            .order('id', { ascending: true })
+            .range(histPage * 1000, (histPage + 1) * 1000 - 1);
+
+          if (error || !batch || batch.length === 0) {
+            keepFetchingHist = false;
+          } else {
+            allHistorical = [...allHistorical, ...batch];
+            histPage++;
+            if (batch.length < 1000) {
+              keepFetchingHist = false;
+            }
+          }
+        }
+
+        console.log(`[GroupProgress] Fetched ${allHistorical.length} historical results`);
+        setHistoricalResults(allHistorical);
       }
 
-      const { data: resultsData, error } = await query;
-
-      if (error) throw error;
-
-      // Parse and filter results
-      const parsedResults = [];
-      
-      (resultsData || []).forEach(result => {
-        const { distance, stroke } = parseEventName(result.event);
-        const mappedStroke = mapStroke(stroke);
-        
-        // Only include main competitive strokes
-        if (!mappedStroke || !STROKE_ORDER.includes(mappedStroke)) return;
-        
-        // Parse time to seconds
-        const timeSeconds = timeToSeconds(result.time);
-        if (!timeSeconds || timeSeconds >= 999999) return;
-        
-        parsedResults.push({
-          ...result,
-          distance,
-          stroke: mappedStroke,
-          timeSeconds,
-          swimmerName: result.swimmers?.name || 'Unknown'
-        });
-      });
-
-      setResults(parsedResults);
     } catch (err) {
-      console.error('Error fetching category data:', err);
+      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Process data for chart - Group by stroke and calculate monthly/weekly averages
-  const chartData = useMemo(() => {
-    if (!results.length) return [];
+  // Process data by training group
+  const groupData = useMemo(() => {
+    if (!results.length || !swimmers.length) return {};
 
-    // Group results by stroke and date
-    const strokeGroups = {};
+    // Create swimmer lookup
+    const swimmerMap = {};
+    swimmers.forEach(s => {
+      swimmerMap[s.id] = s;
+    });
+
+    // Group results by training group
+    const groupResults = {};
     
     results.forEach(result => {
-      const stroke = result.stroke;
-      if (!strokeGroups[stroke]) {
-        strokeGroups[stroke] = [];
+      const swimmer = swimmerMap[result.swimmer_id];
+      if (!swimmer) return;
+      
+      const groupName = swimmer.group_name || 'Unassigned';
+      
+      if (!groupResults[groupName]) {
+        groupResults[groupName] = [];
       }
       
-      const pace = normalizeByDistance 
-        ? calculatePacePer100(result.timeSeconds, result.distance)
-        : result.timeSeconds;
-      
-      if (pace) {
-        strokeGroups[stroke].push({
-          date: result.date,
-          pace,
-          timeSeconds: result.timeSeconds,
-          distance: result.distance,
-          event: result.event,
-          swimmer: result.swimmerName
-        });
-      }
-    });
-
-    // Create timeline data by grouping into weekly buckets
-    const dateMap = {};
-    
-    Object.entries(strokeGroups).forEach(([stroke, swims]) => {
-      // Group swims by week
-      const weekBuckets = {};
-      
-      swims.forEach(swim => {
-        const date = new Date(swim.date);
-        // Get the start of the week (Sunday)
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay());
-        const weekKey = weekStart.toISOString().split('T')[0];
-        
-        if (!weekBuckets[weekKey]) {
-          weekBuckets[weekKey] = [];
-        }
-        weekBuckets[weekKey].push(swim);
-      });
-
-      // Calculate average for each week
-      Object.entries(weekBuckets).forEach(([weekKey, swims]) => {
-        const avgPace = swims.reduce((sum, s) => sum + s.pace, 0) / swims.length;
-        
-        if (!dateMap[weekKey]) {
-          dateMap[weekKey] = { 
-            date: formatDate(weekKey), 
-            timestamp: weekKey,
-            swimCount: {}
-          };
-        }
-        
-        dateMap[weekKey][stroke] = avgPace;
-        dateMap[weekKey][`${stroke}_count`] = swims.length;
-        dateMap[weekKey].swimCount[stroke] = swims.length;
+      groupResults[groupName].push({
+        ...result,
+        swimmerName: swimmer.name,
+        swimmerAge: swimmer.age,
+        swimmerGender: swimmer.gender
       });
     });
 
-    // Convert to array and sort by date
-    return Object.values(dateMap).sort((a, b) => 
-      new Date(a.timestamp) - new Date(b.timestamp)
-    );
-  }, [results, normalizeByDistance]);
-
-  // Calculate statistics for each stroke
-  const strokeStats = useMemo(() => {
-    const stats = {};
+    // Calculate progress for each group
+    const processedGroups = {};
     
-    STROKE_ORDER.forEach(stroke => {
-      const strokeSwims = results.filter(r => r.stroke === stroke);
-      
-      if (strokeSwims.length === 0) {
-        stats[stroke] = { count: 0, improvement: null, avgPace: null };
-        return;
-      }
-
-      // Group by week and calculate averages
-      const weeklyAverages = {};
-      strokeSwims.forEach(swim => {
-        const date = new Date(swim.date);
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay());
-        const weekKey = weekStart.toISOString().split('T')[0];
-        
-        const pace = normalizeByDistance 
-          ? calculatePacePer100(swim.timeSeconds, swim.distance)
-          : swim.timeSeconds;
-        
-        if (!weeklyAverages[weekKey]) {
-          weeklyAverages[weekKey] = [];
+    Object.entries(groupResults).forEach(([groupName, gResults]) => {
+      // Calculate average age of swimmers in this group
+      const swimmerAges = {};
+      gResults.forEach(r => {
+        if (r.swimmerAge && r.swimmer_id) {
+          swimmerAges[r.swimmer_id] = r.swimmerAge;
         }
-        weeklyAverages[weekKey].push(pace);
       });
-
-      const avgPaces = Object.values(weeklyAverages).map(paces => 
-        paces.reduce((a, b) => a + b, 0) / paces.length
-      );
-
-      if (avgPaces.length === 0) {
-        stats[stroke] = { count: strokeSwims.length, improvement: null, avgPace: null };
-        return;
-      }
-
-      const avgPace = avgPaces.reduce((a, b) => a + b, 0) / avgPaces.length;
+      const ages = Object.values(swimmerAges).filter(a => a > 0);
+      const avgAge = ages.length > 0 ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
       
-      // Calculate improvement (first week vs last week)
-      const weeks = Object.keys(weeklyAverages).sort();
-      if (weeks.length >= 2) {
-        const firstWeek = weeklyAverages[weeks[0]];
-        const lastWeek = weeklyAverages[weeks[weeks.length - 1]];
-        const firstAvg = firstWeek.reduce((a, b) => a + b, 0) / firstWeek.length;
-        const lastAvg = lastWeek.reduce((a, b) => a + b, 0) / lastWeek.length;
-        const improvement = ((firstAvg - lastAvg) / firstAvg) * 100;
-        
-        stats[stroke] = {
-          count: strokeSwims.length,
-          avgPace,
-          improvement,
-          firstPace: firstAvg,
-          lastPace: lastAvg
-        };
-      } else {
-        stats[stroke] = {
-          count: strokeSwims.length,
-          avgPace,
-          improvement: 0
-        };
-      }
+      const progress = calculateGroupProgress(gResults, historicalResults, avgAge);
+      
+      // Get color for this group
+      const groupIndex = groups.indexOf(groupName);
+      const colorConfig = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
+      
+      processedGroups[groupName] = {
+        ...progress,
+        groupName,
+        results: gResults,
+        colorConfig
+      };
     });
+
+    return processedGroups;
+  }, [results, swimmers, groups, historicalResults]);
+
+  // Prepare chart data - all groups on one chart
+  const chartData = useMemo(() => {
+    const allWeeks = new Set();
     
-    return stats;
-  }, [results, normalizeByDistance]);
+    // Collect all week keys
+    Object.values(groupData).forEach(group => {
+      group.weeklyData.forEach(w => allWeeks.add(w.week));
+    });
+
+    // Create combined data points
+    return [...allWeeks].sort().map(week => {
+      const point = { week, weekLabel: formatDate(week) };
+      
+      Object.entries(groupData).forEach(([groupName, data]) => {
+        if (!selectedGroups.includes(groupName)) return;
+        const weekData = data.weeklyData.find(w => w.week === week);
+        if (weekData) {
+          point[groupName] = weekData.avgPace;
+          point[`${groupName}_count`] = weekData.swimCount;
+        }
+      });
+      
+      return point;
+    });
+  }, [groupData, selectedGroups]);
+
+  // Sort groups by progress score
+  const sortedGroups = useMemo(() => {
+    return Object.values(groupData)
+      .filter(g => g.swimCount > 0)
+      .sort((a, b) => b.progressScore - a.progressScore);
+  }, [groupData]);
+
+  // Calculate actual data range from results
+  const dataRange = useMemo(() => {
+    if (!results.length) return null;
+    const dates = results.map(r => new Date(r.date)).sort((a, b) => a - b);
+    return {
+      earliest: dates[0],
+      latest: dates[dates.length - 1],
+      earliestLabel: formatDate(dates[0].toISOString()),
+      latestLabel: formatDate(dates[dates.length - 1].toISOString())
+    };
+  }, [results]);
 
   // Custom tooltip for chart
   const CustomTooltip = ({ active, payload, label }) => {
@@ -287,29 +554,22 @@ export function CategoryProgressReport({ onBack }) {
         <div className="font-bold text-slate-700 mb-2">{label}</div>
         {payload.map((entry, idx) => {
           const count = entry.payload[`${entry.dataKey}_count`];
-          if (!count) return null;
           
           return (
-            <div key={idx} className="mb-1">
-              <div className="flex items-center gap-2 mb-0.5">
-                <div 
-                  className="w-3 h-3 rounded-full" 
-                  style={{ backgroundColor: entry.color }}
-                />
-                <span className="font-medium text-slate-700">
-                  {STROKE_CONFIG[entry.dataKey]?.label}
+            <div key={idx} className="mb-1 flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="font-medium text-slate-700">{entry.dataKey}</span>
+              <span className="text-slate-500">
+                {entry.value?.toFixed(2)}s/100
+              </span>
+              {count && (
+                <span className="text-xs text-slate-400">
+                  ({count} swims)
                 </span>
-              </div>
-              <div className="ml-5 text-slate-600 space-y-0.5">
-                <div className="font-mono text-sm">
-                  {normalizeByDistance 
-                    ? `${entry.value.toFixed(2)}s per 100` 
-                    : `${entry.value.toFixed(2)}s avg`}
-                </div>
-                <div className="text-xs text-slate-500">
-                  {count} swim{count !== 1 ? 's' : ''} this week
-                </div>
-              </div>
+              )}
             </div>
           );
         })}
@@ -341,28 +601,15 @@ export function CategoryProgressReport({ onBack }) {
               <ChevronLeft size={24} />
             </button>
             <div>
-              <h1 className="text-xl font-bold text-slate-800">Category Progress Report</h1>
-              <p className="text-sm text-slate-500">Track meet performance improvement by stroke category</p>
+              <h1 className="text-xl font-bold text-slate-800">Group Progress Report</h1>
+              <p className="text-sm text-slate-500">
+                Track training group improvement over the {seasonInfo.seasonLabel} season
+              </p>
             </div>
           </div>
 
           {/* Controls */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={() => setNormalizeByDistance(!normalizeByDistance)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                normalizeByDistance 
-                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
-                  : 'bg-slate-100 text-slate-600 border border-slate-200'
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <Zap size={14} />
-                {normalizeByDistance ? 'Pace per 100' : 'Raw Average'}
-              </div>
-            </button>
-
-            {/* Time Range Selector */}
             <select
               value={timeRange}
               onChange={(e) => setTimeRange(e.target.value)}
@@ -376,202 +623,278 @@ export function CategoryProgressReport({ onBack }) {
             
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <Info size={14} />
-              <span>
-                {normalizeByDistance 
-                  ? 'Normalized to compare different distances' 
-                  : 'Shows actual average times'}
-              </span>
+              <span>Age-Fair Scoring: BT Rate (50%) + Age-Adjusted Drop (25%) + Trend (25%)</span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="p-4 max-w-7xl mx-auto space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {STROKE_ORDER.map(stroke => {
-            const config = STROKE_CONFIG[stroke];
-            const stats = strokeStats[stroke];
-            
-            return (
-              <button
-                key={stroke}
-                onClick={() => setExpandedStroke(expandedStroke === stroke ? null : stroke)}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
-                  selectedStrokes.includes(stroke)
-                    ? `${config.bgColor} border-current ${config.textColor}`
-                    : 'bg-white border-slate-200 text-slate-400'
-                }`}
-              >
-                <div className="text-xs font-medium mb-1">{config.label}</div>
-                <div className="text-2xl font-bold mb-1">
-                  {stats.count}
-                </div>
-                <div className="text-xs opacity-75">swims</div>
-                {stats.improvement !== null && stats.improvement !== 0 && (
-                  <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${
-                    stats.improvement > 0 ? 'text-emerald-600' : 'text-rose-500'
-                  }`}>
-                    {stats.improvement > 0 ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
-                    {Math.abs(stats.improvement).toFixed(1)}%
+        {/* Group Summary Cards - Ranked by Progress Score */}
+        <div>
+          <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <Trophy size={18} className="text-amber-500" />
+            Group Rankings
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {sortedGroups.map((group, index) => {
+              const isSelected = selectedGroups.includes(group.groupName);
+              
+              return (
+                <button
+                  key={group.groupName}
+                  onClick={() => {
+                    if (isSelected && selectedGroups.length > 1) {
+                      setSelectedGroups(selectedGroups.filter(g => g !== group.groupName));
+                    } else if (!isSelected) {
+                      setSelectedGroups([...selectedGroups, group.groupName]);
+                    }
+                  }}
+                  className={`p-4 rounded-xl border-2 transition-all text-left ${
+                    isSelected
+                      ? `${group.colorConfig.bg} ${group.colorConfig.border} ${group.colorConfig.text}`
+                      : 'bg-white border-slate-200 text-slate-400'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {index === 0 && <Trophy size={18} className="text-amber-500" />}
+                      {index === 1 && <Award size={18} className="text-slate-400" />}
+                      {index === 2 && <Award size={18} className="text-amber-700" />}
+                      <span className="font-bold text-lg">{group.groupName}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold">{group.progressScore}</div>
+                      <div className="text-xs opacity-75">Progress Score</div>
+                    </div>
                   </div>
-                )}
-              </button>
-            );
-          })}
+                  
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-white/50 rounded-lg p-2">
+                      <div className="font-bold text-sm">
+                        {group.avgPercentDrop > 0 ? '+' : ''}{group.avgPercentDrop.toFixed(1)}%
+                        {group.ageFactor > 1 && (
+                          <span className="text-[10px] opacity-60 ml-0.5">×{group.ageFactor}</span>
+                        )}
+                      </div>
+                      <div className="opacity-75">Drop {group.ageFactor > 1 ? '(adj)' : ''}</div>
+                    </div>
+                    <div className="bg-white/50 rounded-lg p-2">
+                      <div className="font-bold text-sm">{group.bestTimeRate.toFixed(0)}%</div>
+                      <div className="opacity-75">BT Rate</div>
+                    </div>
+                    <div className="bg-white/50 rounded-lg p-2">
+                      <div className="font-bold text-sm flex items-center justify-center gap-1">
+                        {group.trendDirection === 'improving' && <TrendingDown size={12} />}
+                        {group.trendDirection === 'declining' && <TrendingUp size={12} />}
+                        {group.trendDirection === 'improving' ? '↓' : group.trendDirection === 'declining' ? '↑' : '→'}
+                      </div>
+                      <div className="opacity-75">Trend</div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 text-xs opacity-75 flex items-center gap-3 flex-wrap">
+                    {group.avgAge > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        ~{Math.round(group.avgAge)} yrs avg
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      <Users size={12} />
+                      {group.swimmerCount} swimmers
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Star size={12} />
+                      {group.bestTimes} BTs
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Main Chart */}
+        {/* Main Chart - All Groups Over Time */}
         {chartData.length > 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-6">
             <div className="mb-4">
-              <h3 className="font-bold text-slate-800">Progress Over Time</h3>
-              <p className="text-sm text-slate-500">
-                Lower is better • {normalizeByDistance ? 'Pace per 100 yards' : 'Average time in seconds'} • Weekly averages
-              </p>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="font-bold text-slate-800">Group Performance Over Time</h3>
+                  <p className="text-sm text-slate-500">
+                    Average pace per 100 yards • Lower is better • Weekly averages
+                  </p>
+                </div>
+                {dataRange && (
+                  <div className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg">
+                    <span className="font-medium">Data range:</span> {dataRange.earliestLabel} – {dataRange.latestLabel}
+                    <span className="text-slate-400 ml-2">({results.length} results)</span>
+                  </div>
+                )}
+              </div>
             </div>
             
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis 
-                  dataKey="date" 
+                  dataKey="weekLabel" 
                   tick={{ fontSize: 12, fill: '#64748b' }}
                   axisLine={{ stroke: '#cbd5e1' }}
-                  tickLine={{ stroke: '#cbd5e1' }}
                 />
                 <YAxis 
                   tick={{ fontSize: 12, fill: '#64748b' }}
                   axisLine={{ stroke: '#cbd5e1' }}
-                  tickLine={{ stroke: '#cbd5e1' }}
                   label={{ 
-                    value: normalizeByDistance ? 'Pace (seconds per 100)' : 'Time (seconds)', 
+                    value: 'Pace (sec/100)', 
                     angle: -90, 
                     position: 'insideLeft',
                     style: { fontSize: 12, fill: '#64748b' }
                   }}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend 
-                  wrapperStyle={{ fontSize: '12px' }}
-                  formatter={(value) => STROKE_CONFIG[value]?.label || value}
-                />
+                <Legend />
                 
-                {STROKE_ORDER.map(stroke => (
-                  selectedStrokes.includes(stroke) && (
+                {selectedGroups.map((groupName, idx) => {
+                  const groupIndex = groups.indexOf(groupName);
+                  const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length].color;
+                  
+                  return (
                     <Line
-                      key={stroke}
+                      key={groupName}
                       type="monotone"
-                      dataKey={stroke}
-                      stroke={STROKE_CONFIG[stroke].color}
+                      dataKey={groupName}
+                      stroke={color}
                       strokeWidth={2}
-                      dot={{ r: 4, fill: STROKE_CONFIG[stroke].color }}
+                      dot={{ r: 4, fill: color }}
                       activeDot={{ r: 6 }}
-                      name={stroke}
                       connectNulls
                     />
-                  )
-                ))}
+                  );
+                })}
               </LineChart>
             </ResponsiveContainer>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
             <Trophy size={48} className="mx-auto text-slate-300 mb-4" />
-            <h3 className="text-lg font-bold text-slate-600 mb-2">No Meet Results Yet</h3>
+            <h3 className="text-lg font-bold text-slate-600 mb-2">No Results Yet</h3>
             <p className="text-slate-400">
-              Record meet results to see category progress over time
+              Record meet results to see group progress over time
             </p>
           </div>
         )}
 
-        {/* Detailed Breakdown by Stroke */}
+        {/* Detailed Breakdown by Group */}
         <div className="space-y-3">
-          {STROKE_ORDER.map(stroke => {
-            const config = STROKE_CONFIG[stroke];
-            const stats = strokeStats[stroke];
-            const strokeSwims = results.filter(r => r.stroke === stroke);
-            const isExpanded = expandedStroke === stroke;
-
-            if (stats.count === 0) return null;
-
-            // Group swims by event (distance)
-            const eventGroups = {};
-            strokeSwims.forEach(swim => {
-              const key = `${swim.distance} ${config.label}`;
-              if (!eventGroups[key]) {
-                eventGroups[key] = [];
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <Target size={18} className="text-blue-500" />
+            Detailed Group Breakdown
+          </h3>
+          
+          {sortedGroups.map(group => {
+            const isExpanded = expandedGroup === group.groupName;
+            
+            // Get top performers in this group by swim count
+            const swimmerPerformance = {};
+            group.results.forEach(r => {
+              if (!swimmerPerformance[r.swimmerName]) {
+                swimmerPerformance[r.swimmerName] = { swims: 0 };
               }
-              eventGroups[key].push(swim);
+              swimmerPerformance[r.swimmerName].swims++;
             });
 
+            const topSwimmers = Object.entries(swimmerPerformance)
+              .map(([name, data]) => ({ name, ...data }))
+              .sort((a, b) => b.swims - a.swims)
+              .slice(0, 5);
+
             return (
-              <div key={stroke} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div key={group.groupName} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <button
-                  onClick={() => setExpandedStroke(isExpanded ? null : stroke)}
+                  onClick={() => setExpandedGroup(isExpanded ? null : group.groupName)}
                   className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 ${config.bgColor} ${config.textColor} rounded-xl flex items-center justify-center font-bold`}>
-                      {stroke.substring(0, 2).toUpperCase()}
+                    <div 
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-white`}
+                      style={{ backgroundColor: group.colorConfig.color }}
+                    >
+                      {group.groupName.substring(0, 2).toUpperCase()}
                     </div>
                     <div className="text-left">
-                      <h4 className="font-bold text-slate-800">{config.label}</h4>
-                      <p className="text-sm text-slate-500">{stats.count} swims recorded</p>
+                      <h4 className="font-bold text-slate-800">{group.groupName}</h4>
+                      <p className="text-sm text-slate-500">
+                        {group.swimmerCount} swimmers • {group.swimCount} swims • {group.bestTimes} best times
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6">
-                    {stats.improvement !== null && stats.improvement !== 0 && (
-                      <div className={`text-right ${
-                        stats.improvement > 0 ? 'text-emerald-600' : 'text-rose-500'
+                    <div className="text-right">
+                      <div className={`flex items-center gap-1 font-bold ${
+                        group.avgPercentDrop > 0 ? 'text-emerald-600' : 'text-rose-500'
                       }`}>
-                        <div className="flex items-center gap-1 font-bold">
-                          {stats.improvement > 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
-                          {Math.abs(stats.improvement).toFixed(1)}%
-                        </div>
-                        <div className="text-xs">improvement</div>
+                        {group.avgPercentDrop > 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
+                        {Math.abs(group.avgPercentDrop).toFixed(2)}%
                       </div>
-                    )}
+                      <div className="text-xs text-slate-500">avg improvement</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-indigo-600">{group.progressScore}</div>
+                      <div className="text-xs text-slate-500">score</div>
+                    </div>
                     {isExpanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
                   </div>
                 </button>
 
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-4 bg-slate-50">
-                    <div className="space-y-3">
-                      {Object.entries(eventGroups).map(([eventName, swims]) => {
-                        // Show most recent 10 swims for this event
-                        const recentSwims = swims
-                          .sort((a, b) => new Date(b.date) - new Date(a.date))
-                          .slice(0, 10);
+                    {/* Group's mini trend chart */}
+                    {group.weeklyData.length > 1 && (
+                      <div className="mb-4 bg-white rounded-lg p-4">
+                        <h5 className="text-sm font-medium text-slate-700 mb-3">{group.groupName} Trend</h5>
+                        <ResponsiveContainer width="100%" height={150}>
+                          <AreaChart data={group.weeklyData}>
+                            <defs>
+                              <linearGradient id={`gradient-${group.groupName}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={group.colorConfig.color} stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor={group.colorConfig.color} stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <XAxis dataKey="weekLabel" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip formatter={(value) => [`${value.toFixed(2)}s/100`, 'Avg Pace']} />
+                            <Area 
+                              type="monotone" 
+                              dataKey="avgPace" 
+                              stroke={group.colorConfig.color} 
+                              fill={`url(#gradient-${group.groupName})`}
+                              strokeWidth={2}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
 
-                        return (
-                          <div key={eventName} className="bg-white rounded-lg p-3">
-                            <div className="font-medium text-slate-800 mb-2 flex items-center justify-between">
-                              <span>{eventName}</span>
-                              <span className="text-xs text-slate-500">{swims.length} total swims</span>
+                    {/* Top Performers */}
+                    <div className="bg-white rounded-lg p-4">
+                      <h5 className="text-sm font-medium text-slate-700 mb-3">Top Performers by Swim Count</h5>
+                      <div className="space-y-2">
+                        {topSwimmers.map((swimmer, idx) => (
+                          <div key={swimmer.name} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <span className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                {idx + 1}
+                              </span>
+                              <span className="font-medium text-slate-800">{swimmer.name}</span>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {recentSwims.map((swim, idx) => (
-                                <div key={idx} className="flex items-center justify-between text-sm p-2 bg-slate-50 rounded">
-                                  <div>
-                                    <div className="font-medium text-slate-700">{swim.swimmerName}</div>
-                                    <div className="text-xs text-slate-500">{formatDate(swim.date)}</div>
-                                  </div>
-                                  <div className="text-right">
-                                    <div className="font-mono font-bold text-indigo-600">{swim.time}</div>
-                                    {normalizeByDistance && (
-                                      <div className="text-xs text-slate-500">
-                                        {calculatePacePer100(swim.timeSeconds, swim.distance).toFixed(2)}s/100
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-slate-500">{swimmer.swims} swims</span>
                             </div>
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -584,13 +907,13 @@ export function CategoryProgressReport({ onBack }) {
   );
 }
 
-// ==========================================
-// DASHBOARD WIDGET: Category Progress Preview
-// ==========================================
+// =============================================
+// DASHBOARD WIDGET: Group Progress Preview
+// =============================================
+
 export function CategoryProgressWidget({ onViewFull }) {
   const [loading, setLoading] = useState(true);
-  const [chartData, setChartData] = useState([]);
-  const [strokeStats, setStrokeStats] = useState({});
+  const [groupStats, setGroupStats] = useState([]);
 
   useEffect(() => {
     fetchWidgetData();
@@ -600,104 +923,119 @@ export function CategoryProgressWidget({ onViewFull }) {
     try {
       setLoading(true);
       
-      // Fetch recent results (last 60 days)
-      const sixtyDaysAgo = new Date();
-      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-      
-      const { data: resultsData, error } = await supabase
-        .from('results')
-        .select('event, time, date')
-        .gte('date', sixtyDaysAgo.toISOString().split('T')[0])
-        .order('date', { ascending: true });
+      // Get season start date
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      let seasonStart;
+      if (currentMonth >= 8) {
+        seasonStart = new Date(now.getFullYear(), 8, 1);
+      } else {
+        seasonStart = new Date(now.getFullYear() - 1, 8, 1);
+      }
 
-      if (error) throw error;
+      // Fetch swimmers with age for age-adjusted scoring
+      const { data: swimmers } = await supabase
+        .from('swimmers')
+        .select('id, name, group_name, age');
 
-      // Parse and filter results
-      const parsedResults = [];
-      
-      (resultsData || []).forEach(result => {
-        const { distance, stroke } = parseEventName(result.event);
-        const mappedStroke = mapStroke(stroke);
-        
-        if (!mappedStroke || !STROKE_ORDER.includes(mappedStroke)) return;
-        
-        const timeSeconds = timeToSeconds(result.time);
-        if (!timeSeconds || timeSeconds >= 999999) return;
-        
-        parsedResults.push({
-          date: result.date,
-          stroke: mappedStroke,
-          distance,
-          timeSeconds
-        });
-      });
+      const seasonStartStr = seasonStart.toISOString().split('T')[0];
 
-      // Group by stroke and calculate weekly averages
-      const strokeGroups = {};
-      const stats = {};
-      
-      parsedResults.forEach(result => {
-        const stroke = result.stroke;
-        if (!strokeGroups[stroke]) {
-          strokeGroups[stroke] = {};
+      // Fetch ALL this season's results with pagination
+      let allResults = [];
+      let page = 0;
+      let keepFetching = true;
+
+      while (keepFetching) {
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .gte('date', seasonStartStr)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+
+        if (error || !batch || batch.length === 0) {
+          keepFetching = false;
+        } else {
+          allResults = [...allResults, ...batch];
+          page++;
+          if (batch.length < 1000) keepFetching = false;
         }
-        
-        const date = new Date(result.date);
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay());
-        const weekKey = weekStart.toISOString().split('T')[0];
-        
-        const pace = calculatePacePer100(result.timeSeconds, result.distance);
-        
-        if (!strokeGroups[stroke][weekKey]) {
-          strokeGroups[stroke][weekKey] = [];
+      }
+
+      // Fetch ALL historical results for BT comparison with pagination
+      let allHistorical = [];
+      let histPage = 0;
+      let keepFetchingHist = true;
+
+      while (keepFetchingHist) {
+        const { data: batch, error } = await supabase
+          .from('results')
+          .select('swimmer_id, event, time, date')
+          .lt('date', seasonStartStr)
+          .order('id', { ascending: true })
+          .range(histPage * 1000, (histPage + 1) * 1000 - 1);
+
+        if (error || !batch || batch.length === 0) {
+          keepFetchingHist = false;
+        } else {
+          allHistorical = [...allHistorical, ...batch];
+          histPage++;
+          if (batch.length < 1000) keepFetchingHist = false;
         }
-        strokeGroups[stroke][weekKey].push(pace);
-      });
+      }
 
-      // Calculate stats and create chart data
-      STROKE_ORDER.forEach(stroke => {
-        const weeks = strokeGroups[stroke] || {};
-        const weekKeys = Object.keys(weeks).sort();
-        
-        if (weekKeys.length > 0) {
-          const avgPaces = weekKeys.map(key => {
-            const paces = weeks[key];
-            return paces.reduce((a, b) => a + b, 0) / paces.length;
-          });
-          
-          const firstAvg = avgPaces[0];
-          const lastAvg = avgPaces[avgPaces.length - 1];
-          const improvement = ((firstAvg - lastAvg) / firstAvg) * 100;
-          
-          stats[stroke] = {
-            count: weekKeys.length,
-            improvement
-          };
+      const results = allResults;
+      const historical = allHistorical;
+
+      if (!swimmers || !results) {
+        setGroupStats([]);
+        return;
+      }
+
+      // Build swimmer lookup
+      const swimmerMap = {};
+      swimmers.forEach(s => swimmerMap[s.id] = s);
+
+      // Group results by training group and calculate avg age per group
+      const groupResults = {};
+      const groupAges = {};
+      const uniqueGroups = [...new Set(swimmers.map(s => s.group_name).filter(Boolean))].sort();
+
+      // Pre-calculate average age per group
+      uniqueGroups.forEach(groupName => {
+        const groupSwimmers = swimmers.filter(s => s.group_name === groupName && s.age > 0);
+        if (groupSwimmers.length > 0) {
+          groupAges[groupName] = groupSwimmers.reduce((sum, s) => sum + s.age, 0) / groupSwimmers.length;
         }
       });
 
-      // Create simplified chart data (last 5 weeks)
-      const dateMap = {};
-      Object.entries(strokeGroups).forEach(([stroke, weeks]) => {
-        const weekKeys = Object.keys(weeks).sort().slice(-5);
-        weekKeys.forEach(weekKey => {
-          const paces = weeks[weekKey];
-          const avgPace = paces.reduce((a, b) => a + b, 0) / paces.length;
-          
-          if (!dateMap[weekKey]) {
-            dateMap[weekKey] = { date: formatDate(weekKey), timestamp: weekKey };
-          }
-          dateMap[weekKey][stroke] = avgPace;
-        });
+      results.forEach(result => {
+        const swimmer = swimmerMap[result.swimmer_id];
+        if (!swimmer || !swimmer.group_name) return;
+        
+        if (!groupResults[swimmer.group_name]) {
+          groupResults[swimmer.group_name] = [];
+        }
+        groupResults[swimmer.group_name].push(result);
       });
 
-      const chart = Object.values(dateMap).sort((a, b) => 
-        new Date(a.timestamp) - new Date(b.timestamp)
-      );
+      // Calculate progress for each group with age adjustment
+      const stats = uniqueGroups.map((groupName, idx) => {
+        const gResults = groupResults[groupName] || [];
+        const avgAge = groupAges[groupName] || null;
+        const progress = calculateGroupProgress(gResults, historical || [], avgAge);
+        const colorConfig = GROUP_COLORS[idx % GROUP_COLORS.length];
+        
+        return {
+          groupName,
+          ...progress,
+          colorConfig
+        };
+      }).filter(g => g.swimCount > 0)
+        .sort((a, b) => b.progressScore - a.progressScore);
 
-      setChartData(chart);
-      setStrokeStats(stats);
+      setGroupStats(stats);
     } catch (err) {
       console.error('Error fetching widget data:', err);
     } finally {
@@ -716,7 +1054,7 @@ export function CategoryProgressWidget({ onViewFull }) {
     );
   }
 
-  const hasData = chartData.length > 0;
+  const hasData = groupStats.length > 0;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -724,11 +1062,11 @@ export function CategoryProgressWidget({ onViewFull }) {
       <div className="p-5 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <Activity size={20} className="text-white" />
+            <Users size={20} className="text-white" />
           </div>
           <div>
-            <h3 className="font-bold text-slate-800">Category Progress</h3>
-            <p className="text-xs text-slate-400">Meet performance by stroke</p>
+            <h3 className="font-bold text-slate-800">Group Progress</h3>
+            <p className="text-xs text-slate-400">Age-fair progress ranking</p>
           </div>
         </div>
         {hasData && (
@@ -745,85 +1083,65 @@ export function CategoryProgressWidget({ onViewFull }) {
       {!hasData ? (
         <div className="p-8 text-center">
           <Trophy size={40} className="mx-auto text-slate-300 mb-3" />
-          <p className="text-slate-600 font-medium">No meet data yet</p>
-          <p className="text-slate-400 text-sm mt-1">Record meet results to track stroke progress</p>
+          <p className="text-slate-600 font-medium">No group data yet</p>
+          <p className="text-slate-400 text-sm mt-1">Record meet results to track group progress</p>
         </div>
       ) : (
-        <>
-          {/* Mini Chart */}
-          <div className="p-4">
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={chartData}>
-                <XAxis 
-                  dataKey="date" 
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis 
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  label={{ 
-                    value: 'Pace/100', 
-                    angle: -90, 
-                    position: 'insideLeft',
-                    style: { fontSize: 10, fill: '#94a3b8' }
-                  }}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    background: 'white', 
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '11px'
-                  }}
-                  formatter={(value) => [`${value.toFixed(2)}s`, '']}
-                />
-                
-                {STROKE_ORDER.map(stroke => (
-                  strokeStats[stroke] && (
-                    <Line
-                      key={stroke}
-                      type="monotone"
-                      dataKey={stroke}
-                      stroke={STROKE_CONFIG[stroke].color}
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls
-                    />
-                  )
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Stats Summary */}
-          <div className="px-4 pb-4 grid grid-cols-5 gap-2">
-            {STROKE_ORDER.map(stroke => {
-              const stats = strokeStats[stroke];
-              if (!stats) return null;
+        <div className="p-4 space-y-3">
+          {groupStats.slice(0, 5).map((group, idx) => (
+            <div 
+              key={group.groupName}
+              className="flex items-center gap-3"
+            >
+              {/* Rank indicator */}
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                idx === 0 ? 'bg-amber-100 text-amber-700' :
+                idx === 1 ? 'bg-slate-200 text-slate-600' :
+                idx === 2 ? 'bg-amber-50 text-amber-600' :
+                'bg-slate-100 text-slate-500'
+              }`}>
+                {idx + 1}
+              </div>
               
-              const config = STROKE_CONFIG[stroke];
+              {/* Group color indicator */}
+              <div 
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: group.colorConfig.color }}
+              />
               
-              return (
-                <div key={stroke} className="text-center">
-                  <div className={`text-xs font-medium ${config.textColor} mb-1`}>
-                    {config.label.split(' ')[0]}
-                  </div>
-                  {stats.improvement !== null && stats.improvement !== 0 && (
-                    <div className={`text-xs font-bold flex items-center justify-center gap-0.5 ${
-                      stats.improvement > 0 ? 'text-emerald-600' : 'text-rose-500'
-                    }`}>
-                      {stats.improvement > 0 ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
-                      {Math.abs(stats.improvement).toFixed(0)}%
-                    </div>
-                  )}
+              {/* Group name and stats */}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-slate-800 text-sm truncate">
+                  {group.groupName}
                 </div>
-              );
-            })}
-          </div>
-        </>
+                <div className="text-xs text-slate-400">
+                  {group.swimmerCount} swimmers{group.avgAge > 0 ? ` • ~${Math.round(group.avgAge)} yrs` : ''}
+                </div>
+              </div>
+              
+              {/* Progress metrics */}
+              <div className="text-right">
+                <div className={`text-sm font-bold flex items-center gap-1 justify-end ${
+                  group.bestTimeRate > 15 ? 'text-emerald-600' : 'text-slate-500'
+                }`}>
+                  {group.bestTimeRate.toFixed(0)}% BT
+                </div>
+                <div className="text-xs text-slate-400">
+                  Score: {group.progressScore}
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          {groupStats.length > 5 && (
+            <button
+              onClick={onViewFull}
+              className="w-full text-center text-sm text-slate-500 hover:text-cyan-600 py-2"
+            >
+              +{groupStats.length - 5} more groups
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
