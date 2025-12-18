@@ -252,7 +252,7 @@ function ProgressTab({ navigateTo }) {
         <h3 className="font-semibold text-slate-700">Quick Access</h3>
         
         <button
-          onClick={() => navigateTo?.('meet-entries')}
+          onClick={() => navigateTo?.('meets')}
           className="w-full bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between hover:shadow-md transition-all text-left"
         >
           <div className="flex items-center gap-3">
@@ -260,8 +260,8 @@ function ProgressTab({ navigateTo }) {
               <FileText size={20} className="text-amber-600" />
             </div>
             <div>
-              <h4 className="font-semibold text-slate-800">Meet Entries Export</h4>
-              <p className="text-sm text-slate-500">Export SD3 files for meet registration</p>
+              <h4 className="font-semibold text-slate-800">Meet Entries & Confirmations</h4>
+              <p className="text-sm text-slate-500">Manage entries, SD3 uploads, and parent confirmations</p>
             </div>
           </div>
           <ChevronRight size={20} className="text-slate-300" />

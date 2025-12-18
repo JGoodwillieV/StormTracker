@@ -379,15 +379,15 @@ export default function Dashboard({ navigateTo, swimmers, stats, onLogout, onInv
             </button>
 
             <button 
-              onClick={() => navigateTo('meet-entries')} 
+              onClick={() => navigateTo('meets')} 
               className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors text-left"
             >
               <div className="w-9 h-9 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center">
                 <Icon name="file-text" size={18}/>
               </div>
               <div className="flex-1">
-                <div className="font-medium text-slate-800 text-sm">Meets</div>
-                <div className="text-slate-500 text-xs">See meet info</div>
+                <div className="font-medium text-slate-800 text-sm">Meets Manager</div>
+                <div className="text-slate-500 text-xs">Entries & confirmations</div>
               </div>
               <ChevronRight size={16} className="text-slate-300" />
             </button>

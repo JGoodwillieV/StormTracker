@@ -32,9 +32,9 @@ export default function MobileNav({ activeTab, setActiveTab }) {
     const hubMappings = {
       team: ['roster', 'profile', 'trophy-case'],
       communications: ['announcements'],
-      reports: ['meet-entries', 'test-sets-list'],
+      reports: ['test-sets-list'],
       tools: ['analysis', 'ai-chat', 'view-analysis'],
-      schedule: ['calendar', 'meets', 'practice-hub', 'practice-builder', 'test-set'],
+      schedule: ['calendar', 'meets', 'meet-entries', 'practice-hub', 'practice-builder', 'test-set'],
     };
     
     return hubMappings[itemId]?.includes(activeTab) || false;

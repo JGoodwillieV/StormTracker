@@ -11,7 +11,9 @@ import {
   DollarSign, Award, Timer, Play, Video, ExternalLink, List
 } from 'lucide-react';
 import { parseMeetInfoPDF, parseTimelinePDF, parseHeatSheetPDF, matchHeatSheetEntries } from './utils/meetPdfParser';
+import { parseSD3File } from './utils/sd3Parser';
 import AutoGenerateEventsModal from './AutoGenerateEventsModal';
+import { CheckCircle, Edit3, MessageSquare, Send, Waves, Bell } from 'lucide-react';
 
 // Import centralized utilities
 import { formatDateSafe, formatTimeOfDay } from './utils/dateUtils';
@@ -1095,17 +1097,382 @@ const CommitmentsTab = ({ meet, onRefresh }) => {
 };
 
 // ============================================
-// ENTRIES TAB
+// CONFIRMATION BADGE COMPONENT
+// ============================================
+
+const ConfirmationBadge = ({ status }) => {
+  const config = {
+    pending: { bg: 'bg-amber-100', text: 'text-amber-700', icon: Clock },
+    confirmed: { bg: 'bg-emerald-100', text: 'text-emerald-700', icon: CheckCircle },
+    change_requested: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Edit3 },
+    scratched: { bg: 'bg-red-100', text: 'text-red-700', icon: X }
+  };
+  
+  const { bg, text, icon: Icon } = config[status] || config.pending;
+  
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${bg} ${text}`}>
+      <Icon size={12} />
+      {(status || 'pending').replace('_', ' ')}
+    </span>
+  );
+};
+
+// ============================================
+// SD3 UPLOAD MODAL
+// ============================================
+
+const SD3UploadModal = ({ meet, onClose, onSuccess }) => {
+  const [file, setFile] = useState(null);
+  const [parsing, setParsing] = useState(false);
+  const [parsedData, setParsedData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [matchResults, setMatchResults] = useState(null);
+
+  const handleFileChange = async (e) => {
+    const selectedFile = e.target.files[0];
+    if (!selectedFile) return;
+    
+    setFile(selectedFile);
+    setError(null);
+    setParsing(true);
+    
+    try {
+      const content = await selectedFile.text();
+      const parsed = parseSD3File(content);
+      setParsedData(parsed);
+      
+      // Match swimmers to database
+      await matchSwimmers(parsed.swimmerList);
+    } catch (err) {
+      setError('Failed to parse SD3 file: ' + err.message);
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const matchSwimmers = async (swimmerList) => {
+    try {
+      const { data: dbSwimmers } = await supabase
+        .from('swimmers')
+        .select('id, name, usa_swimming_id');
+      
+      const normalizeSD3Name = (name) => {
+        if (!name) return { full: '', first: '', last: '' };
+        const parts = name.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+          const lastName = parts[0].toLowerCase().replace(/[^a-z]/g, '');
+          const firstPart = parts[1].split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+          return { full: firstPart + lastName, first: firstPart, last: lastName };
+        }
+        return { full: name.toLowerCase().replace(/[^a-z]/g, ''), first: '', last: '' };
+      };
+      
+      const normalizeDBName = (name) => {
+        if (!name) return { full: '', first: '', last: '' };
+        const parts = name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const firstName = parts[0].toLowerCase().replace(/[^a-z]/g, '');
+          const lastName = parts[parts.length - 1].toLowerCase().replace(/[^a-z]/g, '');
+          return { full: name.toLowerCase().replace(/[^a-z]/g, ''), first: firstName, last: lastName };
+        }
+        return { full: name.toLowerCase().replace(/[^a-z]/g, ''), first: '', last: '' };
+      };
+      
+      const matches = swimmerList.map(swimmer => {
+        let match = null;
+        
+        if (swimmer.usaSwimmingId) {
+          const sd3Id = swimmer.usaSwimmingId.substring(0, 12).toUpperCase();
+          match = dbSwimmers?.find(db => {
+            if (!db.usa_swimming_id) return false;
+            return db.usa_swimming_id.substring(0, 12).toUpperCase() === sd3Id;
+          });
+        }
+        
+        if (!match) {
+          const sd3Name = normalizeSD3Name(swimmer.name);
+          match = dbSwimmers?.find(db => {
+            const dbName = normalizeDBName(db.name);
+            if (sd3Name.first && sd3Name.last && dbName.first && dbName.last) {
+              if (sd3Name.first === dbName.first && sd3Name.last === dbName.last) return true;
+            }
+            if (dbName.full === sd3Name.full) return true;
+            if (sd3Name.first && sd3Name.last) {
+              if (dbName.full.includes(sd3Name.first) && dbName.full.includes(sd3Name.last)) return true;
+            }
+            return false;
+          });
+        }
+        
+        return {
+          ...swimmer,
+          matchedSwimmerId: match?.id || null,
+          matchedSwimmerName: match?.name || null,
+          matchStatus: match ? 'matched' : 'unmatched'
+        };
+      });
+      
+      setMatchResults(matches);
+    } catch (err) {
+      console.error('Error matching swimmers:', err);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!parsedData) return;
+    
+    setSaving(true);
+    setError(null);
+    
+    try {
+      // Create entry records
+      const entries = parsedData.entries.map(entry => {
+        const matchedSwimmer = matchResults?.find(m => m.usaSwimmingId === entry.usaSwimmingId);
+        
+        return {
+          meet_id: meet.id,
+          swimmer_id: matchedSwimmer?.matchedSwimmerId || null,
+          swimmer_name: entry.swimmerName,
+          usa_swimming_id: entry.usaSwimmingId,
+          event_code: entry.eventCode,
+          event_number: entry.eventNumber,
+          event_name: entry.eventName,
+          seed_time_seconds: entry.seedTimeSeconds,
+          seed_time_display: entry.seedTimeDisplay,
+          age_group: entry.ageGroup,
+          is_bonus: entry.isBonus
+        };
+      });
+      
+      const { error: entriesError } = await supabase
+        .from('meet_entries')
+        .insert(entries);
+      
+      if (entriesError) throw entriesError;
+      
+      onSuccess(entries.length);
+    } catch (err) {
+      setError('Failed to save: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white w-full max-w-2xl rounded-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <h2 className="font-bold text-lg text-slate-800">Upload SD3 Entries</h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl">
+            <X size={20} className="text-slate-500" />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {!parsedData && (
+            <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center">
+              <input type="file" accept=".sd3" onChange={handleFileChange} className="hidden" id="sd3-upload" />
+              <label htmlFor="sd3-upload" className="cursor-pointer">
+                {parsing ? (
+                  <Loader2 size={48} className="mx-auto text-blue-500 animate-spin mb-3" />
+                ) : (
+                  <Upload size={48} className="mx-auto text-slate-300 mb-3" />
+                )}
+                <p className="font-semibold text-slate-700">{parsing ? 'Parsing file...' : 'Click to upload SD3 file'}</p>
+                <p className="text-sm text-slate-500 mt-1">Export from TeamUnify or SwimTopia</p>
+              </label>
+            </div>
+          )}
+          
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+              <AlertCircle className="text-red-500 shrink-0" size={20} />
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+          
+          {parsedData && (
+            <>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <h4 className="font-semibold text-blue-800 mb-2">Parse Summary</h4>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-blue-600">Swimmers</p>
+                    <p className="text-2xl font-bold text-blue-800">{parsedData.swimmerList.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-600">Entries</p>
+                    <p className="text-2xl font-bold text-blue-800">{parsedData.entries.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-600">Matched</p>
+                    <p className="text-2xl font-bold text-blue-800">
+                      {matchResults?.filter(m => m.matchStatus === 'matched').length || 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {matchResults && (
+                <div>
+                  <h3 className="font-semibold text-slate-700 mb-2">
+                    Swimmer Matching ({matchResults.filter(m => m.matchStatus === 'unmatched').length} unmatched)
+                  </h3>
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl">
+                    {matchResults.map((swimmer, idx) => (
+                      <div key={idx} className={`flex items-center justify-between px-4 py-2 ${idx !== matchResults.length - 1 ? 'border-b border-slate-100' : ''}`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${swimmer.matchStatus === 'matched' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                          <span className="text-sm text-slate-700">{swimmer.name}</span>
+                        </div>
+                        <span className="text-xs text-slate-500">
+                          {swimmer.matchStatus === 'matched' ? `→ ${swimmer.matchedSwimmerName}` : 'No match'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        
+        {parsedData && (
+          <div className="p-4 border-t border-slate-200 flex justify-end gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-medium">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+              Import {parsedData.entries.length} Entries
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// CONFIRMATION DETAIL VIEW
+// ============================================
+
+const ConfirmationDetailView = ({ confirmation, entries, onBack, onProcessScratch }) => {
+  const scratchedEntries = entries.filter(e => 
+    confirmation.scratch_requests?.includes(e.id)
+  );
+  
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium">
+        <ChevronLeft size={18} />
+        Back to Confirmations
+      </button>
+      
+      <div className="bg-white rounded-xl border p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xl font-bold text-slate-800">{confirmation.swimmers?.name}</h3>
+            <p className="text-slate-500">Confirmation from {confirmation.parents?.account_name}</p>
+          </div>
+          <ConfirmationBadge status={confirmation.status} />
+        </div>
+        
+        {/* Parent Notes */}
+        {confirmation.parent_notes && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 text-blue-700 font-semibold mb-2">
+              <MessageSquare size={16} />
+              Parent Notes
+            </div>
+            <p className="text-blue-800">{confirmation.parent_notes}</p>
+          </div>
+        )}
+        
+        {/* Scratch Requests */}
+        {scratchedEntries.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 text-red-700 font-semibold mb-3">
+              <X size={16} />
+              Scratch Requests ({scratchedEntries.length})
+            </div>
+            <div className="space-y-2">
+              {scratchedEntries.map(entry => (
+                <div key={entry.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-red-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-red-100 text-red-600 rounded-lg flex items-center justify-center text-sm font-bold">
+                      {entry.event_number || '#'}
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800 line-through">{entry.event_name}</p>
+                      <p className="text-xs text-slate-500">{entry.seed_time_display || 'NT'}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onProcessScratch(entry.id)}
+                    className="text-xs px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Process Scratch
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Confirmed Events */}
+        <div>
+          <h4 className="font-semibold text-slate-700 mb-2">
+            {confirmation.status === 'confirmed' ? 'Confirmed Events' : 'All Entries'}
+          </h4>
+          <div className="space-y-2">
+            {entries.filter(e => !confirmation.scratch_requests?.includes(e.id)).map(entry => (
+              <div key={entry.id} className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center text-sm font-bold">
+                    {entry.event_number || '#'}
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-700">{entry.event_name}</p>
+                  </div>
+                </div>
+                <span className="font-mono text-slate-600">{entry.seed_time_display || 'NT'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        <div className="text-xs text-slate-400 pt-4 border-t">
+          Confirmed at: {new Date(confirmation.confirmed_at).toLocaleString()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// ENTRIES TAB (ENHANCED WITH CONFIRMATIONS)
 // ============================================
 
 const EntriesTab = ({ meet, onRefresh }) => {
   const [entries, setEntries] = useState([]);
   const [swimmers, setSwimmers] = useState([]);
   const [meetEvents, setMeetEvents] = useState([]);
+  const [confirmations, setConfirmations] = useState([]);
+  const [confirmationStats, setConfirmationStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddEntry, setShowAddEntry] = useState(false);
+  const [showSD3Upload, setShowSD3Upload] = useState(false);
   const [selectedSwimmer, setSelectedSwimmer] = useState(null);
   const [showAutoGenerate, setShowAutoGenerate] = useState(false);
+  const [statusFilter, setStatusFilter] = useState(null);
+  const [selectedConfirmation, setSelectedConfirmation] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -1133,9 +1500,27 @@ const EntriesTab = ({ meet, onRefresh }) => {
         .eq('meet_id', meet.id)
         .order('event_number');
       
+      // Load confirmations
+      const { data: confirmData } = await supabase
+        .from('entry_confirmations')
+        .select(`
+          *,
+          swimmers (id, name),
+          parents (id, account_name)
+        `)
+        .eq('meet_id', meet.id);
+      
+      // Load confirmation stats
+      const { data: statsData } = await supabase
+        .rpc('get_meet_confirmation_stats', { meet_uuid: meet.id });
+      
       setEntries(entriesData || []);
       setSwimmers(committedData || []);
       setMeetEvents(eventsData || []);
+      setConfirmations(confirmData || []);
+      if (statsData && statsData.length > 0) {
+        setConfirmationStats(statsData[0]);
+      }
     } catch (error) {
       console.error('Error loading entries:', error);
     } finally {
@@ -1152,6 +1537,7 @@ const EntriesTab = ({ meet, onRefresh }) => {
         groups[name] = {
           swimmer: entry.swimmers,
           swimmerName: name,
+          swimmerId: entry.swimmer_id,
           entries: []
         };
       }
@@ -1159,6 +1545,80 @@ const EntriesTab = ({ meet, onRefresh }) => {
     });
     return Object.values(groups).sort((a, b) => a.swimmerName.localeCompare(b.swimmerName));
   }, [entries]);
+
+  // Filter entries by confirmation status
+  const filteredGroups = useMemo(() => {
+    if (!statusFilter) return groupedEntries;
+    
+    return groupedEntries.filter(group => {
+      const conf = confirmations.find(c => c.swimmer_id === group.swimmerId);
+      if (statusFilter === 'pending') {
+        return !conf || conf.status === 'pending';
+      }
+      return conf?.status === statusFilter;
+    });
+  }, [groupedEntries, confirmations, statusFilter]);
+
+  // Filter confirmations by status for detail view
+  const filteredConfirmations = useMemo(() => {
+    if (!statusFilter) return confirmations;
+    return confirmations.filter(c => c.status === statusFilter);
+  }, [confirmations, statusFilter]);
+
+  const handlePublishEntries = async () => {
+    if (!confirm('Publish entries to parents? They will receive a notification to confirm their swimmer\'s events.')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('meets')
+        .update({ status: 'open' })
+        .eq('id', meet.id);
+      
+      if (error) throw error;
+      
+      // Create announcement
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single();
+      
+      await supabase
+        .from('announcements')
+        .insert({
+          title: `ACTION REQUIRED: ${meet.name} Entries`,
+          content: `Meet entries are now available for review. Please confirm your swimmer's events${meet.entry_deadline ? ` by ${formatDateSafe(meet.entry_deadline)}` : ''}.`,
+          type: 'meet',
+          is_urgent: true,
+          author_id: user.id,
+          author_name: profile?.display_name || 'Coach'
+        });
+      
+      alert('Entries published! Parents will be notified.');
+      onRefresh();
+    } catch (error) {
+      alert('Error publishing: ' + error.message);
+    }
+  };
+
+  const handleProcessScratch = async (entryId) => {
+    if (!confirm('Remove this entry from the meet?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('meet_entries')
+        .delete()
+        .eq('id', entryId);
+      
+      if (error) throw error;
+      
+      alert('Entry scratched successfully');
+      loadData();
+    } catch (error) {
+      alert('Error scratching entry: ' + error.message);
+    }
+  };
 
   if (loading) {
     return (
@@ -1168,15 +1628,109 @@ const EntriesTab = ({ meet, onRefresh }) => {
     );
   }
 
+  // Show confirmation detail view
+  if (selectedConfirmation) {
+    const swimmerEntries = entries.filter(e => e.swimmer_id === selectedConfirmation.swimmer_id);
+    return (
+      <ConfirmationDetailView
+        confirmation={selectedConfirmation}
+        entries={swimmerEntries}
+        onBack={() => setSelectedConfirmation(null)}
+        onProcessScratch={handleProcessScratch}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header with Add button */}
-      <div className="flex justify-between items-center">
+      {/* Confirmation Status Cards (Clickable) */}
+      {meet.status === 'open' && confirmationStats && (
+        <div className="grid grid-cols-4 gap-3">
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'confirmed' ? null : 'confirmed')}
+            className={`rounded-xl p-4 text-center border-2 transition-all ${
+              statusFilter === 'confirmed' 
+                ? 'bg-emerald-100 border-emerald-400 ring-2 ring-emerald-400' 
+                : 'bg-emerald-50 border-emerald-200 hover:border-emerald-400'
+            }`}
+          >
+            <p className="text-2xl font-bold text-emerald-600">{confirmationStats.confirmed_count || 0}</p>
+            <p className="text-sm text-emerald-700 font-medium">Confirmed</p>
+          </button>
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'pending' ? null : 'pending')}
+            className={`rounded-xl p-4 text-center border-2 transition-all ${
+              statusFilter === 'pending' 
+                ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-400' 
+                : 'bg-amber-50 border-amber-200 hover:border-amber-400'
+            }`}
+          >
+            <p className="text-2xl font-bold text-amber-600">{confirmationStats.pending_count || 0}</p>
+            <p className="text-sm text-amber-700 font-medium">Pending</p>
+          </button>
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'change_requested' ? null : 'change_requested')}
+            className={`rounded-xl p-4 text-center border-2 transition-all ${
+              statusFilter === 'change_requested' 
+                ? 'bg-blue-100 border-blue-400 ring-2 ring-blue-400' 
+                : 'bg-blue-50 border-blue-200 hover:border-blue-400'
+            }`}
+          >
+            <p className="text-2xl font-bold text-blue-600">{confirmationStats.change_requested_count || 0}</p>
+            <p className="text-sm text-blue-700 font-medium">Changes Requested</p>
+          </button>
+          <button
+            onClick={() => setStatusFilter(statusFilter === 'declined' ? null : 'declined')}
+            className={`rounded-xl p-4 text-center border-2 transition-all ${
+              statusFilter === 'declined' 
+                ? 'bg-red-100 border-red-400 ring-2 ring-red-400' 
+                : 'bg-red-50 border-red-200 hover:border-red-400'
+            }`}
+          >
+            <p className="text-2xl font-bold text-red-600">{confirmationStats.declined_count || 0}</p>
+            <p className="text-sm text-red-700 font-medium">Scratched</p>
+          </button>
+        </div>
+      )}
+
+      {/* Active Filter Indicator */}
+      {statusFilter && (
+        <div className="flex items-center justify-between bg-slate-100 rounded-lg px-4 py-2">
+          <span className="text-sm text-slate-600">
+            Showing: <strong className="capitalize">{statusFilter.replace('_', ' ')}</strong>
+          </span>
+          <button 
+            onClick={() => setStatusFilter(null)}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
+
+      {/* Header with buttons */}
+      <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <span className="text-lg font-semibold text-slate-800">{entries.length} Entries</span>
           <span className="text-slate-500 ml-2">from {groupedEntries.length} swimmers</span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {meet.status === 'draft' && entries.length > 0 && (
+            <button
+              onClick={handlePublishEntries}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+            >
+              <Send size={16} />
+              Publish to Parents
+            </button>
+          )}
+          <button
+            onClick={() => setShowSD3Upload(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            <Upload size={16} />
+            Upload SD3
+          </button>
           <button
             onClick={() => setShowAutoGenerate(true)}
             disabled={swimmers.length === 0}
@@ -1196,61 +1750,153 @@ const EntriesTab = ({ meet, onRefresh }) => {
         </div>
       </div>
 
-      {/* Entries by Swimmer */}
-      {groupedEntries.length === 0 ? (
-        <div className="text-center py-12 text-slate-500">
-          <FileText size={48} className="mx-auto mb-4 opacity-50" />
-          <p>No entries yet</p>
-          <p className="text-sm">Add entries for committed swimmers</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {groupedEntries.map(group => (
-            <div key={group.swimmerName} className="bg-white rounded-xl border overflow-hidden">
-              <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
-                <div>
-                  <div className="font-medium text-slate-800">{group.swimmerName}</div>
-                  <div className="text-sm text-slate-500">
-                    {group.swimmer?.group_name} • {group.entries.length} events
+      {/* Show Confirmations List when filtering by status */}
+      {statusFilter && filteredConfirmations.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="font-semibold text-slate-700">
+            {statusFilter === 'change_requested' ? 'Change Requests' : 
+             statusFilter === 'confirmed' ? 'Confirmed Swimmers' :
+             statusFilter === 'pending' ? 'Pending Confirmations' :
+             'Declined/Scratched'}
+          </h4>
+          {filteredConfirmations.map(conf => (
+            <button
+              key={conf.id}
+              onClick={() => setSelectedConfirmation(conf)}
+              className="w-full bg-white rounded-xl border p-4 text-left hover:shadow-md hover:border-blue-300 transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white font-bold">
+                    {conf.swimmers?.name?.charAt(0) || '?'}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">{conf.swimmers?.name}</p>
+                    <p className="text-sm text-slate-500">by {conf.parents?.account_name}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedSwimmer(group.swimmer)}
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Edit Events
-                </button>
+                <div className="flex items-center gap-3">
+                  {conf.scratch_requests?.length > 0 && (
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                      {conf.scratch_requests.length} scratch{conf.scratch_requests.length > 1 ? 'es' : ''}
+                    </span>
+                  )}
+                  {conf.parent_notes && (
+                    <MessageSquare size={16} className="text-blue-500" />
+                  )}
+                  <ConfirmationBadge status={conf.status} />
+                  <ChevronRight size={18} className="text-slate-400" />
+                </div>
               </div>
-              <div className="divide-y">
-                {group.entries.map(entry => (
-                  <div key={entry.id} className="p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center text-sm font-bold">
-                        {entry.event_number || '#'}
-                      </div>
-                      <div>
-                        <div className="font-medium text-slate-700">{entry.event_name}</div>
-                        {entry.heat_number && (
-                          <div className="text-xs text-slate-500">
-                            Heat {entry.heat_number}, Lane {entry.lane_number}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono text-slate-800">{entry.seed_time_display || 'NT'}</div>
-                      {entry.estimated_start_time && (
-                        <div className="text-xs text-slate-500">
-                          ~{formatTime(entry.estimated_start_time)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            </button>
           ))}
         </div>
+      )}
+
+      {/* Entries by Swimmer (when not filtering or showing all) */}
+      {!statusFilter && (
+        <>
+          {filteredGroups.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <FileText size={48} className="mx-auto mb-4 opacity-50" />
+              <p>No entries yet</p>
+              <p className="text-sm">Upload an SD3 file or add entries manually</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredGroups.map(group => {
+                const conf = confirmations.find(c => c.swimmer_id === group.swimmerId);
+                return (
+                  <div key={group.swimmerName} className="bg-white rounded-xl border overflow-hidden">
+                    <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white font-bold">
+                          {group.swimmerName.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="font-medium text-slate-800">{group.swimmerName}</div>
+                          <div className="text-sm text-slate-500">
+                            {group.swimmer?.group_name} • {group.entries.length} events
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {conf && <ConfirmationBadge status={conf.status} />}
+                        {conf?.status === 'change_requested' && (
+                          <button
+                            onClick={() => setSelectedConfirmation(conf)}
+                            className="text-sm px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                          >
+                            View Details
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setSelectedSwimmer(group.swimmer)}
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          Edit Events
+                        </button>
+                      </div>
+                    </div>
+                    <div className="divide-y">
+                      {group.entries.map(entry => {
+                        const isScratched = conf?.scratch_requests?.includes(entry.id);
+                        return (
+                          <div key={entry.id} className={`p-3 flex items-center justify-between ${isScratched ? 'bg-red-50' : ''}`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
+                                isScratched ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                              }`}>
+                                {entry.event_number || '#'}
+                              </div>
+                              <div>
+                                <div className={`font-medium ${isScratched ? 'text-red-600 line-through' : 'text-slate-700'}`}>
+                                  {entry.event_name}
+                                </div>
+                                {entry.heat_number && (
+                                  <div className="text-xs text-slate-500">
+                                    Heat {entry.heat_number}, Lane {entry.lane_number}
+                                  </div>
+                                )}
+                              </div>
+                              {isScratched && (
+                                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                                  Scratch Requested
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono text-slate-800">{entry.seed_time_display || 'NT'}</div>
+                              {entry.estimated_start_time && (
+                                <div className="text-xs text-slate-500">
+                                  ~{formatTime(entry.estimated_start_time)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* SD3 Upload Modal */}
+      {showSD3Upload && (
+        <SD3UploadModal
+          meet={meet}
+          onClose={() => setShowSD3Upload(false)}
+          onSuccess={(count) => {
+            alert(`Successfully imported ${count} entries!`);
+            setShowSD3Upload(false);
+            loadData();
+            onRefresh();
+          }}
+        />
       )}
 
       {/* Add Entry Modal - Select swimmer */}
@@ -1267,7 +1913,7 @@ const EntriesTab = ({ meet, onRefresh }) => {
             {swimmers.length === 0 ? (
               <p className="text-slate-500 py-4">No committed swimmers yet. Swimmers must commit to the meet first.</p>
             ) : (
-                <div className="space-y-4">
+              <div className="space-y-4">
                 <p className="text-sm text-slate-600">Select a swimmer to add events:</p>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {swimmers.map(s => (

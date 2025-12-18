@@ -647,8 +647,19 @@ export default function App() {
           </div>
         )}
         
+        {/* meet-entries now redirects to meets - keeping for backward compatibility */}
         {view === 'meet-entries' && (
-          <MeetEntriesManager onBack={() => navigateTo('dashboard')} />
+          <div className="p-4 md:p-8 overflow-y-auto h-full pb-24 md:pb-8">
+            <Breadcrumb 
+              currentView="meets" 
+              previousView={previousView}
+              onNavigate={(v) => {
+                setPreviousView(null);
+                navigateTo(v);
+              }}
+            />
+            <MeetsManager />
+          </div>
         )}
 
         {view === 'announcements' && (
