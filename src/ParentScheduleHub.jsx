@@ -341,7 +341,7 @@ function CalendarView({ user }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('month');
+  const [viewMode, setViewMode] = useState('upcoming');
   const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
@@ -486,50 +486,73 @@ function CalendarView({ user }) {
     );
   };
 
-  // Full Schedule Item for upcoming list
+  // Enhanced Schedule Item for upcoming list - More mobile-friendly
   const ScheduleItem = ({ item, onClick }) => {
     const colors = TYPE_COLORS[item.type] || TYPE_COLORS.event;
     const Icon = colors.icon;
     const isOfficeHours = item.type === 'office_hours';
+    const itemDate = new Date(item.date);
+    const isToday = itemDate.toDateString() === new Date().toDateString();
     
     return (
       <button
         onClick={() => onClick(item)}
-        className={`${colors.bg} border-l-4 ${colors.borderAccent} rounded-lg p-4 shadow-sm ${colors.bgHover} transition-all w-full text-left`}
+        className={`${colors.bg} border ${colors.border} rounded-2xl p-4 sm:p-5 shadow-sm ${colors.bgHover} transition-all w-full text-left hover:shadow-md`}
       >
-        <div className="flex items-start gap-3">
-          <div className={`p-2 rounded-lg bg-white/70 ${colors.text}`}>
-            <Icon size={18} />
+        <div className="flex items-start gap-4">
+          {/* Date Badge */}
+          <div className={`flex-shrink-0 w-14 sm:w-16 bg-gradient-to-br ${colors.gradient} text-white rounded-xl p-2 sm:p-3 text-center shadow-sm`}>
+            <div className="text-xs sm:text-sm font-bold uppercase">
+              {itemDate.toLocaleDateString('en-US', { month: 'short' })}
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold leading-none mt-1">
+              {itemDate.getDate()}
+            </div>
+            {isToday && (
+              <div className="text-[10px] mt-1 bg-white/20 rounded px-1 py-0.5">Today</div>
+            )}
           </div>
+          
+          {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs font-semibold ${colors.text} uppercase tracking-wide`}>{colors.label}</span>
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className={`inline-flex items-center gap-1 text-xs font-bold ${colors.text} uppercase tracking-wide`}>
+                <Icon size={14} />
+                {colors.label}
+              </span>
               {isOfficeHours && item.coach && (
-                <span className="text-xs bg-teal-500 text-white px-2 py-0.5 rounded-full font-medium">
+                <span className="text-xs bg-white/90 text-slate-700 px-2 py-1 rounded-lg font-semibold shadow-sm">
                   {item.coach}
                 </span>
               )}
-            </div>
-            <h4 className="font-bold text-slate-800 truncate">
-              {isOfficeHours ? 'Office Hours' : item.title}
-            </h4>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-slate-600">
-              <span className="flex items-center gap-1.5">
-                <Calendar size={14} />
-                {formatDateSafe(item.date, { weekday: 'short', month: 'short', day: 'numeric' })}
-              </span>
-              {item.time && (
-                <span className="flex items-center gap-1.5">
-                  <Clock size={14} />
-                  {formatTimeOfDay(item.time)}
-                  {item.endTime && ` - ${formatTimeOfDay(item.endTime)}`}
+              {item.status && (
+                <span className={`text-xs px-2 py-1 rounded-lg font-semibold ${
+                  item.status === 'draft' ? 'bg-amber-100 text-amber-700' :
+                  item.status === 'canceled' ? 'bg-red-100 text-red-700' :
+                  'bg-slate-100 text-slate-600'
+                }`}>
+                  {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
                 </span>
               )}
+            </div>
+            <h4 className="font-bold text-lg sm:text-xl text-slate-900 mb-2 line-clamp-2">
+              {isOfficeHours ? 'Office Hours' : item.title}
+            </h4>
+            <div className="flex flex-col gap-2">
+              {item.time && (
+                <div className="flex items-center gap-2 text-sm sm:text-base text-slate-700">
+                  <Clock size={16} className="text-slate-500" />
+                  <span className="font-medium">
+                    {formatTimeOfDay(item.time)}
+                    {item.endTime && ` - ${formatTimeOfDay(item.endTime)}`}
+                  </span>
+                </div>
+              )}
               {item.location && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin size={14} />
-                  {item.location}
-                </span>
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <MapPin size={16} className="text-slate-500 flex-shrink-0" />
+                  <span className="line-clamp-1">{item.location}</span>
+                </div>
               )}
             </div>
           </div>
@@ -553,46 +576,87 @@ function CalendarView({ user }) {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button onClick={handlePrev} className="p-2 hover:bg-slate-100 rounded-lg transition">
-            <ChevronLeft size={20} className="text-slate-600" />
-          </button>
-          <h2 className="text-lg sm:text-xl font-bold text-slate-800 min-w-[160px] sm:min-w-[200px] text-center">
-            {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
-          </h2>
-          <button onClick={handleNext} className="p-2 hover:bg-slate-100 rounded-lg transition">
-            <ChevronRight size={20} className="text-slate-600" />
-          </button>
-          <button 
-            onClick={handleToday}
-            className="px-2 sm:px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
-          >
-            Today
-          </button>
-        </div>
+        {/* Month Navigation - Only show for Week/Month views */}
+        {viewMode !== 'upcoming' && (
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={handlePrev} className="p-2 hover:bg-slate-100 rounded-lg transition">
+              <ChevronLeft size={20} className="text-slate-600" />
+            </button>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 min-w-[160px] sm:min-w-[200px] text-center">
+              {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
+            </h2>
+            <button onClick={handleNext} className="p-2 hover:bg-slate-100 rounded-lg transition">
+              <ChevronRight size={20} className="text-slate-600" />
+            </button>
+            <button 
+              onClick={handleToday}
+              className="px-2 sm:px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
+            >
+              Today
+            </button>
+          </div>
+        )}
+        
+        {/* Spacer for upcoming view */}
+        {viewMode === 'upcoming' && <div></div>}
         
         {/* View Toggle */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button
-            onClick={() => setViewMode('week')}
-            className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-sm font-medium transition ${
-              viewMode === 'week' ? 'bg-white shadow text-slate-800' : 'text-slate-600 hover:text-slate-800'
+            onClick={() => setViewMode('upcoming')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
+              viewMode === 'upcoming' ? 'bg-white shadow text-slate-800' : 'text-slate-600 hover:text-slate-800'
             }`}
           >
             <LayoutList size={16} />
-            <span className="hidden sm:inline">Week</span>
+            <span>Upcoming</span>
           </button>
           <button
-            onClick={() => setViewMode('month')}
-            className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-sm font-medium transition ${
-              viewMode === 'month' ? 'bg-white shadow text-slate-800' : 'text-slate-600 hover:text-slate-800'
+            onClick={() => setViewMode('week')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
+              viewMode === 'week' ? 'bg-white shadow text-slate-800' : 'text-slate-600 hover:text-slate-800'
             }`}
           >
             <CalendarDays size={16} />
+            <span className="hidden sm:inline">Week</span>
+            <span className="sm:hidden">Wk</span>
+          </button>
+          <button
+            onClick={() => setViewMode('month')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
+              viewMode === 'month' ? 'bg-white shadow text-slate-800' : 'text-slate-600 hover:text-slate-800'
+            }`}
+          >
+            <Calendar size={16} />
             <span className="hidden sm:inline">Month</span>
+            <span className="sm:hidden">Mo</span>
           </button>
         </div>
       </div>
+
+      {/* Upcoming List View */}
+      {viewMode === 'upcoming' && (
+        <div className="space-y-3">
+          {allItems
+            .filter(item => new Date(item.date) >= new Date(new Date().toDateString()))
+            .slice(0, 20)
+            .map(item => (
+              <ScheduleItem key={item.id} item={item} onClick={setSelectedItem} />
+            ))}
+          {allItems.filter(item => new Date(item.date) >= new Date(new Date().toDateString())).length === 0 && (
+            <div className="text-center py-16 text-slate-500">
+              <Calendar size={48} className="mx-auto mb-3 opacity-30" />
+              <p className="text-lg font-medium mb-1">No upcoming events</p>
+              <p className="text-sm">Check back later for scheduled activities</p>
+            </div>
+          )}
+          {allItems.filter(item => new Date(item.date) >= new Date(new Date().toDateString())).length > 20 && (
+            <div className="text-center py-4 text-slate-500 text-sm">
+              Showing next 20 events
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Week View */}
       {viewMode === 'week' && (
@@ -676,23 +740,6 @@ function CalendarView({ user }) {
         </div>
       )}
 
-      {/* Upcoming Events List */}
-      <div className="space-y-3">
-        <h3 className="font-bold text-slate-800">Upcoming</h3>
-        {allItems
-          .filter(item => new Date(item.date) >= new Date(new Date().toDateString()))
-          .slice(0, 5)
-          .map(item => (
-            <ScheduleItem key={item.id} item={item} onClick={setSelectedItem} />
-          ))}
-        {allItems.filter(item => new Date(item.date) >= new Date(new Date().toDateString())).length === 0 && (
-          <div className="text-center py-8 text-slate-500">
-            <Calendar size={32} className="mx-auto mb-2 opacity-50" />
-            <p>No upcoming events</p>
-          </div>
-        )}
-      </div>
-
       {/* Event Detail Modal */}
       {selectedItem && (
         <EventDetailModal item={selectedItem} onClose={() => setSelectedItem(null)} />
@@ -710,6 +757,17 @@ export default function ParentScheduleHub({ user, swimmerGroups = [] }) {
       {/* Tab Navigation */}
       <div className="flex gap-1 sm:gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         <button
+          onClick={() => setActiveTab('calendar')}
+          className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-t-lg text-sm font-medium transition-all whitespace-nowrap ${
+            activeTab === 'calendar'
+              ? 'bg-white border border-b-white border-slate-200 -mb-[3px] text-blue-600'
+              : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+          }`}
+        >
+          <Calendar size={18} />
+          Calendar
+        </button>
+        <button
           onClick={() => setActiveTab('practice')}
           className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-t-lg text-sm font-medium transition-all whitespace-nowrap ${
             activeTab === 'practice'
@@ -720,17 +778,6 @@ export default function ParentScheduleHub({ user, swimmerGroups = [] }) {
           <Waves size={18} />
           <span className="hidden sm:inline">Practice Times</span>
           <span className="sm:hidden">Practice</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('calendar')}
-          className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-t-lg text-sm font-medium transition-all whitespace-nowrap ${
-            activeTab === 'calendar'
-              ? 'bg-white border border-b-white border-slate-200 -mb-[3px] text-blue-600'
-              : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
-          }`}
-        >
-          <Calendar size={18} />
-          Calendar
         </button>
         <button
           onClick={() => setActiveTab('meets')}
@@ -746,10 +793,10 @@ export default function ParentScheduleHub({ user, swimmerGroups = [] }) {
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'calendar' && <CalendarView user={user} />}
       {activeTab === 'practice' && (
         <PracticeScheduleCard swimmerGroups={swimmerGroups} />
       )}
-      {activeTab === 'calendar' && <CalendarView user={user} />}
       {activeTab === 'meets' && <ParentMeetsView user={user} />}
     </div>
   );
