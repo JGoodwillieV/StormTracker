@@ -5,6 +5,7 @@ import MeetReportGenerator from './MeetReportGenerator';
 import { generateBigMoversReportHTML } from './reportPDFGenerators';
 import { CategoryProgressReport } from './CategoryProgressReport';
 import { TestSetProgressReport } from './TestSetProgressReport';
+import { QualifiersExportButtons } from './qualifiersExport';
 import { 
   Trophy, ChevronLeft, FileText, Filter, Loader2, AlertCircle, CheckCircle2, XCircle, 
   TrendingUp, Activity, Users, Target, ArrowRight, Layers, Database, Clock, Zap,
@@ -833,22 +834,33 @@ const QualifiersReport = ({ onBack }) => {
   return (
       <div className="space-y-4 animate-in fade-in">
           <div className="bg-white p-4 rounded-xl border shadow-sm">
-              {/* Back button - full width on mobile */}
-              <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline mb-3 md:mb-0">
-                <ChevronLeft size={16}/> Back to Reports
-              </button>
-              
-              {/* Controls - stack on mobile, inline on desktop */}
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mt-3">
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none whitespace-nowrap">
-                    <input type="checkbox" checked={showQualifiersOnly} onChange={() => setShowQualifiersOnly(!showQualifiersOnly)} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"/>
-                    Show Qualifiers Only
-                </label>
-                <select value={selectedStandard} onChange={(e) => setSelectedStandard(e.target.value)} className="bg-slate-50 border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-800 w-full sm:w-auto min-w-[200px]">
-                    {standardNames.map(name => <option key={name} value={name}>{name} Standard</option>)}
-                </select>
-              </div>
-          </div>
+    {/* Header row with back button and export buttons */}
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+      <button onClick={onBack} className="flex items-center gap-1 text-blue-600 font-bold text-sm hover:underline">
+        <ChevronLeft size={16}/> Back to Reports
+      </button>
+      
+      {/* Export buttons - only show when not loading and has data */}
+      {!loading && rows.length > 0 && (
+        <QualifiersExportButtons 
+          rows={rows}
+          selectedStandard={selectedStandard}
+          showQualifiersOnly={showQualifiersOnly}
+        />
+      )}
+    </div>
+    
+    {/* Controls - stack on mobile, inline on desktop */}
+    <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+      <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer select-none whitespace-nowrap">
+          <input type="checkbox" checked={showQualifiersOnly} onChange={() => setShowQualifiersOnly(!showQualifiersOnly)} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"/>
+          Show Qualifiers Only
+      </label>
+      <select value={selectedStandard} onChange={(e) => setSelectedStandard(e.target.value)} className="bg-slate-50 border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-800 w-full sm:w-auto min-w-[200px]">
+          {standardNames.map(name => <option key={name} value={name}>{name} Standard</option>)}
+      </select>
+    </div>
+</div>
 
           {loading && (
             <div className="h-64 flex flex-col items-center justify-center text-slate-400 animate-pulse">
