@@ -151,13 +151,19 @@ export default function Reports({ onBack }) {
 
 // --- SUB-COMPONENTS ---
 
-// 4. CLOSE CALLS REPORT
+// UPDATED CloseCallsReport component with percentage filtering
+// Replace the existing CloseCallsReport in Reports.jsx with this version
+
 const CloseCallsReport = ({ onBack }) => {
   // Filter State
   const [ageGroup, setAgeGroup] = useState('all');
   const [gender, setGender] = useState('all');
   const [selectedStandard, setSelectedStandard] = useState('');
   const [withinSeconds, setWithinSeconds] = useState(3);
+  
+  // NEW: Percentage filter state
+  const [withinPercent, setWithinPercent] = useState('');  // Empty means not filtering by percent
+  const [filterMode, setFilterMode] = useState('seconds'); // 'seconds' or 'percent'
   
   // Data State
   const [loading, setLoading] = useState(false);
@@ -217,6 +223,12 @@ const CloseCallsReport = ({ onBack }) => {
 
   const generateReport = async () => {
     if (!selectedStandard) return alert('Please select a time standard.');
+    
+    // Validate percentage input if using percent filter
+    const percentThreshold = parseFloat(withinPercent);
+    if (filterMode === 'percent' && (isNaN(percentThreshold) || percentThreshold <= 0)) {
+      return alert('Please enter a valid percentage (e.g., 5 for 5%).');
+    }
     
     setLoading(true);
     setResults([]);
@@ -326,8 +338,21 @@ const CloseCallsReport = ({ onBack }) => {
             const stdTimeSeconds = parseFloat(std.time_seconds);
             const diff = myBest.val - stdTimeSeconds;
             
-            // Only include if SLOWER than the cut (positive diff) and within threshold
-            if (diff > 0 && diff <= withinSeconds) {
+            // Calculate percentage difference
+            // Formula: ((bestTime - cutTime) / cutTime) * 100
+            const percentDiff = (diff / stdTimeSeconds) * 100;
+            
+            // Determine if this meets the filter criteria
+            let meetsFilter = false;
+            if (filterMode === 'seconds') {
+              // Only include if SLOWER than the cut (positive diff) and within threshold
+              meetsFilter = diff > 0 && diff <= withinSeconds;
+            } else {
+              // Filter by percentage
+              meetsFilter = diff > 0 && percentDiff <= percentThreshold;
+            }
+            
+            if (meetsFilter) {
               closeCalls.push({
                 swimmerId: swimmer.id,
                 swimmerName: swimmer.name,
@@ -342,7 +367,10 @@ const CloseCallsReport = ({ onBack }) => {
                 cutTime: std.time_string || secondsToTime(stdTimeSeconds),
                 cutTimeSeconds: stdTimeSeconds,
                 diff: diff,
-                diffStr: diff.toFixed(2)
+                diffStr: diff.toFixed(2),
+                // NEW: Add percentage fields
+                percentDiff: percentDiff,
+                percentDiffStr: percentDiff.toFixed(1)
               });
             }
           }
@@ -401,13 +429,23 @@ const CloseCallsReport = ({ onBack }) => {
     });
   }, [results]);
 
-  // Stats
+  // Stats - UPDATED to include percentage stats
   const stats = useMemo(() => {
     const uniqueSwimmers = new Set(results.map(r => r.swimmerId)).size;
     const within1 = results.filter(r => r.diff <= 1).length;
     const within2 = results.filter(r => r.diff <= 2).length;
+    const within1Percent = results.filter(r => r.percentDiff <= 1).length;
+    const within2Percent = results.filter(r => r.percentDiff <= 2).length;
     const closestCall = results[0];
-    return { uniqueSwimmers, within1, within2, closestCall, totalEvents: results.length };
+    return { 
+      uniqueSwimmers, 
+      within1, 
+      within2, 
+      within1Percent,
+      within2Percent,
+      closestCall, 
+      totalEvents: results.length 
+    };
   }, [results]);
 
   return (
@@ -428,7 +466,7 @@ const CloseCallsReport = ({ onBack }) => {
           <Filter size={18} className="text-slate-400" /> Report Filters
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Age Group */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Age Group</label>
@@ -475,13 +513,46 @@ const CloseCallsReport = ({ onBack }) => {
             </select>
           </div>
 
-          {/* Within Seconds */}
+          {/* Filter Mode Toggle */}
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Within</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Filter By</label>
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setFilterMode('seconds')}
+                className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${
+                  filterMode === 'seconds'
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Seconds
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterMode('percent')}
+                className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${
+                  filterMode === 'percent'
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Percent
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Second Row - Threshold Inputs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+          {/* Within Seconds - shown when filter mode is seconds */}
+          <div className={filterMode === 'seconds' ? '' : 'opacity-50'}>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Within Seconds</label>
             <select 
               value={withinSeconds} 
               onChange={e => setWithinSeconds(parseFloat(e.target.value))}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              disabled={filterMode !== 'seconds'}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:cursor-not-allowed"
             >
               <option value={0.5}>0.5 seconds</option>
               <option value={1}>1 second</option>
@@ -492,11 +563,34 @@ const CloseCallsReport = ({ onBack }) => {
             </select>
           </div>
 
+          {/* Within Percent - shown when filter mode is percent */}
+          <div className={filterMode === 'percent' ? '' : 'opacity-50'}>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Within Percent</label>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.5"
+                min="0.1"
+                max="50"
+                placeholder="e.g., 5"
+                value={withinPercent}
+                onChange={e => setWithinPercent(e.target.value)}
+                disabled={filterMode !== 'percent'}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:cursor-not-allowed pr-8"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">Enter a value like 5 for "within 5%"</p>
+          </div>
+
+          {/* Spacer */}
+          <div className="hidden lg:block"></div>
+
           {/* Generate Button */}
           <div className="flex items-end">
             <button 
               onClick={generateReport}
-              disabled={loading || !selectedStandard}
+              disabled={loading || !selectedStandard || (filterMode === 'percent' && !withinPercent)}
               className="w-full p-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -525,9 +619,9 @@ const CloseCallsReport = ({ onBack }) => {
       {/* Results */}
       {hasGenerated && !loading && (
         <>
-          {/* Stats Summary */}
+          {/* Stats Summary - UPDATED with percentage stats */}
           {results.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div className="text-2xl font-bold text-slate-800">{stats.uniqueSwimmers}</div>
                 <div className="text-xs text-slate-500 uppercase tracking-wider">Swimmers</div>
@@ -544,6 +638,10 @@ const CloseCallsReport = ({ onBack }) => {
                 <div className="text-2xl font-bold text-yellow-600">{stats.within2}</div>
                 <div className="text-xs text-yellow-600 uppercase tracking-wider">Within 2 sec</div>
               </div>
+              <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm bg-blue-50">
+                <div className="text-2xl font-bold text-blue-600">{stats.within2Percent}</div>
+                <div className="text-xs text-blue-600 uppercase tracking-wider">Within 2%</div>
+              </div>
             </div>
           )}
 
@@ -553,7 +651,10 @@ const CloseCallsReport = ({ onBack }) => {
               <Target size={48} className="mx-auto text-slate-300 mb-4" />
               <h3 className="font-bold text-slate-700 text-lg mb-2">No Close Calls Found</h3>
               <p className="text-slate-500 text-sm">
-                No swimmers are within {withinSeconds} second{withinSeconds !== 1 ? 's' : ''} of a {selectedStandard} cut with the selected filters.
+                {filterMode === 'seconds' 
+                  ? `No swimmers are within ${withinSeconds} second${withinSeconds !== 1 ? 's' : ''} of a ${selectedStandard} cut with the selected filters.`
+                  : `No swimmers are within ${withinPercent}% of a ${selectedStandard} cut with the selected filters.`
+                }
               </p>
             </div>
           ) : (
@@ -579,7 +680,7 @@ const CloseCallsReport = ({ onBack }) => {
                     </div>
                   </div>
 
-                  {/* Events Table */}
+                  {/* Events Table - UPDATED with percentage display */}
                   <div className="divide-y divide-slate-100">
                     {group.events
                       .sort((a, b) => a.diff - b.diff)
@@ -596,7 +697,7 @@ const CloseCallsReport = ({ onBack }) => {
                             </div>
                           </div>
                           
-                          <div className="flex items-center gap-6">
+                          <div className="flex items-center gap-4 md:gap-6">
                             {/* Best Time */}
                             <div className="text-right">
                               <div className="text-xs text-slate-400 uppercase">Best</div>
@@ -604,7 +705,7 @@ const CloseCallsReport = ({ onBack }) => {
                             </div>
 
                             {/* Arrow */}
-                            <div className="text-slate-300">→</div>
+                            <div className="text-slate-300 hidden sm:block">→</div>
 
                             {/* Cut Time */}
                             <div className="text-right">
@@ -612,21 +713,40 @@ const CloseCallsReport = ({ onBack }) => {
                               <div className="font-mono font-bold text-blue-600">{evt.cutTime}</div>
                             </div>
 
-                            {/* Diff Badge */}
-                            <div className={`
-                              min-w-[80px] px-3 py-1.5 rounded-full text-center font-bold text-sm
-                              ${evt.diff <= 0.5 
-                                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
-                                : evt.diff <= 1 
-                                  ? 'bg-green-100 text-green-700 border border-green-200'
-                                  : evt.diff <= 2 
-                                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                                    : evt.diff <= 3
-                                      ? 'bg-orange-100 text-orange-700 border border-orange-200'
-                                      : 'bg-slate-100 text-slate-600 border border-slate-200'
-                              }
-                            `}>
-                              -{evt.diffStr}s
+                            {/* Diff Badge - UPDATED to show both seconds and percentage */}
+                            <div className="flex flex-col items-end gap-1">
+                              {/* Seconds Badge */}
+                              <div className={`
+                                min-w-[70px] px-2.5 py-1 rounded-full text-center font-bold text-xs
+                                ${evt.diff <= 0.5 
+                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                                  : evt.diff <= 1 
+                                    ? 'bg-green-100 text-green-700 border border-green-200'
+                                    : evt.diff <= 2 
+                                      ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                                      : evt.diff <= 3
+                                        ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                }
+                              `}>
+                                -{evt.diffStr}s
+                              </div>
+                              {/* Percentage Badge */}
+                              <div className={`
+                                min-w-[70px] px-2.5 py-1 rounded-full text-center font-bold text-xs
+                                ${evt.percentDiff <= 1 
+                                  ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                                  : evt.percentDiff <= 2 
+                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                    : evt.percentDiff <= 3 
+                                      ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                                      : evt.percentDiff <= 5
+                                        ? 'bg-violet-100 text-violet-700 border border-violet-200'
+                                        : 'bg-slate-100 text-slate-500 border border-slate-200'
+                                }
+                              `}>
+                                {evt.percentDiffStr}%
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -648,7 +768,8 @@ const CloseCallsReport = ({ onBack }) => {
           <h3 className="font-bold text-slate-800 text-xl mb-2">Find Your Close Calls</h3>
           <p className="text-slate-600 max-w-md mx-auto">
             Select filters above to find swimmers who are within striking distance of achieving a time standard. 
-            Great for identifying who needs just a little more work to hit their next cut!
+            You can filter by <strong>seconds</strong> (e.g., within 3 seconds) or by <strong>percentage</strong> (e.g., within 5%) - 
+            percentage is great for comparing across different events!
           </p>
         </div>
       )}
