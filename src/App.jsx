@@ -179,8 +179,7 @@ export default function App() {
   const fetchRoster = async () => {
     const { data, error } = await supabase
       .from('swimmers')
-      .select('*')
-      .eq('coach_id', session.user.id);
+      .select('*'); // Now fetches all swimmers regardless of who uploaded them
     
     if (error) console.error('Error fetching roster:', error);
     else setSwimmers(data || []);
